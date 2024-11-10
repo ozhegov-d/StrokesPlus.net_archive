@@ -1,0 +1,128 @@
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'top';
+info.Duration = 300;
+info.Opacity = 0.5; 
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+info.Padding = 15;
+info.FadeSteps = 18;
+
+function displayMessage(message, foreColor, backColor, opacity) {
+    info.Message = message;
+    info.Location = `${action.End.X + 10},${action.End.Y + 10}`;
+    if (foreColor) info.ForeColor = foreColor;
+    if (backColor) info.BackColor = backColor;
+    if (opacity !== undefined) info.Opacity = opacity;
+    sp.DisplayText(info);
+}
+
+var distance = parseInt(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2.0) + Math.pow((action.End.Y - action.Start.Y), 2.0)));
+var fgWnd = sp.ForegroundWindow();
+var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+var isBrowser = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"].some(browser => exeName.includes(browser));
+
+if (distance < 220) {
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+   //displayMessage('Paste'); //standard colors (black and white)
+    displayMessage('Paste', 'seagreen', 'honeydew', 1); //Opacity 1
+} else {
+    displayMessage('⬆');
+    var currentMousePosition = sp.GetCurrentMousePoint();
+    
+    if (isBrowser) {
+        smoothScroll(currentMousePosition, 1900, 1300, 1);
+    } else {
+        // Capture screen state before scrolling
+        var stateBefore = captureScreenState();
+        
+        // Non-browser scrolling (emulating Ctrl+Home)
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.HOME]);
+        sp.Sleep(100);
+        
+        // Capture screen state after scrolling
+        var stateAfter = captureScreenState();
+
+        // If screen hasn't changed significantly, use smooth scroll
+        if (compareScreenStates(stateBefore, stateAfter)) {
+            smoothScroll(currentMousePosition, 1900, 1300, 1);
+        }
+    }
+}
+
+function smoothScroll(mousePosition, scrollAmount, scrollCount, scrollDelay) {
+    var wParam = (scrollAmount << 16) | 0x0000;
+    var lParam = (mousePosition.Y << 16) | mousePosition.X;
+    var control = sp.WindowFromPoint(mousePosition, true);
+    var stateBefore = captureScreenState();
+    var unchangedCount = 0;
+
+    for (var i = 0; i < scrollCount; i++) {
+        control.PostMessage(0x020A, new IntPtr(wParam), new IntPtr(lParam));
+        sp.Sleep(scrollDelay);
+        
+        if (i % 50 === 0) {
+            var stateAfter = captureScreenState();
+            if (compareScreenStates(stateBefore, stateAfter)) {
+                if (++unchangedCount >= 2) break; 
+            } else {
+                unchangedCount = 0;
+            }
+            stateBefore = stateAfter;
+        }
+    }
+}
+
+// Function to capture screen state
+function captureScreenState() {
+    var screen = System.Windows.Forms.Screen.PrimaryScreen;
+    var screenWidth = screen.Bounds.Width;
+    var screenHeight = screen.Bounds.Height;
+    var state = [];
+    
+    // Create a bitmap of the entire screen
+    var bmp = new System.Drawing.Bitmap(screenWidth, screenHeight);
+    var g = System.Drawing.Graphics.FromImage(bmp);
+    g.CopyFromScreen(0, 0, 0, 0, new System.Drawing.Size(screenWidth, screenHeight));
+    
+    // Define the left half region
+    var leftHalfWidth = screenWidth * 0.5;  // Half of the screen width
+    var leftHalfHeight = screenHeight;
+    var leftHalfLeft = 0;
+    var leftHalfTop = 0;
+    
+    // Capture pixels from the left half region
+    var numLeftHalfSamples = 15;  // Adjust the number of samples for the left half region as needed
+    for (var i = 0; i < numLeftHalfSamples; i++) {
+        for (var j = 0; j < numLeftHalfSamples; j++) {
+            var pixelX = Math.floor(leftHalfLeft + leftHalfWidth * (i + 1) / (numLeftHalfSamples + 1));
+            var pixelY = Math.floor(leftHalfTop + leftHalfHeight * (j + 1) / (numLeftHalfSamples + 1));
+            state.push(bmp.GetPixel(pixelX, pixelY));
+        }
+    }
+
+    // Clean up
+    g.Dispose();
+    bmp.Dispose();    
+    return state;
+}
+
+// Function to compare screen states
+function compareScreenStates(state1, state2, tolerance = 20) {
+    if (state1.length !== state2.length) {
+        return false;
+    }
+
+    var unchangedPixels = 0;
+    for (var i = 0; i < state1.length; i++) {
+        var diff = Math.abs(state1[i].R - state2[i].R) +
+                   Math.abs(state1[i].G - state2[i].G) +
+                   Math.abs(state1[i].B - state2[i].B);
+        if (diff <= tolerance) {
+            unchangedPixels++;
+        }
+    }
+
+    // If more than 90% of the pixels remained unchanged, consider it as no scroll
+    return (unchangedPixels / state1.length) > 0.9;
+}
