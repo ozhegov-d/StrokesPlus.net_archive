@@ -2,4 +2,4 @@
 
 copy-paste
 
-![copy-paste](https://imgur.com/TUDEFgl)
+![copy-paste](https://i.imgur.com/765YWf8.mp4)
