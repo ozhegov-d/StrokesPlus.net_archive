@@ -1,7 +1,4 @@
 # -StrokesPlus.net---archive
 
 copy-paste
-<video width="640" height="360" controls>
-  <source src="https://i.imgur.com/kaBRSma.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+https://github.com/user-attachments/assets/84b6e745-5821-43a8-8253-38371fc16664
