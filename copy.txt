@@ -1,0 +1,168 @@
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'top';
+info.Duration = 300;
+info.Opacity = 0.5;  
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+info.Padding = 15;
+info.FadeSteps = 18;
+
+function displayMessage(message, foreColor, backColor, opacity) {
+    info.Message = message;
+    info.Location = `${action.End.X + 10},${action.End.Y + 10}`;
+    if (foreColor) info.ForeColor = foreColor;
+    if (backColor) info.BackColor = backColor;
+    if (opacity !== undefined) info.Opacity = opacity;
+    sp.DisplayText(info);
+}
+
+var clip1 = clip.GetText();
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(100);
+
+// Check if clipboard content changed after copying
+if (clip1 != clip.GetText()) {
+  //displayMessage('Copy'); //standard colors (black and white)
+ displayMessage('Copy', 'saddlebrown', 'oldlace', 1); //Opacity 1
+} else {
+    var distance = parseInt(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2.0) + Math.pow((action.End.Y - action.Start.Y), 2.0)));
+    var currentMousePosition = sp.GetCurrentMousePoint();
+
+    // Check if the foreground window is a browser
+    var fgWnd = sp.ForegroundWindow();
+    var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+
+    // List of supported browsers
+    var browsers = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"];
+    var isBrowser = browsers.some(browser => exeName.includes(browser));
+
+    if (distance < 120) {
+        sp.MouseWheel(currentMousePosition, false, -260);
+displayMessage('<120'); //standard colors (black and white)
+//displayMessage('<120', 'navy', 'powderblue'); //1
+//displayMessage('Paste', 'darkgreen', 'mintcream');
+//displayMessage('Paste', 'seagreen', 'honeydew');
+//displayMessage('<120', 'white', 'steelblue'); 
+
+
+    } else if (distance < 220) {
+        sp.MouseWheel(currentMousePosition, false, -400);
+   displayMessage('<220'); //standard colors (black and white)
+//displayMessage('<220', 'white', 'cornflowerblue');  //1
+//displayMessage('<220', 'aqua', 'teal');
+//displayMessage('<220', 'white', 'royalblue');
+//displayMessage('<220', 'white', 'mediumblue');
+//displayMessage('<220', 'lightyellow', 'dodgerblue');
+
+    } else {
+        // Display the down arrow immediately for long gestures
+        displayMessage('⬇');
+      // displayMessage('⬇', 'lightcyan', 'navy');
+
+        // Capture screen state before scrolling
+        var stateBefore = captureScreenState();
+        
+        if (isBrowser) {
+            // Browser-specific scrolling
+            scrollInPage(currentMousePosition, -1900, 600, 1);
+        } else {
+            // Non-browser scrolling (emulating Ctrl+End)
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.END]);
+            sp.Sleep(100);
+        }
+        
+        // Capture screen state after scrolling
+        var stateAfter = captureScreenState();
+
+        // If screen has changed, we're still scrolling
+        if (compareScreenStates(stateBefore, stateAfter)) {
+            scrollInPage(currentMousePosition, -1900, 1300, 1);
+        }
+    }
+}
+
+
+// Function to scroll within a window
+function scrollInPage(mousePosition, scrollAmount, scrollCount, scrollDelay) {
+    //displayMessage('Scrolling');
+
+    var wParam = (scrollAmount << 16) | 0x0000;
+    var lParam = (mousePosition.Y << 16) | mousePosition.X;
+    var control = sp.WindowFromPoint(mousePosition, true);
+
+    var stateBefore = captureScreenState();
+    var unchangedCount = 0;
+
+    for (var i = 0; i < scrollCount; i++) {
+        control.PostMessage(host.cast(uint, 0x020A), new IntPtr(wParam), new IntPtr(lParam));
+        sp.Sleep(scrollDelay);
+
+        if (i % 50 === 0) {  // Check every 50 iterations
+            var stateAfter = captureScreenState();
+            if (compareScreenStates(stateBefore, stateAfter)) {
+                unchangedCount++;
+                if (unchangedCount >= 2) {  // If screen hasn't changed for 3 checks, stop scrolling
+                    //displayMessage('End of page');
+                    break;
+                }
+            } else {
+                unchangedCount = 0;
+            }
+            stateBefore = stateAfter;
+        }
+    }
+}
+// Function to capture screen state
+function captureScreenState() {
+    var screen = System.Windows.Forms.Screen.PrimaryScreen;
+    var screenWidth = screen.Bounds.Width;
+    var screenHeight = screen.Bounds.Height;
+    var state = [];
+    
+    // Create a bitmap of the entire screen
+    var bmp = new System.Drawing.Bitmap(screenWidth, screenHeight);
+    var g = System.Drawing.Graphics.FromImage(bmp);
+    g.CopyFromScreen(0, 0, 0, 0, new System.Drawing.Size(screenWidth, screenHeight));
+    
+    // Define the left half region
+    var leftHalfWidth = screenWidth * 0.5;  // Half of the screen width
+    var leftHalfHeight = screenHeight;
+    var leftHalfLeft = 0;
+    var leftHalfTop = 0;
+    
+    // Capture pixels from the left half region
+    var numLeftHalfSamples = 15;  // Adjust the number of samples for the left half region as needed
+    for (var i = 0; i < numLeftHalfSamples; i++) {
+        for (var j = 0; j < numLeftHalfSamples; j++) {
+            var pixelX = Math.floor(leftHalfLeft + leftHalfWidth * (i + 1) / (numLeftHalfSamples + 1));
+            var pixelY = Math.floor(leftHalfTop + leftHalfHeight * (j + 1) / (numLeftHalfSamples + 1));
+            state.push(bmp.GetPixel(pixelX, pixelY));
+        }
+    }
+
+    // Clean up
+    g.Dispose();
+    bmp.Dispose();
+    return state;
+}
+
+// Function to compare screen states
+function compareScreenStates(state1, state2, tolerance = 20) {
+    if (state1.length !== state2.length) {
+        return false;
+    }
+
+    var unchangedPixels = 0;
+    for (var i = 0; i < state1.length; i++) {
+        var diff = Math.abs(state1[i].R - state2[i].R) +
+                   Math.abs(state1[i].G - state2[i].G) +
+                   Math.abs(state1[i].B - state2[i].B);
+        if (diff <= tolerance) {
+            unchangedPixels++;
+        }
+    }
+
+    // If more than 90% of the pixels remained unchanged, consider it as no scroll
+    return (unchangedPixels / state1.length) > 0.9;
+}
