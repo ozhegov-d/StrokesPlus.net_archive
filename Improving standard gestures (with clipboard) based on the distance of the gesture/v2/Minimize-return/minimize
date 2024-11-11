@@ -1,0 +1,73 @@
+//short gesture - minimizing a single window
+//long gesture - all windows of one process 
+
+var DEBUG_MODE = false; // Set true to enable console messages
+
+function debugLog(message, label = '', color = System.Drawing.Color.Red) {
+    if (DEBUG_MODE) {
+        sp.ConsoleError(message, label, color);
+    }
+}
+
+// Determine the threshold value for the long gesture
+var longGestureThreshold = 240;
+
+// Get the window where the gesture started
+var windowAtGesture = sp.WindowFromPoint(new System.Drawing.Point(action.Start.X, action.Start.Y), true);
+
+// Check that the window is valid
+if (windowAtGesture && windowAtGesture.IsValid()) {
+    // We get the coordinates of the action
+    var distance = Math.round(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2) + Math.pow((action.End.Y - action.Start.Y), 2)));
+
+    debugLog(`-------------- (${distance > longGestureThreshold ? 'long' : 'short'} gesture ${distance > longGestureThreshold ? '>' : '<'}${longGestureThreshold})`, 'Info', System.Drawing.Color.Yellow);
+    debugLog(`Distance: ${distance} (${distance > longGestureThreshold ? 'Long' : 'Short'} gesture detected)`, 'Info', System.Drawing.Color.Red);
+
+    // Get stacks for window (ShortWindowStack and LongWindowStack)
+    var shortWindowStack = sp.GetStoredObject("ShortWindowStack");
+    var longWindowStack = sp.GetStoredObject("LongWindowStack");
+
+    // If the stacks are not arrays, create new arrays
+    if (!Array.isArray(shortWindowStack)) {
+        shortWindowStack = [];
+    }
+    if (!Array.isArray(longWindowStack)) {
+        longWindowStack = [];
+    }
+
+    // If the distance is greater than the threshold value, process as a long gesture (minimize all windows of one process)
+    if (distance > longGestureThreshold) {
+        // Get a list of all windows
+        var allWindows = sp.AllApplications();
+        var currentProcessName = windowAtGesture.Process.ProcessName;
+
+        // Collapse all windows associated with the current process
+        for (var i = 0; i < allWindows.Length; i++) {
+            var w = allWindows[i];
+
+            // Check that the window belongs to the same process and it is not minimized
+            if (w.Process.ProcessName === currentProcessName && w.Visible && !w.Minimized) {
+                // window minimization
+                w.Minimize();
+                debugLog(`Minimized window: ${w.Title} (Process: ${w.Process.ProcessName})`, 'Info', System.Drawing.Color.Red);
+
+                // Add a window to the stack of long gestures
+                longWindowStack.push(w); // Add the window to the beginning of the stack
+            }
+        }
+    } else {
+        // Collapse the window where the gesture was made
+        windowAtGesture.Minimize();
+        debugLog(`Minimized window: ${windowAtGesture.Title} (Process: ${windowAtGesture.Process.ProcessName})`, 'Info', System.Drawing.Color.Red);
+
+        // Add the window to the short gesture stack
+        shortWindowStack.push(windowAtGesture);
+    }
+
+    // Save the updated stacks back to the repository
+    sp.StoreObject("ShortWindowStack", shortWindowStack);
+    sp.StoreObject("LongWindowStack", longWindowStack);
+
+} else {
+    debugLog('Invalid window.', 'Error', System.Drawing.Color.Red);
+}
