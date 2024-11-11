@@ -1,0 +1,310 @@
+//For browsers, it takes the URL from the address bar.
+//If you select some text and draw a gesture, it will pass the selected text to yt-dlp.
+//If nothing is selected and it's not a browser, it simply opens menu from a file.
+(function() {
+    const ytdlpPath = 'C:\test\\test2\\'; // The path should end with (\\)
+    const ytdlpFileName = 'yt-dlp.exe';
+    const ffmpegFileName = 'ffmpeg.exe';
+    const menuFileName = 'menu2.bat';
+    const originalDirectory = System.Environment.CurrentDirectory;
+    const keepCmdOpen = false; 
+//false: starts in minimized mode, closes if there are no errors, and remains minimized with a sound signal if there are errors.
+//true: launches in normal mode
+//0 in the menu: does not depend on false/true, always true.
+
+function checkFile(filePath, fileName) {
+        return System.IO.File.Exists(`${filePath}\\${fileName}`) 
+            || !!(sp.MessageBox(`File ${fileName} not found in the directory: ${filePath}`, "Error") && false);
+    }
+    function safeGetClipboardText() {
+        try {
+            return clip.GetText() || '';
+        } catch (e) {
+            sp.MessageBox("Failed to access clipboard", "Error");
+            return '';
+        }
+    }
+
+    function safeSetClipboardText(text) {
+        try {
+            if (text === '') {
+                clip.Clear();
+            } else {
+                clip.SetText(text);
+            }
+        } catch (e) {
+            sp.MessageBox("Failed to set clipboard", "Error");
+        }
+    }
+
+    if (!checkFile(ytdlpPath, ytdlpFileName) || !checkFile(ytdlpPath, ffmpegFileName) || !checkFile(ytdlpPath, menuFileName)) {
+    return;
+    }
+
+    const originalClipboard = safeGetClipboardText();
+
+    try {
+        System.Environment.CurrentDirectory = ytdlpPath;
+
+        // Check if the foreground window is a browser
+        var fgWnd = sp.ForegroundWindow();
+        var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+        var isBrowser = exeName.includes("chrome") || exeName.includes("firefox") || exeName.includes("msedge") || 
+                        exeName.includes("opera") || exeName.includes("brave") || exeName.includes("vivaldi");
+
+        let url = '';
+        let isTextSelected = false;
+
+        // First, we check if any text is selected (for both browsers and non-browsers)
+const originalClipboardContent = safeGetClipboardText();
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(50);
+const newClipboardContent = safeGetClipboardText();
+if (newClipboardContent !== originalClipboardContent) {
+    url = newClipboardContent;
+    isTextSelected = true;
+}
+
+if (isBrowser && !isTextSelected) {
+    // If it's a browser and no text is selected, we get the URL from the address bar
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_L]);
+    sp.Sleep(50);
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.Sleep(50);
+    sp.SendVKey(vk.ESCAPE);
+    url = safeGetClipboardText();
+}
+
+        const menuOptions = readMenuOptions(ytdlpPath + menuFileName);
+
+     if (isTextSelected || (isBrowser && url)) {
+    // Show all options
+    showCustomMenu(menuOptions.filter(option => option.number >= 0 && option.number <= 20), ytdlpPath, url, ytdlpFileName, keepCmdOpen, true, menuFileName);
+} else {
+    // Show only options 8 and 9 if not browser or url
+    showCustomMenu(menuOptions.filter(option => option.number === 8 || option.number === 9), ytdlpPath, '', ytdlpFileName, keepCmdOpen, false, menuFileName);
+}
+    } catch (error) {
+        sp.ConsoleLog("Failed to execute command. Error: " + error.message, "Error");
+    } finally {
+        System.Environment.CurrentDirectory = originalDirectory;
+        safeSetClipboardText(originalClipboard);
+    }
+})();
+
+// Function to read and parse menu options from menu
+function readMenuOptions(filePath) {
+    const content = System.IO.File.ReadAllText(filePath);
+
+    const options = [];   
+    const menuRegex = /if\s+%%i==(\d+)\s+\(\s*set\s+"menu\[%%i\]=([^"]+)"/g;
+    const optionRegex = /if\s+%%i==(\d+)\s+\(\s*.*set\s+"option\[%%i\]=([^"]+)"/g;
+    const outputTemplateRegex = /if\s+%%i==(\d+)\s+\(\s*.*set\s+"output_template\[%%i\]=([^"]+)"/g;
+    const skipUrlPromptRegex = /if\s+%%i==(\d+)\s+\(\s*.*set\s+"skip_url_prompt\[%%i\]=(\d+)"/g;
+    const separatorRegex = /if\s+%%i==(\d+)\s+\(\s*.*set\s+"separator\[%%i\]=(\d+)"/g;
+
+    let match;
+    const menuMap = {};   
+    while ((match = menuRegex.exec(content)) !== null) {
+        const [, number, menuName] = match;
+        menuMap[number] = { number: parseInt(number), name: menuName.trim() };
+    }  
+    while ((match = optionRegex.exec(content)) !== null) {
+        const [, number, option] = match;
+        if (menuMap[number]) {
+            menuMap[number].option = option.trim();
+        }
+    }
+
+    while ((match = outputTemplateRegex.exec(content)) !== null) {
+        const [, number, outputTemplate] = match;
+        if (menuMap[number]) {
+            menuMap[number].outputTemplate = outputTemplate.trim();
+        }
+    }
+    while ((match = skipUrlPromptRegex.exec(content)) !== null) {
+        const [, number, skipUrlPrompt] = match;
+        if (menuMap[number]) {
+            menuMap[number].skipUrlPrompt = skipUrlPrompt === '1';
+        }
+    }
+    while ((match = separatorRegex.exec(content)) !== null) {
+        const [, number, separator] = match;
+        if (menuMap[number]) {
+            menuMap[number].separator = separator === '1';
+        }
+    }
+    for (const key in menuMap) {
+        options.push(menuMap[key]);
+    }
+    return options.sort((a, b) => a.number - b.number);
+}
+function showCustomMenu(menuOptions, ytdlpPath, url, ytdlpFileName, keepCmdOpen, isBrowser, menuFileName) {
+    const items = [];
+    const subMenus = {
+        9: { label: "From file >", items: [8, 9] }
+    };
+    const separator = ["--", ""];
+
+    menuOptions.forEach((option, index) => {
+        if (option.isSeparator) {
+            if (items.length > 0 && items[items.length - 1][0] !== separator[0]) {
+                items.push(separator);
+            }
+        } else if (isBrowser || url || option.skipUrlPrompt || (!isBrowser && !url && (option.number === 8 || option.number === 9))) {
+            if (subMenus[option.number] && (isBrowser || url)) {
+                // Submenu only if it is a browser or URL is provided
+                const subMenu = subMenus[option.number];
+                const subItems = subMenu.items.map((subItemNumber) => {
+                    const subOption = menuOptions.find(opt => opt.number === subItemNumber);
+                    if (subOption) {
+                        const itemUrl = subOption.skipUrlPrompt ? '' : url;
+                        return [
+                            `${subOption.number}. ${subOption.name}`,
+                            `executeYtDlp(${JSON.stringify(ytdlpPath)}, ${JSON.stringify(itemUrl)}, ${JSON.stringify(ytdlpFileName)}, ${subItemNumber}, ${keepCmdOpen});`
+                        ];
+                    }
+                    return null;
+               }).filter(item => item !== null);
+subItems.push(separator);
+subItems.push([
+    "➕ Save to list_video.txt",
+    `saveToList(${JSON.stringify(ytdlpPath)}, ${JSON.stringify(url)}, 'list_video.txt');`
+]);
+subItems.push([
+    "    Open list_video.txt",
+    `openList(${JSON.stringify(ytdlpPath)}, 'list_video.txt');`
+]);
+//separator
+subItems.push(["--", ""]);           
+subItems.push([
+    "➕ Save to list_audio.txt",
+    `saveToList(${JSON.stringify(ytdlpPath)}, ${JSON.stringify(url)}, 'list_audio.txt');`
+]);
+subItems.push([
+    "    Open list_audio.txt",
+    `openList(${JSON.stringify(ytdlpPath)}, 'list_audio.txt');`
+]);
+                items.push([`${option.number}. ${subMenu.label}`, "", false, subItems]);
+            } else if (!Object.values(subMenus).some(subMenu => subMenu.items.includes(option.number)) || (!isBrowser && !url)) {
+                const label = `${option.number}. ${option.name}`;
+                const itemUrl = option.skipUrlPrompt ? '' : url;
+                const action = `executeYtDlp(${JSON.stringify(ytdlpPath)}, ${JSON.stringify(itemUrl)}, ${JSON.stringify(ytdlpFileName)}, ${option.number}, ${keepCmdOpen}, ${JSON.stringify(menuFileName)});`;
+                items.push([label, action]);
+            }
+        }
+        // Separator after specific menu items
+        if ((option.number === 4 || option.number === 7 || option.number === 9) && index < menuOptions.length - 1) {
+            items.push(separator);
+        }
+    });
+
+    // if not a browser and no text is selected
+    if (!isBrowser && !url) {
+        items.push(separator);
+        items.push([
+            "Open list_video.txt",
+            `openList(${JSON.stringify(ytdlpPath)}, 'list_video.txt');`
+        ]);
+        items.push([
+            "Open list_audio.txt",
+            `openList(${JSON.stringify(ytdlpPath)}, 'list_audio.txt');`
+        ]);
+    }
+
+    const currentPoint = sp.GetCurrentMousePoint();
+    const contentFont = new Font(new FontFamily("Tahoma"), 11, FontStyle.Regular, GraphicsUnit.Point);
+
+    if (typeof sp.PopupList === 'function') {
+        sp.PopupList(
+            items,
+            currentPoint,
+            contentFont,
+            Color.FromName("White"),
+            Color.FromArgb(200, 160, 180, 255),
+            Color.FromArgb(255, 0, 0, 0)
+        );
+    } else {
+        sp.MessageBox("PopupList function is not available", "Error");
+    }
+}
+// Function to save a URL to a file
+function saveToList(ytdlpPath, url, fileName) {
+    const filePath = `${ytdlpPath}\\${fileName}`;
+    try {
+        // Trim the URL and check if it's not empty
+        const trimmedUrl = url.trim();
+        
+        // If the URL is empty, do not save
+        if (!trimmedUrl) {
+            sp.MessageBox(`Cannot save empty URL to ${fileName}`, "Warning");
+            return;
+        }
+        
+        // Check if the file exists
+        if (System.IO.File.Exists(filePath)) {
+            let existingContent = System.IO.File.ReadAllText(filePath);
+
+            // Check if the URL already exists in the file
+            if (existingContent.includes(trimmedUrl)) {
+                sp.MessageBox(`The URL is already saved in ${fileName}.`, "Warning");
+                return;
+            }
+
+            // Ensure last line ends with a newline character
+            if (!existingContent.endsWith('\n')) {
+                existingContent += '\n';
+            }
+
+            // Append the new URL with a newline
+            System.IO.File.WriteAllText(filePath, existingContent + trimmedUrl + '\n');
+        } else {
+            // If the file doesn't exist, create it and write the URL with a newline
+            System.IO.File.WriteAllText(filePath, trimmedUrl + '\n');
+        }
+
+        //sp.MessageBox(`URL saved to ${fileName}`, "Success");
+
+    } catch (error) {
+        sp.MessageBox(`Failed to save URL to ${fileName}. Error: ${error.message}`, "Error");
+    }
+}
+// Function to open a file in Notepad
+function openList(ytdlpPath, fileName) {
+    const filePath = `${ytdlpPath}\\${fileName}`;
+    try {
+        // Check if the file exists
+        if (System.IO.File.Exists(filePath)) {
+            sp.RunProgram('notepad', filePath, '', 'normal', true, false, false);
+        } else {
+            sp.MessageBox(`File ${fileName} does not exist.`, "Error");
+        }
+    } catch (error) {
+        sp.MessageBox(`Failed to open ${fileName}. Error: ${error.message}`, "Error");
+    }
+}
+
+function executeYtDlp(ytdlpPath, url, ytdlpFileName, optionNumber, keepCmdOpen, menuFileName) {  
+    ytdlpPath = ytdlpPath.replace(/\\+$/, ''); 
+    let actualKeepCmdOpen = optionNumber === 0 ? true : keepCmdOpen; 
+    
+    // Shielding special characters in URLs
+    url = url.replace(/[&^]/g, '^$&');
+    
+    let command = `cd /d "${ytdlpPath}" && `;
+    command += `call ${menuFileName} "${ytdlpPath}" "${url}" "${ytdlpFileName}" ${optionNumber} ${actualKeepCmdOpen ? "true" : "false"}`;
+
+    try {
+       sp.RunProgram(
+            'cmd.exe', 
+            `/c "${command}"`,
+            '',
+            actualKeepCmdOpen ? 'normal' : 'minimized', 
+            true,  
+            false, 
+            false
+        );
+    } catch (error) {
+        sp.ConsoleLog(`Failed to execute command. Error: ${error.message}`, "Error");
+    }
+}
