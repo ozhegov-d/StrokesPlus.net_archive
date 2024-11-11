@@ -1,0 +1,186 @@
+//When starting the gesture from a link, the link opens in a new tab;
+//When starting the gesture not from a link and there is selected text on the page, a new tab opens with a search for the selected text, depending on the length of the gesture;
+//Short gesture not from a link and with no selected text on the page performs the 'Forward' action.
+//Long gesture switches the tab if text is not selected 
+//+It also works in any application: the browser opens and searches
+
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'center';
+info.Duration = 500;
+info.Opacity = 0.9;
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+//info.Padding = 15;
+info.FadeSteps = 18;
+
+function displayMessage(message) {
+    // Set the message to be displayed
+    info.Message = message;
+
+    // Get the primary screen dimensions
+    var screen = System.Windows.Forms.Screen.PrimaryScreen;
+
+    // Define minimum and maximum message width, and the approximate width of each character
+    var minMessageWidth = 200;
+    var maxMessageWidth = 500;
+    var charWidth = 20;
+
+    // Calculate message width based on message length, within the specified min and max bounds
+    var messageWidth = Math.min(maxMessageWidth, Math.max(minMessageWidth, message.length * charWidth));
+
+    // Set a fixed height for the message
+    var messageHeight = 100;
+
+    // Check if the 'action' object exists and has a starting position defined
+    if (typeof action !== 'undefined' && action.Start) {
+        // Calculate the initial X and Y position based on the action's start position (where the message will be displayed)
+        var posX = action.Start.X + 7;
+        var posY = action.Start.Y - 150; 
+
+        // Adjust X position if the message would go beyond the screen's right edge
+        if (posX + messageWidth > screen.Bounds.Width) {
+            posX = screen.Bounds.Width - messageWidth - 10;
+        }
+
+        // Adjust Y position if the message would go beyond the screen's bottom edge
+        if (posY + messageHeight > screen.Bounds.Height) {
+            posY = screen.Bounds.Height - messageHeight - 10;
+        }
+
+        // Ensure the X position doesn't go off the left side of the screen
+        if (posX < 0) {
+            posX = 10;
+        }
+
+        // Ensure the Y position doesn't go off the top of the screen
+        if (posY < 0) {
+            posY = 10;
+        }
+
+        // Set the calculated message location
+        info.Location = `${posX},${posY}`;
+    } else {
+        // If no action is defined, default the message location to (100, 100)
+        info.Location = '100,100';
+    }
+
+    // Display the message on the screen
+    sp.DisplayText(info);
+}
+
+var originalClipboardContent = clip.GetText();
+var wasClipboardEmpty = (originalClipboardContent === null || originalClipboardContent === "");
+
+sp.MouseMove(action.Start);
+sp.Sleep(10);
+var currentMouseCursor = sp.GetCurrentMouseCursor();
+
+var distance = parseInt(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2.0) + Math.pow((action.End.Y - action.Start.Y), 2.0)));
+var searchPrefix = '';
+var message = '';
+
+if (distance < 160) {
+    searchPrefix = 'https://www.google.com/search?q='; 
+    //searchPrefix = 'https://ya.ru/search/?text=';
+    //message = '<160 Standard Search';
+} else if (distance < 360) {
+    searchPrefix = 'https://www.google.com/search?tbm=isch&q=';
+    message = '<360 Google Image Search';
+} else if (distance > 360) {
+    searchPrefix = 'https://www.youtube.com/results?search_query=';
+    message = '>360 YouTube Search';
+}
+
+var fgWnd = sp.ForegroundWindow();
+var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+var isBrowser = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"].some(browser => exeName.includes(browser));
+var isEverything = exeName.includes("everything");
+var isWordOrExcel = exeName.includes("winword") || exeName.includes("excel");
+var isExplorer = exeName.includes("explorer");
+
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(20);
+
+var newClipboardContent = clip.GetText() || "";
+
+function isTextSelected() {
+    return newClipboardContent.trim() !== "";
+}
+
+if (isTextSelected() && newClipboardContent.trim() !== originalClipboardContent.trim()) {
+    var keyword = newClipboardContent.trim();
+
+   if (isBrowser) { //if text is highlighted + hand cursor(link) + long gesture then Next tab will be displayed.
+        if (currentMouseCursor == 'Hand') {
+            if (distance > 200) { // long gesture
+                sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]);
+                message = 'Next tab➪';
+                // message = '➪'; // ➥ ➦ ➜ ➝ ➞ ➩ ➫ ➭ ➯ ⇨
+            } else { // short gesture
+                sp.MouseClick(action.Start, MouseButtons.Middle, true, true);
+                sp.MouseMove(action.End);
+                message = 'Link: New Tab';
+            }
+        } else { // if not the hand, then the search
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_T]);
+            sp.Sleep(100);
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_L]);
+            sp.Sleep(100);
+            clip.SetText(searchPrefix + encodeURIComponent(keyword));
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+            sp.Sleep(90);
+            sp.SendVKey(vk.RETURN);
+        }
+    } else if (isEverything || !isBrowser) {
+        sp.RunProgram(searchPrefix + encodeURIComponent(keyword), '', 'open', 'normal', true, false, false);
+    }
+
+} else {
+    if (currentMouseCursor == 'Hand') { 
+        if (isBrowser && distance > 200) { //If the gesture is longer, it switches tabs 
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]);
+            message = 'Next tab➪';
+        } else {
+            sp.MouseClick(action.Start, MouseButtons.Middle, true, true);
+            sp.MouseMove(action.End);
+            message = 'Link: New Tab';
+        }
+    } else if (isBrowser) { //when text is not selected
+        if (distance > 200) { // If the gesture is longer, it switches tabs 
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]);
+            message = 'Next tab➪';
+          // message = '➪'; // ➥ ➦ ➜ ➝ ➞ ➩ ➫ ➭ ➯ ⇨
+        } else {
+            sp.SendVKey(vk.BROWSER_FORWARD);
+            message = 'Forward'; 
+        }
+    } else if (isWordOrExcel) {
+        if (distance > 200) {
+            sp.SendModifiedVKeys([vk.LCONTROL,vk.LSHIFT], [vk.F6]);
+            message = 'next tab';
+        } else {
+            sp.SendVKey(vk.BROWSER_FORWARD);
+            message = 'Forward';
+        }
+    } else if (isExplorer) {
+        if (distance > 200) {
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]);
+            message = 'next tab';
+        } else {
+            sp.SendVKey(vk.BROWSER_FORWARD);
+            message = 'Forward';
+        }
+    } else {
+        sp.SendVKey(vk.BROWSER_FORWARD);
+        message = 'Forward';
+    }
+}
+
+displayMessage(message);
+
+if (wasClipboardEmpty) {
+    clip.Clear();
+} else {
+    clip.SetText(originalClipboardContent);
+}
