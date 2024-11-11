@@ -1,0 +1,78 @@
+//Short gesture - next match
+//Long gesture - Previous match
+
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'center';
+info.Duration = 500;
+info.Opacity = 0.9;
+info.MessageFont = new Font('Segoe UI Semibold', 17);
+info.BackColor = 'black';
+info.Padding = 0;
+info.FadeSteps = 0;
+
+var messageWidth = 200;
+var messageHeight = 100;
+
+// Use the coordinates of the end of the gesture to position the message
+var screen = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(action.End.X, action.End.Y));
+var x = Math.min(Math.max(action.End.X - messageWidth/2, screen.Bounds.Left), screen.Bounds.Right - messageWidth);
+var y = Math.min(Math.max(action.End.Y - messageHeight/2, screen.Bounds.Top), screen.Bounds.Bottom - messageHeight);
+info.Location = `${x},${y}`;
+
+var distance = parseInt(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2.0) + Math.pow((action.End.Y - action.Start.Y), 2.0)));
+
+var fgWnd = sp.ForegroundWindow();
+var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+var isBrowser = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"].some(browser => exeName.includes(browser));
+var isExplorer = exeName.includes("explorer");
+var isDiscord = exeName.includes("discord");
+
+if (distance < 160) {
+    info.ForeColor = 'white';  // Color for search
+    if (isBrowser) {
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);
+        info.Message = 'Browser: Search';
+    } else {
+        var originalClipboardContent = clip.GetText();
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+        sp.Sleep(100);
+
+        var newClipboardContent = clip.GetText();
+
+        if (newClipboardContent !== originalClipboardContent) {
+            if (isExplorer) {
+                sp.SendVKey(vk.ESCAPE);
+                sp.Sleep(100);
+            }
+            if (isDiscord) {
+                sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);
+                sp.Sleep(100);
+                sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+                sp.Sleep(50);
+                sp.SendVKey(vk.RETURN);
+                info.Message = 'Discord: Search';
+            } else {
+                sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);
+                sp.Sleep(100);
+                sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+                info.Message = 'Search';
+            }
+        } else {
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);
+            info.Message = 'Search';
+        }
+    }
+} else if (distance < 350) {
+    sp.SendVKey(vk.F3);
+    info.Message = 'Next match';
+    info.ForeColor = 'lime'; 
+    info.BackColor = 'darkgreen';  
+} else {
+    sp.SendModifiedVKeys([vk.SHIFT], [vk.F3]);
+    info.Message = 'Previous match';
+    info.ForeColor = 'yellow';
+    info.BackColor = 'olive';  
+}
+
+sp.Sleep(100);
+sp.DisplayText(info);
