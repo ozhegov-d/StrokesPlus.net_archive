@@ -1,0 +1,730 @@
+----------------------------------------------------------------------------------------------------
+LITERAL STRINGS
+----------------------------------------------------------------------------------------------------
+	An example of passing a string literal (non-escaped string) using: String.raw``
+
+		sp.RunProgram(String.raw`C:\Windows\notepad.exe`, "", "", "", false, true, false);
+
+	String.raw`` can span lines as well, will include all of the characters between the backticks (`), including new lines:
+
+		var cc = String.raw`This
+			            is a test`;
+		clip.SetText(cc);
+
+----------------------------------------------------------------------------------------------------
+EXTERNAL FILES
+----------------------------------------------------------------------------------------------------
+	Load and execute js from a file:
+
+		eval(File.ReadAllText("C:\\Users\\robya\\Desktop\\test.js"));
+
+	Open text file and append a line to it:
+
+		var f = File.AppendText("C:\\Users\\robya\\Desktop\\test.js");
+		f.WriteLine("Test");
+		f.Close();
+
+	Backup your existing StrokesPlus settings file:
+
+		var source = clr.System.IO.Path.Combine(clr.System.Environment.GetFolderPath(clr.System.Environment.SpecialFolder.ApplicationData), "StrokesPlus.net", "StrokesPlus.net.bin");
+		var dest = clr.System.IO.Path.Combine(clr.System.Environment.GetFolderPath(clr.System.Environment.SpecialFolder.ApplicationData), "StrokesPlus.net", "Backup");
+		if (!clr.System.IO.Directory.Exists(dest)) clr.System.IO.Directory.CreateDirectory(dest);
+		dest = clr.System.IO.Path.Combine(dest,"StrokesPlus.net_" + DateTime.Now.ToString("yyyy-MM-dd_HHmmss") + ".bin");
+		File.Copy(source, dest, true);
+
+		//Optional: Delete backup files more than 3 months old
+		//Note that if you exit frequently and have a large number of files in the backup folder, this loop could take several seconds to complete
+		var files = clr.System.IO.Directory.GetFiles(destdir);
+		for (i=0;i<files.Length;i++)
+		{
+			var fi = new FileInfo(files[i]);
+			//create new javascript based dates for proper comparison
+			var lastAccessed = new Date(fi.LastAccessTime.Year, fi.LastAccessTime.Month, fi.LastAccessTime.Day, fi.LastAccessTime.Hour, fi.LastAccessTime.Minute, fi.LastAccessTime.Second);
+			var currentDate = new Date(DateTime.Now.AddMonths(-3).Year, DateTime.Now.AddMonths(-3).Month, DateTime.Now.AddMonths(-3).Day, DateTime.Now.AddMonths(-3).Hour, DateTime.Now.AddMonths(-3).Minute, DateTime.Now.AddMonths(-3).Second);
+			if (lastAccessed < currentDate){
+				fi.Delete();
+			}
+		}
+
+----------------------------------------------------------------------------------------------------
+DISPLAY TEXT
+----------------------------------------------------------------------------------------------------
+	Show a hint style window with text:
+
+		var info = new DisplayTextInfo();
+		info.Title = "Test";
+		info.TitleAlignment = "Center";
+		info.Message = "Message";
+		info.MessageAlignment = "Left";
+		info.Duration = 2000;
+		//The transparency of the popup, valid ranges: 0.05 - 1.0  (1.0 is no transparency)
+		info.Opacity = 0.7;
+		//Location supports location as well, use this format to specify a type: "100,200"
+		//types: topleft, top, topright, right, bottomright, bottom, bottomleft, left
+		info.Location = "top"; 
+		info.TitleFont = new Font("Segoe UI", 12, host.flags(FontStyle.Bold));
+		info.MessageFont = new Font("Segoe UI Semibold", 12);
+		info.BackColor = "black";//"56,169,255"; //Also supports RGB, TODO: More info here
+		info.ForeColor = "white";
+		info.Padding = 15;
+		//If true, always displays on primary screen (unless Location is a point type), 
+		//otherwise displays on the screen where the gesture started
+		info.UsePrimaryScreen = true; 
+		sp.DisplayText(info);
+
+
+	Show a hint style window that follows the mouse, reporting the current mouse coordinates and the RGB of the pixel below the cursor:
+
+	IMPORTANT: This continues until the mouse Y coordinate is greater than 1070. Make sure that will work for your system!
+
+		var currpt = sp.GetCurrentMousePoint();
+		var currpt = sp.GetCurrentMousePoint();
+		var pxcolor = sp.GetPixelColorFromPoint(currpt);
+		var info = new DisplayTextInfo();
+		currpt = sp.GetCurrentMousePoint();
+		pxcolor = sp.GetPixelColorFromPoint(currpt);
+		info.Message = "x: "+currpt.X+" y: " + currpt.Y+"\nRGB: "+pxcolor.R+"."+pxcolor.G+"."+pxcolor.B;
+		info.Duration = 1000;
+		info.Location = (currpt.X-30)+','+(currpt.Y+20); 
+		info.MessageFont = new Font("Segoe UI Semibold", 12);
+		info.BackColor = "black";
+		info.Padding = 0;
+		sp.DisplayText(info);
+		while (currpt.Y < 1070) {
+			currpt = sp.GetCurrentMousePoint();
+			pxcolor = sp.GetPixelColorFromPoint(currpt);
+			info.Message = "x: "+currpt.X+" y: " + currpt.Y+"\nRGB: "+pxcolor.R+"."+pxcolor.G+"."+pxcolor.B;
+			info.Location = (currpt.X-30)+','+(currpt.Y+20); 
+			sp.DisplayTextUpdate(info);
+			sp.Sleep(25);
+		}
+
+	Show a hint style window that follows the mouse, reporting the current mouse coordinates and window handle, EXE name, and ClassName of the control/window below the mouse:
+
+	IMPORTANT: This continues until the mouse Y coordinate is greater than 1070. Make sure that will work for your system!
+
+		var currpt = sp.GetCurrentMousePoint();
+		var wnd = sp.WindowFromPoint(currpt, false);
+		var info = new DisplayTextInfo();
+		info.Message = "x: "+currpt.X+" y: " + currpt.Y+"\nHandle: " + host.cast(nint,wnd.HWnd) + "\nProcess: "+wnd.Process.MainModule.ModuleName + "\nClass: "+wnd.ClassName ;
+		info.MessageAlignment = "left";
+		info.Duration = 1000;
+		info.Location = (currpt.X-30)+','+(currpt.Y+20); 
+		info.MessageFont = new Font("Segoe UI Semibold", 12);
+		info.BackColor = "black";
+		info.Padding = 0;
+		sp.DisplayText(info);
+		while (currpt.Y < 1070) {
+			currpt = sp.GetCurrentMousePoint();
+			wnd = sp.WindowFromPoint(currpt, false);
+			info.Message = "x: "+currpt.X+" y: " + currpt.Y+"\nHandle: " + host.cast(nint,wnd.HWnd) + "\nProcess: "+wnd.Process.MainModule.ModuleName + "\nClass: "+wnd.ClassName;
+			info.Location = (currpt.X-30)+','+(currpt.Y+20); 
+			sp.DisplayTextUpdate(info);
+			sp.Sleep(25);
+		}
+
+----------------------------------------------------------------------------------------------------
+BALLOON TIP
+----------------------------------------------------------------------------------------------------
+	Show a balloon tip of type Info:
+
+		//Types include: Warning, Error, Info, None
+		//Duration (5000 ms below) can be overridden by Windows Accessibility settings
+		sp.ShowBalloonTip("Title", "Message here", "Info", 5000);
+
+----------------------------------------------------------------------------------------------------
+EXPLORER
+----------------------------------------------------------------------------------------------------
+	Show a message box with the names of the selected files in Explorer:
+
+		var files = sp.GetSelectedFilesInExplorer(action.Window.HWnd);
+		var str = "";
+		var delim = "";
+		for(i = 0; i < files.Length; i++)
+		{
+			str = str + delim + files[i];
+			delim = "\r\n";
+		}
+		if(str.length == 0) str = "(no files selected)";
+		sp.MessageBox(str, "Selected File(s)");
+
+----------------------------------------------------------------------------------------------------
+WINDOW ACTIONS
+----------------------------------------------------------------------------------------------------
+	Get all open top-level windows, basically all running programs, and save them to the clipboard:
+
+		var wnds = sp.AllApplications();
+		var apps = "";
+		for (var i = 0, len = wnds.Length; i < len; i++) {
+			apps = apps + "Class: " + wnds[i].ClassName + " Title: " + wnds[i].Title + "\r\n";
+		}
+		clip.SetText(apps);
+
+	Find all Notepad windows, move them to the gesture start location and resize to 400 x 400:
+
+		var matches = sp.WindowsFromTitleRegex("- Notepad$");
+		for (var i = 0, len = matches.Length; i < len; i++) {
+			var wnd = matches[i];
+			while (wnd.ParentSymmetric != null) {
+				wnd = wnd.ParentSymmetric;
+			}
+			var pos = wnd.Position;
+			pos.Left = action.Start.X;
+			pos.Top = action.Start.Y;
+			pos.Right = action.Start.X+400;
+			pos.Bottom = action.Start.Y+400;
+			wnd.Position = pos;
+		}
+
+	Maximize or Restore Window:
+
+		if(action.Window.Maximized) {
+			action.Window.Restore();
+		} else {
+			action.Window.Maximize();
+		}
+
+	Minimize Window:
+
+		action.Window.Minimize();
+
+	Center window on screen:
+
+		action.Window.Center();
+
+	Send Close command to window:
+
+		action.Window.SendClose();
+
+----------------------------------------------------------------------------------------------------
+VOLUME ACTIONS
+----------------------------------------------------------------------------------------------------
+	Mute the default playback device:
+
+		var mixer = sp.GetPlaybackMixer();
+		mixer.ToggleMute();
+
+	Set the default playback device volume:
+
+		var mixer = sp.GetPlaybackMixer();
+		mixer.Volume = 37;
+
+----------------------------------------------------------------------------------------------------
+.NET CODE
+----------------------------------------------------------------------------------------------------
+	Use the native .NET framework to display a message box and respond to input:
+
+		var msgbox = forms.System.Windows.Forms.MessageBox;
+		var buttons = forms.System.Windows.Forms.MessageBoxButtons;
+		var icons = forms.System.Windows.Forms.MessageBoxIcon;
+		var dlgres = forms.System.Windows.Forms.DialogResult;
+
+		var res = msgbox.Show(action.ActionName, "Action Name", buttons.YesNo, icons.Asterisk);
+		if (res == dlgres.Yes)
+		{
+			msgbox.Show("Clicked Yes.");
+		}
+
+	Send an HTTP request to StackOverflow getting the most recent answers, then copy the resulting JSON to the clipboard:
+
+		var httpHandler = new HttpClientHandler();
+		httpHandler.AutomaticDecompression = host.flags(DecompressionMethods.GZip, DecompressionMethods.Deflate);
+		var client = new HttpClient(httpHandler);
+		client.BaseAddress = new Uri("https://api.stackexchange.com/2.2/");
+		var response = client.GetAsync("answers?order=desc&sort=activity&site=stackoverflow").Result;
+		var result = response.Content.ReadAsStringAsync().Result;
+
+		//Copy the resulting JSON to the clipboard
+		clip.SetText(result);
+
+		httpHandler.Dispose();
+		client.Dispose();
+
+----------------------------------------------------------------------------------------------------
+SEND INPUT
+----------------------------------------------------------------------------------------------------
+	If the window where the gesture started matches the title, send "test" and the Enter key:
+
+		var title = action.Window.Title;
+		if(title.indexOf("StrokesPlus - Google Chrome") !== -1){
+			sp.SendKeys("text~");
+		}
+		
+	Send key stroke combinations. This is especially important/useful for non-English keyboard layouts
+	as sp.SendKeys will attempt to translate the letter characters:
+	
+		//CTRL+ALT Down, A, C, CTRL+ALT Up
+		sp.SendModifiedVKeys([vk.CONTROL, vk.MENU], [vk.VK_A, vk.VK_C]); 
+		//CTRL+A
+		sp.SendModifiedVKeys([vk.CONTROL], [vk.VK_A]);
+		//CTRL+SHIFT+S
+		sp.SendModifiedVKeys([vk.CONTROL, vk.SHIFT], vk.VK_S);
+		//CTRL Down, E, V, CTRL Up
+		sp.SendModifiedVKeys([vk.CONTROL], [vk.VK_E, vk.VK_V]);
+		//CTRL+S
+		sp.SendModifiedVKeys(vk.CONTROL, vk.VK_S);
+		//CTRL+ALT+A
+		sp.SendModifiedVKeys([vk.CONTROL, vk.MENU], vk.VK_A);	
+
+----------------------------------------------------------------------------------------------------
+SHOW POPUP MENU
+----------------------------------------------------------------------------------------------------
+	Shows a popup menu, on selection, executes the Callback function passing in the item number clicked
+	Use "-" to add a separator, note that separators do NOT count as a menu number when determining 
+	what was clicked in the callback function. MAKE SURE you have the OnLoadAction preference checked if
+	you put the Callback in the OnLoadScripts section. The reason for this is that to show a popup menu,
+	you cannot do it in a non-UI thread (which is how actions are fired). So it has to post a message to
+	the main program for it to display the popup, then execute the callback manually so your script can
+	know what item was selected
+
+	In the action:
+
+		var popupMenuInfo = new  PopupMenuInfo();
+		popupMenuInfo.Items.Add("Test 1");
+		popupMenuInfo.Items.Add("Test 2");
+		popupMenuInfo.Items.Add("-");
+		popupMenuInfo.Items.Add("Test 3");
+		popupMenuInfo.Location = action.End;
+		popupMenuInfo.Callback = "PopupMenuCallback";
+		var res = sp.ShowPopupMenu(popupMenuInfo);
+
+	In your Load Scripts section (to ensure the function is available in either script engine):
+
+		function PopupMenuCallback(id) {
+			sp.MessageBox(""+id, "Selected Menu Item");
+		}
+
+
+----------------------------------------------------------------------------------------------------
+SHOW INPUT BOX
+----------------------------------------------------------------------------------------------------
+	Shows a window to collect input or provide a list from which to choose
+
+		var inputBoxInfo = new InputBoxInfo();
+		inputBoxInfo.Title = "Title text";
+		inputBoxInfo.Message = "Test";
+		inputBoxInfo.Items.Add("Test Item");
+		inputBoxInfo.AllowDirectInput = true;
+		inputBoxInfo.Sort = true;
+		inputBoxInfo.ShowAtMouseCursor = true;
+		var res = sp.InputBox(inputBoxInfo);
+		if(res != null) {
+			sp.MessageBox(res, "Result");
+		}
+
+
+----------------------------------------------------------------------------------------------------
+RESTRICT MOUSE TO RECTANGLE
+----------------------------------------------------------------------------------------------------
+	Restricts mouse movement to only within the defined rectangle. Rectangle must exist within screen dimensions and be at least 50px wide and 50px high
+
+		if(sp.MouseRestrictActive()) {
+			//Restriction active, so let's remove it
+			sp.MouseRestrictClear();
+		} else {
+			//Create a rectangle and confine the mouse to that area
+			var rect = new Rectangle();
+			rect.X = 100;
+			rect.Y = 100;
+			rect.Width = 500;
+			rect.Height = 500;
+			sp.MouseRestrictToRectangle(rect);
+		}
+
+	Restricts mouse movement to only within the screen where the mouse is located
+
+		if(sp.MouseRestrictActive()) {
+			//Restriction active, so let's remove it
+			sp.MouseRestrictClear();
+		} else {
+			//Create a rectangle and confine the mouse to that area
+			var screenRect = Screen.FromPoint(sp.GetCurrentMousePoint()).Bounds;
+			var rect = new Rectangle(screenRect.Location.X, screenRect.Location.Y, screenRect.Width - 1, screenRect.Height - 1);
+			sp.MouseRestrictToRectangle(rect);
+		}
+
+----------------------------------------------------------------------------------------------------
+MOUSE WHEEL
+----------------------------------------------------------------------------------------------------
+	Enables custom scripts based on app EXE name and mouse cursor location
+
+		if(wheel.Window.Process.MainModule.ModuleName == "chrome.exe" || wheel.Window.Process.MainModule.ModuleName == "notepad++.exe") {
+			if(parseInt(wheel.Y) <= (parseInt(wheel.Window.Rectangle.Top) + 64)) {//is the mouse in the top 64 pixel area of the window?
+				wheel.Window.BringToFront();
+				if(wheel.Delta > 0) {
+					//mouse wheel scrolled up
+					sp.SendKeys("^{TAB}");
+				} else {
+					//mouse wheel scrolled down
+					sp.SendKeys("^+{TAB}");
+				}
+			} else if(wheel.X >= (parseInt(wheel.Window.Rectangle.Right) - 25)) { //is the mouse along the right side of the window?
+				wheel.Window.BringToFront();
+				if(wheel.Delta > 0) {
+					//scroll up, send CTRL+Home to go to the top of the page
+					sp.SendKeys("^{HOME}");
+				} else {
+					//scroll up, send CTRL+End to go to the end of the page
+					sp.SendKeys("^{END}");
+				}
+			} else if(wheel.Window.Process.MainModule.ModuleName == "chrome.exe" && wheel.X <= (parseInt(wheel.Window.Rectangle.Left) + 20)) {
+				wheel.Window.BringToFront();
+				if(wheel.Delta > 0){
+					//scroll up, send CTRL+Home to go to the top of the page
+					sp.SendKeys("{F5}");
+				} else {
+					//scroll up, send CTRL+End to go to the end of the page
+					sp.SendVKey(vk.BROWSER_BACK);
+				}
+			} else {
+				//Default, pass mouse wheel message onto the original control
+				wheel.Control.PostMessage(host.cast(uint, 0x020A), new IntPtr(wheel.WParam), new IntPtr(wheel.LParam));
+			}
+		} else {
+			//Default, pass mouse wheel message onto the original control
+			wheel.Control.PostMessage(host.cast(uint, 0x020A), new IntPtr(wheel.WParam), new IntPtr(wheel.LParam));
+		}
+
+----------------------------------------------------------------------------------------------------
+CONFIGURATION
+----------------------------------------------------------------------------------------------------
+	Loop through all applications defined in S+, show the message box for the app, then for each action:
+
+		for(i=0;i<sp_config.Applications.Count;i++){
+			sp.MessageBox(sp_config.Applications[i].Description, "App");
+			for(j=0;j<sp_config.Applications[i].Actions.Count;j++){
+				sp.MessageBox(sp_config.Applications[i].Description + ": " + sp_config.Applications[i].Actions[j].Description, "App / Action");    
+			}
+		}
+
+----------------------------------------------------------------------------------------------------
+METHODS AND PROPERTY INFO
+----------------------------------------------------------------------------------------------------
+	Loop through all methods in the sp (main S+ functions) class, building the name, parameters, and return type then copy to clipboard:
+
+		var spms = sp.GetMethods();
+		var s = "";
+		for(m=0;m<spms.Count();m++){
+			s = s + "Method: " + spms[m].Name + "(";
+			var comma = "";
+			for(i=0;i<spms[m].GetParameters().Count();i++) {
+				s = s + comma + spms[m].GetParameters()[i].ParameterType.ToString() + " " + spms[m].GetParameters()[i].Name
+				comma = ", ";
+			}
+			s = s + ")\nReturns: " + spms[m].ReturnType.Name + "\n\n";
+		}
+		clip.SetText(s);
+
+	Loop through all methods in the window (ManagedWinapi.Windows.SystemWindow) class, building the name, parameters, and return type then copy to clipboard:
+
+		var spms = action.Window.GetType().GetMethods(); //Window in this script is the window passed into the action from where the gesture began
+		var s = "";
+		for(m=0;m<spms.Count();m++){
+			s = s + "Method: " + spms[m].Name + "(";
+			var comma = "";
+			for(i=0;i<spms[m].GetParameters().Count();i++) {
+				s = s + comma + spms[m].GetParameters()[i].ParameterType.ToString() + " " + spms[m].GetParameters()[i].Name
+				comma = ", ";
+			}
+			s = s + ")\nReturns: " + spms[m].ReturnType.Name + "\n\n";
+		}
+		clip.SetText(s);
+
+	Loop through all properties in the window (ManagedWinapi.Windows.SystemWindow) class, building the name and type then copy to clipboard:
+
+        	var spms = action.Window.GetType().GetProperties(); //Window in this script is the window passed into the action from where the gesture began
+		var s = "";
+		for(m=0;m<spms.Count();m++){
+			s = s + "Property: " + spms[m].Name + "\nType: ";
+			s = s + spms[m].PropertyType.ToString();
+			s = s + "\n\n";
+		}
+		clip.SetText(s);
+
+----------------------------------------------------------------------------------------------------
+CHANGE CULTURE/LANGUAGE
+----------------------------------------------------------------------------------------------------
+	Loop through all available language files in the Resources folder and present an input box to select changing:
+
+		//Get current culture
+		var culture = sp.GetCurrentCulture();
+
+		//Create input box to prompt selecting a language based on available files
+		var inputBoxInfo = new InputBoxInfo();
+		inputBoxInfo.Title = "Change Culture";
+		inputBoxInfo.Message = "Select an available language below. These are the languages available in the StrokesPlus.net\\Resources folder.";
+		var files = clr.System.IO.Directory.GetFiles(clr.System.IO.Path.GetDirectoryName(clr.System.Reflection.Assembly.GetEntryAssembly().Location) + "\\Resources");
+		for (i=0;i<files.Length;i++)
+		{
+			var fi = new FileInfo(files[i]);
+			var file = fi.Name;
+			if(file.indexOf("Icons") !== 0) {
+				file = file.replace(/resources/ig , "").replace(/\./ig,"");
+				if(file == "") file = "en-US";
+				inputBoxInfo.Items.Add(CultureInfo.GetCultureInfo(file).DisplayName + " [" + file + "]");
+			}
+		}
+		inputBoxInfo.Sort = true;
+		//Show the input box
+		var res = sp.InputBox(inputBoxInfo);
+
+		//If a selection was made, change the culture
+		if(res != null) {
+			var n = /\[(.*)\]/i; //Define the regular expression for matching the culture string
+			var match = n.exec(res); //Get the text between the brackets, e.g. [en-US]
+			sp.ChangeCulture(match[1]);
+		}
+
+----------------------------------------------------------------------------------------------------
+REGION DETECTION
+----------------------------------------------------------------------------------------------------
+	Creates a grid (3 x 3) based on the window size of where the gesture began, then performs a different action based on which region(s) were matched where the gesture began (action.Start):
+
+		var columns = 3;
+		var rows = 3;
+		var region = sp.GetRegionFromPoint(action.Window.Rectangle, action.Start, columns, rows);
+		//sp.MessageBox("Matched region: column: " + region.Column + ", row: " + region.Row, "Region");
+		if(region.Column == 3 && region.Row == 1) 
+		{
+			// O O X
+			// O O O
+			// O O O
+			if(action.Window.Maximized) {
+				action.Window.Restore();
+			} else {
+				action.Window.Maximize();
+			}
+		} 
+		else if(region.row == 2 || region.Row == 3) 
+		{
+			// O O O
+			// X X X
+			// X X X
+			action.Window.SendClose(); 
+		}
+
+----------------------------------------------------------------------------------------------------
+CAPTURE SCREENSHOT TO CLIPBOARD OF GESTURE BOUNDING RECTANGLE
+----------------------------------------------------------------------------------------------------
+	Copies to the clipboard a bitmap (Screenshot) of the area within the bounding rectangle of the gesture. It makes a lot of sense to use a square gesture for this.
+
+		//Delay to ensure S+ has cleared the gesture and hint
+		sp.Sleep(100); 
+		//Create a new Bitmap in memory using the size of the gesture bounding rectangle
+		var memoryImage = new drawing.System.Drawing.Bitmap(action.Bounds.Width, action.Bounds.Height);
+		//Create a graphics object associated with the bitmap
+		var memoryGraphics = drawing.System.Drawing.Graphics.FromImage(memoryImage);
+		//Copy the screen within the bounding rectangle of the drawn gesture area
+		//I used a square gesture since that seems more intuitive, but it's not necessary
+		memoryGraphics.CopyFromScreen(action.Bounds.X, action.Bounds.Y, 0, 0, action.Bounds.Size);
+		//Copy the image to the clipboard
+		clip.SetImage(memoryImage);
+		memoryGraphics.Dispose();
+		memoryImage.Dispose();
+
+----------------------------------------------------------------------------------------------------
+START PROGRAM OR OPEN FILE 
+----------------------------------------------------------------------------------------------------
+	Opens Microsoft Paint using the .NET Process class. This is the same as sp.RunProgram, but allows you to work with the classes directly if needed.
+
+		var start = new clr.System.Diagnostics.ProcessStartInfo();
+		// Enter in the command line arguments, everything you would enter after the executable name itself
+		start.Arguments = "";
+		// Enter the executable to run (or file if using UseShellExecute), including the complete path if not setting UseShellExecute = true
+		start.FileName = "mspaint.exe";
+		// Open in normal state, other options are .Hidden, .Maximized
+		start.WindowStyle = clr.System.Diagnostics.ProcessWindowStyle.Normal; 
+		// Verb is like the entry in the right-click menu of a file; "Open", "Edit", etc.
+		// Use "runas" for UAC/admin prompt, to run the program elevated
+		start.Verb = "";
+		start.CreateNoWindow = false;
+		// If below is true, it is like typing into the Window Run box, false requires a fully qualified path
+		start.UseShellExecute = true;
+		var exitCode = 0;
+		var waitForExit = false;
+		if (waitForExit) {
+			// Run the external process & wait for it to finish
+			var proc = clr.System.Diagnostics.Process.Start(start);
+			proc.WaitForExit();
+			// Retrieve the app's exit code
+			exitCode = proc.ExitCode;
+			// Do something here if you want to based on the exitCode value
+			sp.MessageBox(exitCode, "Exit Code");
+		} else {
+			clr.System.Diagnostics.Process.Start(start);
+		}
+
+----------------------------------------------------------------------------------------------------
+TIMERS
+----------------------------------------------------------------------------------------------------
+	Starts a timer that fires after 1 second then deletes itself, this example also uses the String.raw`` functionality in JavaScript so you do not have to escape the "s
+
+		sp.CreateTimer("test", 1000, -1, String.raw`sp.MessageBox("Test", "Timer");sp.DeleteTimer("test");`);
+
+		Same script without using String.raw``:
+
+		sp.CreateTimer("test", 1000, -1, "sp.MessageBox(\"Test\", \"Timer\");sp.DeleteTimer(\"test\");");
+
+		But since we're only avoiding having to escape double quotes here, this would also work (enclosing in single quotes):
+
+		sp.CreateTimer("test", 1000, -1, 'sp.MessageBox("Test", "Timer");sp.DeleteTimer("test");');
+
+	Changes a previously created timer (as type System.Threading.Timer) named "test" to start in 1 second, then repeat every 10 seconds indefinitely
+
+		sp.GetTimer("test").Change(1000, 10000);
+
+	Assigns a variable to a previously created timer named "test", as a .NET object of type System.Threading.Timer
+
+		var tmr = sp.GetTimer("test");
+
+	Gets the script for the previously created timer named "test" and copies it to the clipboard
+
+		clip.SetText(sp.GetTimerScript("test"));
+
+	Deletes a previously created timer named "test"
+
+		sp.DeleteTimer("test");
+
+    Create a timer that periodically moves the mouse to keep the computer active, and a timer to remind you that it's running
+    (I have this bound to a hotkey, but it work with an action as well)
+
+        //Create the display popup for the hot key press event
+        var info = new DisplayTextInfo();
+        info.Title = "NoSleep";
+        info.Duration = 1000;
+        info.Opacity = 0.8;
+        info.Location = "top"; 
+        info.TitleFont = new Font("Segoe UI", 12, host.flags(FontStyle.Bold));
+        info.MessageFont = new Font("Segoe UI", 12);
+        info.ForeColor = "white";
+        info.Padding = 15;
+        info.UsePrimaryScreen = true; 
+
+        //See if there's already a NoSleep timer, if not create and start a new set
+        //if there is, then we're going to stop the timers
+        var tmr = sp.GetTimer("NoSleep");
+        if(tmr == null)
+        {
+            //Create the reminder timer, this will show a quick display popup 
+            //every 30 minutes to let you know this is still running
+            sp.CreateTimer("NoSleepReminder", 
+                            1800100, 
+                            1800100, 
+                            String.raw` var info = new DisplayTextInfo();
+                                        info.Title = "NoSleep";
+                                        info.Duration = 1000;
+                                        info.Opacity = 0.8;
+                                        info.Location = "top"; 
+                                        info.TitleFont = new Font("Segoe UI", 12, host.flags(FontStyle.Bold));
+                                        info.MessageFont = new Font("Segoe UI", 12);
+                                        info.ForeColor = "white";
+                                        info.BackColor = "blue"; 
+                                        info.Message = "NoSleep Timer Still Running";
+                                        info.Padding = 15;
+                                        info.UsePrimaryScreen = true; 
+                                        sp.DisplayText(info);`
+                          );
+            //Create the main timer, which moves the mouse 5px and back
+            //every 10 seconds, but only if the mouse hasn't moved since the 
+            //last timer
+            sp.CreateTimer("NoSleep", 
+                            10000, 
+                            10000, 
+                            String.raw` var lp = sp.GetStoredPoint("lastMousePoint");
+                                        var currpt = sp.GetCurrentMousePoint();
+                                        if(lp != null) {
+                                            if(lp.X == currpt.X && lp.Y == currpt.Y) {
+                                                sp.MouseMove(new Point(currpt.X + 5, currpt.Y +5));
+                                                sp.Sleep(200);
+                                                sp.MouseMove(currpt);
+                                            }
+                                        }
+                                        //Store the current mouse location for the next timer sheck
+                                        sp.StorePoint("lastMousePoint", currpt);`
+                          );
+            //Set the hot key press popup color and text, to display when
+            //the hot key is fired. This text is for when you're starting the timer.
+            info.BackColor = "green"; 
+            info.Message = "NoSleep Timer STARTED";
+        } else {
+            //Set the hot key press popup color and text, to display when
+            //the hot key is fired. This text is for when you're stopping the timer.
+            info.Message = "NoSleep Timer STOPPED";
+            info.BackColor = "red"; 
+            //Stop and delete both the main and reminder timers, remove the stored point 
+            sp.DeleteTimer("NoSleep");
+            sp.DeleteTimer("NoSleepReminder");
+            sp.DeleteStoredPoint("lastMousePoint");
+        }
+        //Show the display popup for when the hot key is pressed, showing either
+        //that the timer was started or stopped
+        sp.DisplayText(info);
+
+----------------------------------------------------------------------------------------------------
+MOVE WINDOW TO ANOTHER SCREEN
+----------------------------------------------------------------------------------------------------
+	Send the window to the previous screen in relation to the current screen and center the mouse on the destination screen
+
+		var scr = action.Window.MoveToPreviousScreen();
+		sp.ConsumePhysicalInput(true);
+		sp.MouseMove(new Point(scr.Bounds.Left + (scr.Bounds.Width / 2), scr.Bounds.Top + (scr.Bounds.Height / 2)));
+		sp.ConsumePhysicalInput(false);
+
+	Send the window to the next screen in relation to the current screen and center the mouse on the destination screen
+
+		var scr = action.Window.MoveToNextScreen();
+		sp.ConsumePhysicalInput(true);
+		sp.MouseMove(new Point(scr.Bounds.Left + (scr.Bounds.Width / 2), scr.Bounds.Top + (scr.Bounds.Height / 2)));
+		sp.ConsumePhysicalInput(false);
+
+	Send the window to screen #2 and center the mouse on the destination screen
+
+		var scr = action.Window.MoveToScreen(2);
+		sp.ConsumePhysicalInput(true);
+		sp.MouseMove(new Point(scr.Bounds.Left + (scr.Bounds.Width / 2), scr.Bounds.Top + (scr.Bounds.Height / 2)));
+		sp.ConsumePhysicalInput(false);
+
+
+----------------------------------------------------------------------------------------------------
+NATIVE EDIT AND RICHTEXT EDIT MANIPULATION
+----------------------------------------------------------------------------------------------------
+	Some examples of working directly with native Edit and RichTextEdit controls:
+
+		//Use Notepad as an example to test this script, you must ensure the 
+		//text edit area was the last control to have focus
+		var WM_GETTEXTLENGTH = 0x000E;
+		var WM_GETTEXT = 0x000D;
+		var WM_SETTEXT  = 0x000C;
+		var EM_SETSEL = 0x00B1;
+		var EM_REPLACESEL = 0x00C2;
+
+		//Set the control
+		var wnd = sp.LastFocusControl();
+		var len = host.cast(nint, wnd.SendMessageObj(WM_GETTEXTLENGTH, 0, 0));
+		var txt = wnd.SendMessageGetTextObj(WM_GETTEXT, 0, len);
+		sp.MessageBox("Length: " + len + "\"\nCurrent Text: " + txt, "Length and Text");
+		sp.Sleep(50);
+
+		var useAnsi = false; //Change to true if working with a control that only supports Ansi
+		wnd.SendMessageSetTextObj(WM_SETTEXT, 0, "Replacement text", useAnsi);
+		sp.MessageBox("All text replaced, about to select a few characters and replace them", "Replace");
+		sp.Sleep(50);
+
+		//Select characters 5 to 8
+		wnd.SendMessageObj(EM_SETSEL, 5, 8);
+		//Replace selected text with "INS"
+		wnd.SendMessageSetTextObj(EM_REPLACESEL, 1, "INS", useAnsi);
+
+		//Select characters to move caret just before t in text
+		//Obviously make sure this position still exists, via WM_GETTEXTLENGTH
+		wnd.SendMessageObj(EM_SETSEL, 12, 12);
+
+
+----------------------------------------------------------------------------------------------------
+SPEECH
+----------------------------------------------------------------------------------------------------
+	Create new speech synthesizer and read text through default audio device:
+
+		var synth = new speech.System.Speech.Synthesis.SpeechSynthesizer();
+		synth.SetOutputToDefaultAudioDevice();
+		synth.Speak("StrokesPlus.net is so versatile!");
