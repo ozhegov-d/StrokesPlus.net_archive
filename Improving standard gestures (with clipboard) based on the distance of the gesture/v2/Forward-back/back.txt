@@ -1,0 +1,94 @@
+//short gesture - back
+//long gesture - previous tab
+
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'center';
+info.Duration = 700;
+info.Opacity = 0.9;
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+//info.Padding = 15;
+info.FadeSteps = 18;
+
+var fgWnd = sp.ForegroundWindow();
+var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+var windowTitle = fgWnd.Title.toLowerCase();
+var windowClass = fgWnd.ClassName.toLowerCase();
+var isBrowser = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"].some(browser => exeName.includes(browser));
+var isWordOrExcel = exeName.includes("winword") || exeName.includes("excel");
+var isSystemSettings = windowTitle.includes("settings") || windowClass.includes("applicationframewindow");
+var isEverything = exeName.includes("everything");
+var isExplorer = exeName.includes("explorer");
+
+var distance = parseInt(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2.0) + Math.pow((action.End.Y - action.Start.Y), 2.0)));
+var message = '';
+
+if (isBrowser && distance > 200) { // If the gesture is longer, it switches tabs 
+    sp.SendModifiedVKeys([vk.LCONTROL, vk.LSHIFT], [vk.TAB]);
+    message = '🢦Previous tab';  // 🢦⇦🡄 🢦 ⍇ ⇐  Previous tab
+
+} else if (isWordOrExcel && distance > 200) { //long gesture for word and excel 
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.F6]);
+    message = 'previous tab';
+} else if (isSystemSettings) {
+    sp.SendVKey(vk.BACK);
+    message = 'Back';
+} else if (isEverything) {
+    if (distance > 200) {
+        sp.SendVKey(vk.F3);
+        sp.Sleep(50);
+        sp.SendVKey(vk.RIGHT);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_Z]);
+        message = 'Ctrl+Z';
+    } else {
+        sp.SendVKey(vk.BROWSER_BACK);
+        message = 'Back';
+    }
+} else if (isExplorer) {
+    if (distance > 200) {
+        sp.SendModifiedVKeys([vk.LCONTROL, vk.LSHIFT], [vk.TAB]);
+        message = 'previous tab';
+    } else {
+        sp.SendVKey(vk.BROWSER_BACK);
+        message = 'Back';
+    }
+} else {
+    sp.SendVKey(vk.BROWSER_BACK);
+    message = 'Back';
+    //message = '🔙Back';
+}
+
+function displayMessage(message) {
+    info.Message = message;
+    var screen = System.Windows.Forms.Screen.PrimaryScreen;
+
+    // Define the size of the message window
+    var minMessageWidth = 200; // Minimum width of the message window
+    var maxMessageWidth = 500; // Maximum width of the message window
+    var charWidth = 20; // Width of one character in pixels (approximate value)
+    var messageWidth = Math.min(maxMessageWidth, Math.max(minMessageWidth, message.length * charWidth));
+    var messageHeight = 100; // Height of the message window
+
+    if (typeof action !== 'undefined' && action.End) {
+        var posX = action.End.X - messageWidth + 70; // Offset to the left of the gesture endpoint
+        var posY = action.End.Y + 60; // Offset downward from the end point of the gesture
+
+        // Check if the message window extends beyond the left edge of the screen
+        if (posX < 0) {
+            posX = action.End.X + 20; // If it goes beyond the left edge, move it to the right from the gesture endpoint
+        }
+
+        // Check if the message window extends beyond the bottom edge of the screen
+        if (posY + messageHeight > screen.Bounds.Height) {
+            posY = screen.Bounds.Height - messageHeight - 10;
+        }
+
+        info.Location = `${posX},${posY}`;
+    } else {
+        info.Location = '100,100'; // If no coordinates are specified, set the default position
+    }
+
+    sp.DisplayText(info);
+}
+displayMessage(message);
