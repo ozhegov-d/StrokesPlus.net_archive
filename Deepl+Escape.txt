@@ -1,0 +1,259 @@
+//Works only for DeepL for Windows
+//You need to change the settings by setting your hotkeys and check the Capture text on screen checkbox.
+
+//short gesture text highlighted - translation
+//long gesture - Translation of text from the screen
+
+var DEBUG_MODE = false; // Set true to enable console messages
+// Create a wrapper function for console messages
+function debugLog(message, label = '', color = System.Drawing.Color.Red) {
+    if (DEBUG_MODE) {
+        sp.ConsoleError(message, label, color);
+    }
+}
+
+var curwin = sp.WindowFromPoint(action.Start, true);
+var exeName = curwin.Process.MainModule.ModuleName.toLowerCase();
+if (exeName.includes("deepl.exe")) {
+    sp.SendVKey(vk.ESCAPE);
+} else {
+    var info = new DisplayTextInfo();
+    info.MessageAlignment = 'left';
+    info.Duration = 500;
+    info.MessageFont = new Font('Segoe UI Semibold', 20);
+    info.BackColor = 'black';
+    info.ForeColor = 'white';
+    info.Padding = 0;
+    info.FadeSteps = 18;
+
+    function displayMessage(message) {
+        info.Message = message;
+        info.Location = `${action.End.X - 180},${action.End.Y - 90}`;
+        sp.DisplayText(info);
+    }
+    function safeClipboard(action, text = '') {
+        try {
+            if (action === 'get') {
+                return clip.GetText() || '';
+            } else if (action === 'set') {
+                if (text === '') {
+                    clip.Clear();
+                } else {
+                    clip.SetText(text);
+                }
+            }
+        } catch (e) {
+            displayMessage(`Failed to ${action === 'get' ? 'access' : 'set'} clipboard`);
+            return '';
+        }
+    }
+    function detectLanguage(text) {
+        var japanesePct = (text.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || []).length / text.length;
+        var chinesePct = (text.match(/[\u4E00-\u9FFF]/g) || []).length / text.length;
+        var koreanPct = (text.match(/[\u1100-\u11FF\uAC00-\uD7AF]/g) || []).length / text.length;
+        var russianPct = (text.match(/[\u0400-\u04FF]/g) || []).length / text.length;
+        var englishPct = (text.match(/[a-zA-Z]/g) || []).length / text.length;
+
+        if (japanesePct > 0.2) return 'japanese';
+        else if (chinesePct > 0.2) return 'chinese';
+        else if (koreanPct > 0.2) return 'korean';
+        else if (russianPct > 0.2) return 'russian';
+        else if (englishPct > 0.5) return 'english';
+        return 'default';
+    }
+
+    function estimateWindowSize(text) {
+    if (!text) return { width: 300, height: 200 };
+    // Language-specific settings
+    var settings = {
+        default: { fixedWidth: 600, charsPerLine: 45, lineHeight: 25, padding: 10, maxHeight: 1200, heightMultiplier: 1 },
+        japanese: { fixedWidth: 600, charsPerLine: 15, lineHeight: 25, padding: 20, maxHeight: 1200, heightMultiplier: 1 },
+        chinese: { fixedWidth: 600, charsPerLine: 15, lineHeight: 30, padding: 20, maxHeight: 1200, heightMultiplier: 1 },
+        korean: { fixedWidth: 550, charsPerLine: 15, lineHeight: 15, padding: 15, maxHeight: 1200, heightMultiplier: 1 },
+        russian: { fixedWidth: 600, charsPerLine: 45, lineHeight: 25, padding: 15, maxHeight: 1200, heightMultiplier: 1 },
+        english: { fixedWidth: 600, charsPerLine: 45, lineHeight: 25, padding: 5, maxHeight: 1200, heightMultiplier: 1 }
+    };
+    // Detect the language of the text
+    var detectedLanguage = detectLanguage(text);
+    var params = settings[detectedLanguage];
+debugLog('---', '', System.Drawing.Color.Red);
+debugLog(`Language: ${detectedLanguage.charAt(0).toUpperCase() + detectedLanguage.slice(1)} text detected`, '', System.Drawing.Color.Red);
+    text = text.trim();
+    // Split text into lines, accounting for line breaks
+    var lines = [];
+    var currentLine = "";
+    for (var i = 0; i < text.length; i++) {
+        if (text[i] === "\n") {
+            lines.push(currentLine || "");  // Treat empty lines as a full line
+            currentLine = "";
+        } else {
+            currentLine += text[i];
+            if (currentLine.length >= params.charsPerLine) {
+                lines.push(currentLine);
+                currentLine = "";
+            }
+        }
+    }
+    if (currentLine !== "") {
+        lines.push(currentLine);  // Add the last line if there's any remaining content
+    }
+    // Calculate the count of empty lines (vertical spaces)
+    var emptyLineCount = lines.filter(line => line.trim() === "").length;  // Count empty lines
+    // Total line count = number of non-empty lines + number of empty lines
+    var totalLineCount = lines.length;  // Total lines including empty lines
+    var lineCount = Math.max(5, lines.length + emptyLineCount);  // Ensure at least 5 lines, including empty lines
+    // Predefined minimum heights for each language
+    var minHeights = {
+        default: ["300(5)", "310(6)", "320(7)", "320(8)", "370(9)", "380(10)", "400(11)", "410(12)", "430(13)", "540(14)", "480(15)", "495(16)", "510(17)", "460(18)", "470(19)", "560(20)", "570(21)", "580(23)", "590(25)", "600(26)", "700(31)", "790(40)"],
+        // since different languages have different numbers of characters and letter sizes
+        // if you're translating from English, then you need to change english: 
+        // manually set minHeight depending on the number of lines
+        // example 100 height(10 lines)
+      japanese: [
+    "330(5)", "340(6)", "350(7)", "370(8)", "395(9)", "420(10)", "435(11)", "485(12)",
+    "490(13)", "500(14)", "505(15)", "510(16)", "515(17)", "530(18)",
+    "540(19)", "550(20)", "580(21)", "610(22)",
+    "620(23)", "645(24)", "650(25)", "675(26)",
+    "720(27)", "725(28)", "730(29)", "735(30)", "740(31)", "745(32)", "750(33)", "755(34)",
+    "760(35)", "765(36)", "770(37)", "800(38)", "805(39)", "810(40)",
+    "790(41)", "795(42)", "800(43)", "805(44)", "810(45)", "820(46)",
+    "815(47)", "830(48)", "835(49)", "840(50)"
+],
+        chinese: [       
+"330(5)", "370(6)", "380(7)", "400(8)", "460(9)", "475(10)", "500(11)", "545(12)",
+    "545(13)", "550(14)", "565(15)", "565(16)", "570(17)", "575(18)",
+    "575(19)", "580(20)", "600(21)", "650(22)",
+    "655(23)", "660(24)", "670(25)", "705(26)",
+    "720(27)", "725(28)", "730(29)", "735(30)", "740(31)", "745(32)", "750(33)", "755(34)",
+    "760(35)", "765(36)", "770(37)", "800(38)", "805(39)", "810(40)",
+    "790(41)", "795(42)", "800(43)", "805(44)", "810(45)", "820(46)",
+    "815(47)", "830(48)", "835(49)", "840(50)"
+],
+korean: ["300(5)", "320(6)", "340(7)", "350(8)", "350(9)", "350(10)", "350(11)", "370(12)", "400(13)", "430(14)", "450(15)", "460(18)", "470(19)", "540(24)", "570(30)", "650(37)", "850(50)", "950(55)", "1000(60)"],
+        russian: ["300(5)", "310(6)", "340(7)", "360(8)", "370(9)", "380(10)", "400(11)", "410(12)", "430(13)", "450(15)", "490(16)", "500(17)", "520(20)", "540(21)", "560(23)" ,"570(24)" , "580(25)", "590(25)", "600(27)", "610(29)", "650(31)", "770(35)", "800(38)", "810(41)", "850(44)","960(47)"],
+        english: 
+        ["300(5)", "350(6)", "370(7)", "380(8)", "400(9)", "420(10)", "440(11)", "465(12)", "475(13)", "500(14)", "520(15)", 
+        "535(16)", "535(17)", "540(18)", "560(19)", "580(20)", "610(21)","640(22)", "650(23)", "660(24)", "670(25)" , "680(26)" , "700(27)" , 
+         "750(28)" , "750(29)" , "755(31)", "830(33)", "860(35)", "900(37)" ,"940(40)", "960(41)",  "980(42)", "990(43)" , "1000(47)"  ],
+    };
+    // Find the appropriate minimum height based on the total line count
+    var minHeightString = minHeights[detectedLanguage].find(function (item) {
+        var parts = item.split('(');
+        var lines = parseInt(parts[1]);  // Extract the number of lines
+        return lines >= lineCount;  // Find the first entry that matches or exceeds the total line count
+    });
+    // Determine the height based on the selected minHeight or calculate it
+    var height;
+    if (minHeightString) {
+        height = parseInt(minHeightString.split('(')[0]);  // Extract the height from the string
+    } else {
+        // If no suitable value is found, use the maximum height
+        height = params.maxHeight;
+    }
+    // Window height does not exceed 90% of the screen height
+    var maxMonitorHeight = sysinfo.PrimaryMonitorSize.Height * 0.9;
+    height = Math.min(height, maxMonitorHeight);
+    // Debugging information
+    debugLog(`Total lines: ${lines.length}, Empty lines: ${emptyLineCount} `, 'Debug Info', System.Drawing.Color.Red);
+    return { width: params.fixedWidth, height: height };
+}
+    function adjustWindowPosition(window, newSize) {
+        var pos = window.Position;
+        // New window width and height
+        var newWidth = newSize.width;
+        var newHeight = newSize.height;
+        // Screen size
+        var screenWidth = sysinfo.PrimaryMonitorSize.Width;
+        var screenHeight = sysinfo.PrimaryMonitorSize.Height;
+        pos.Right = pos.Left + newWidth;
+        pos.Bottom = pos.Top + newHeight;
+        // Checking for screen overrun (bottom)
+        if (pos.Bottom > screenHeight) {
+            var offset = pos.Bottom - screenHeight;
+            pos.Top -= offset;  // Sliding up
+            pos.Bottom = screenHeight;
+        }
+        // Checking for exceeding the upper limit
+        if (pos.Top < 0) {
+            pos.Top = 0;
+            pos.Bottom = pos.Top + newHeight;
+        }
+        // Checking for overstepping the right boundary
+        if (pos.Right > screenWidth) {
+            var offset = pos.Right - screenWidth;
+            pos.Left -= offset;
+            pos.Right = screenWidth;
+        }
+        // Checking for out of left boundary
+        if (pos.Left < 0) {
+            pos.Left = 0;
+            pos.Right = pos.Left + newWidth;
+        }
+        debugLog(`New window size: ${newWidth}x${newHeight}`, 'Adjusted Window Size', System.Drawing.Color.Red);
+        // Apply new window size and position
+        window.Position = pos;
+        // Delay after resizing the window
+        sp.Sleep(1000);  
+        window.Activate();
+    }
+    var distance = parseInt(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2.0) + Math.pow((action.End.Y - action.Start.Y), 2.0)));
+    // Save the original contents of the clipboard
+    var originalClipboardContent = safeClipboard('get');
+    try {
+        if (distance > 250) {
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.F8]); //Translation of text from the screen
+        } else {
+            // Copy the highlighted text
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+            sp.Sleep(150);
+            var newClipboardContent = safeClipboard('get');
+            if (newClipboardContent && newClipboardContent !== originalClipboardContent) {
+                // translate to DeepL
+              sp.SendModifiedVKeys([vk.LCONTROL, vk.LWIN], [vk.VK_C]); //
+             //sp.SendModifiedVKeys([vk.LCONTROL,vk.LSHIFT], [vk.VK_C]);
+
+                //standard combination
+//                sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+//                sp.Sleep(200);
+//                sp.SendVKey(vk.VK_C);
+                sp.Sleep(100);   // Waiting for the window to appear DeepL
+                 // Looking for the window DeepL
+                var allWindows = sp.AllWindows();
+                var deeplWindow = null;
+                for (var i = 0; i < allWindows.Length; i++) {
+                    var window = allWindows[i];
+                    // Check that the window belongs to the process DeepL and it is visible and not minimized
+                    if (window.Process.MainModule.ModuleName.toLowerCase().includes("deepl.exe") &&
+                        window.Visible && !window.Minimized) {
+                        deeplWindow = window;
+                        break;
+                    }
+                }
+                if (deeplWindow) {
+                    // Get the current size and position of the window
+                    var pos = deeplWindow.Position;
+                    // Estimating window sizes based on text
+                    var newSize = estimateWindowSize(newClipboardContent);
+                    // Adjust the size and position of the window to match the screen resolution
+                    adjustWindowPosition(deeplWindow, newSize);
+                } else {
+                    // If the DeepL window is not found
+                    displayMessage("DeepL window not found");
+                }
+                // Restore the original contents of the clipboard
+                safeClipboard('set', originalClipboardContent);
+            } else {
+                // If the contents of the clipboard have not changed, assume that the text has not been selected
+                //sp.SendKeys("{ESCAPE}");
+                sp.SendVKey(vk.ESCAPE);
+            }
+        }
+    } catch (e) {
+        // Logging an error to the console
+        debugLog("An error occurred: " + e.message, 'Error', System.Drawing.Color.Red);
+        // Displaying an error message on the screen
+        displayMessage("Error: " + e.message);
+        // Restore clipboard contents in case of an error
+        safeClipboard('set', originalClipboardContent);
+    }
+}
