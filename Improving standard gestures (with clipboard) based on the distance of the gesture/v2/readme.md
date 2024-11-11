@@ -32,19 +32,44 @@ When starting the gesture not from a link and there is selected text on the page
 Short gesture not from a link and with no selected text on the page performs the 'Forward' action.
 
 Long gesture switches the tab if text is not selected 
-+It also works in any application: the browser opens and searches
++ It also works in any application: the browser opens and searches
 
 **Back**
 
-short gesture - Back
-long gesture - Previous tab
++ short gesture - Back
++ long gesture - Previous tab
 
 https://github.com/user-attachments/assets/b8ea73d5-7ced-44a6-9a0a-4a11f7f7f174
 
-### minimize-return
+### Minimize-Return
+**Minimize**
++ short gesture - minimizing a single window
++ long gesture - all windows of one process 
+
+**Return**
++ short gesture - restoring a single window
++ long gesture - all windows of one process 
+
+if the stack is empty then sp.LastApplication();
+
+If the window has the same HWnd (and it should be restored), then sp.LastApplication();
+
 https://github.com/user-attachments/assets/753058d4-5b75-4de0-a20e-e06383c07207
 
+### Max or Restore+Everything
+
++ Short gesture, text not selected - Window maximized/restored
++ Short gesture, text selected - search in Everything
++ Long gesture, distance > 270 - open Everything
+
+https://github.com/user-attachments/assets/2b5577a2-e0fd-49e3-89a8-c65a5df5401c
+
+
 ### Search on the page
+
++ short gesture - next match
++ long gesture - previous match
+
 https://github.com/user-attachments/assets/d91a5030-1e5b-41e6-b793-b51ddbed0766
 
 
