@@ -1,0 +1,146 @@
+//short gesture - restoring a single window
+//long gesture - all windows of one process 
+//if the stack is empty then sp.LastApplication();
+//If the window has the same HWnd (and it should be restored), then sp.LastApplication();
+
+var DEBUG_MODE = false; // Set true to enable console messages
+
+function debugLog(message, label = '', color = System.Drawing.Color.Red) {
+    if (DEBUG_MODE) {
+        sp.ConsoleError(message, label, color);
+    }
+}
+
+var longGestureThreshold = 160;
+
+var distance = Math.round(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2) + Math.pow((action.End.Y - action.Start.Y), 2)));
+debugLog(`-------------- (${distance > longGestureThreshold ? 'long' : 'short'} gesture ${distance > longGestureThreshold ? '>' : '<'}${longGestureThreshold})`, 'Info', System.Drawing.Color.Green);
+debugLog(`Distance: ${distance} (${distance > longGestureThreshold ? 'Long' : 'Short'} gesture detected for restore)`, 'Info', System.Drawing.Color.Green);
+
+var shortWindowStack;
+var longWindowStack;
+
+try {
+    shortWindowStack = sp.GetStoredObject("ShortWindowStack");
+    longWindowStack = sp.GetStoredObject("LongWindowStack");
+} catch (error) {
+    debugLog('Error retrieving window stacks: ' + error.message, 'Error', System.Drawing.Color.Red);
+}
+
+// Check if the stacks are arrays, if not - initialize them
+if (!Array.isArray(shortWindowStack)) shortWindowStack = [];
+if (!Array.isArray(longWindowStack)) longWindowStack = [];
+
+// Get the current active window
+var currentActiveWindow = sp.ForegroundWindow();
+
+if (distance <= longGestureThreshold) {
+    debugLog('Short gesture detected for restore', 'Info', System.Drawing.Color.Yellow);
+    debugLog(`ShortWindowStack length before restore: ${shortWindowStack.length}`, 'Info', System.Drawing.Color.Green);
+
+    let windowRestored = false;
+
+    if (shortWindowStack.length > 0) {
+    var lastWindow = shortWindowStack[shortWindowStack.length - 1]; // Get the last element without deleting it
+    var currentWindow = sp.ForegroundWindow();
+
+    // Get numeric values of HWnd
+    var currentHWnd = Number(currentWindow.HWnd.ToString());
+    var lastHWnd = Number(lastWindow.HWnd.ToString());
+
+    // HWnd
+    debugLog(`Current window HWnd: ${currentHWnd}`, 'Info', System.Drawing.Color.Yellow);
+    debugLog(`Last window in stack HWnd: ${lastHWnd}`, 'Info', System.Drawing.Color.Yellow);
+
+    try {
+        if (lastWindow && typeof lastWindow.IsValid === 'function' && lastWindow.IsValid()) {
+            // Comparing numerical values HWnd
+            if (currentHWnd === lastHWnd) {
+                debugLog('Current window matches last window in stack, calling LastApplication', 'Info', System.Drawing.Color.Yellow);
+                sp.LastApplication();
+            } else {
+                shortWindowStack.pop(); // Delete an item only if HWnd does not match
+                lastWindow.Activate();
+                debugLog(`Restored window (short gesture): ${lastWindow.Title} (Process: ${lastWindow.Process.ProcessName})`, 'Info', System.Drawing.Color.Green);
+            }
+            windowRestored = true;
+        } else {
+            shortWindowStack.pop(); // Deleting an invalid window
+            debugLog('Window is not valid, skipping restoration', 'Warning', System.Drawing.Color.Yellow);
+        }
+    } catch (error) {
+        debugLog(`Error restoring window: ${error.message}`, 'Error', System.Drawing.Color.Red);
+    }
+}
+    if (shortWindowStack.length === 0) {
+        sp.DeleteStoredObject("ShortWindowStack");
+        debugLog('ShortWindowStack completely deleted from memory (empty)', 'Info', System.Drawing.Color.Green);
+    } else {
+        sp.StoreObject("ShortWindowStack", shortWindowStack);
+    }
+
+    debugLog(`ShortWindowStack length after restore: ${shortWindowStack.length}`, 'Info', System.Drawing.Color.Green);
+
+    if (!windowRestored) {
+        debugLog('No window restored, activating last application', 'Info', System.Drawing.Color.Green);
+        try {
+            sp.LastApplication();
+            debugLog('Last application activated successfully', 'Info', System.Drawing.Color.Green);
+        } catch (error) {
+            debugLog('Error activating last application: ' + error.message, 'Error', System.Drawing.Color.Red);
+        }
+    }
+
+} else {
+    // Processing a long gesture
+    debugLog('Long gesture detected for restore', 'Info', System.Drawing.Color.Yellow);
+
+    if (longWindowStack.length > 0) {
+        // Get unique process names in reverse order
+        var processNames = [...new Set(longWindowStack.map(w => w.Process.ProcessName))].reverse();
+        
+        // Restore the window group for the last process
+        var currentProcessName = processNames[0];
+        debugLog(`Restoring group for process: ${currentProcessName}`, 'Info', System.Drawing.Color.Green);
+
+         // Filter and sort the windows of the current process
+        var currentGroup = longWindowStack.filter(window => window.Process.ProcessName === currentProcessName);
+        currentGroup.reverse(); // Reverse the order of windows in a group
+
+        // Restoring windows
+        for (var i = 0; i < currentGroup.length; i++) {
+            var windowToRestore = currentGroup[i];
+            if (windowToRestore && typeof windowToRestore.IsValid === 'function' && windowToRestore.IsValid()) {
+                try {
+                    windowToRestore.Activate();
+                    debugLog(`Restored window: ${windowToRestore.Title}`, 'Info', System.Drawing.Color.Green);
+                } catch (error) {
+                    debugLog(`Error activating window: ${error.message}`, 'Error', System.Drawing.Color.Red);
+                }
+            } else {
+                debugLog(`Skipped invalid window`, 'Info', System.Drawing.Color.Yellow);
+            }
+        }
+
+        // Remove the restored group from the stack
+        longWindowStack = longWindowStack.filter(window => window.Process.ProcessName !== currentProcessName);
+
+        // Save the updated stack
+        if (longWindowStack.length === 0) {
+            sp.DeleteStoredObject("LongWindowStack");
+            debugLog('LongWindowStack completely deleted from memory (empty)', 'Info', System.Drawing.Color.Green);
+        } else {
+            sp.StoreObject("LongWindowStack", longWindowStack);
+        }
+
+        debugLog(`LongWindowStack length after restore: ${longWindowStack.length}`, 'Info', System.Drawing.Color.Green);
+    } else {
+        debugLog('LongWindowStack is empty, activating last application', 'Info', System.Drawing.Color.Green);
+        try {
+            sp.LastApplication();
+            debugLog('Last application activated successfully', 'Info', System.Drawing.Color.Green);
+        } catch (error) {
+            debugLog('Error activating last application: ' + error.message, 'Error', System.Drawing.Color.Red);
+        }
+    }
+}
