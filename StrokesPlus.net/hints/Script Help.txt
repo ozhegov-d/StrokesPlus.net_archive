@@ -1,0 +1,830 @@
+These objects are available in all scripts and give you access into the .NET Framework or script engine host functions (ClearScript).
+clr = mscorlib, System, System.Core
+drawing = System.Drawing
+forms = System.Windows.Forms
+net = System.Net
+http = System.Net.Http
+host = ExtendedHostFunctions (see ClearScript help)
+clip = System.Windows.Forms.Clipboard
+sysinfo = System.Windows.Forms.SystemInformation
+speech = System.Speech
+NativeModules - Any types created by the sp.NativeModule methods
+NativeDelegates - Any delegate classes created via sp.NativeDelegate or sp.NativeDelegateList
+====================================================================
+console
+sp.ConsoleCopySystem(); //Copies the System log from console window to the clipboard.
+sp.ConsoleCopyUser(); //Copies the User log from console window to the clipboard.
+sp.ConsoleEnableTimestamps(true); //Enables or disables timestamps being added to console logging entries.
+sp.ConsoleError('message', 'label', System.Drawing.Color.Red); //
+sp.ConsoleHide(); //Hides the console window.
+var consoleVisible = sp.ConsoleIsVisible(); // Returns true if the console window is visible.
+sp.ConsoleLog('message', 'label', System.Drawing.Color.Red); //Logs an information event to the User log in the console window.
+sp.ConsoleShow();//Shows the console window.
+sp.ConsoleShowOnSystemError(true);//Enables or disables if the console window is displayed on error.
+sp.ConsoleWarning('message', 'label', System.Drawing.Color.Red);//Logs a warning event to the User log in the console window.
+====================================================================
+Extensions (These are extensions to existing .NET types which are specific to StrokesPlus.net.)
+sp.NativeModule().DefineEnum("TestEnum",
+                             "Low,High",
+                             [0,1]).Create();//Calls EnumBuilder.CreateType() and refreshes the script engine  types.
+var newDistinctList = myList.Distinct("propertyName");//Accepts a property name to select distinct and return a new List<T>.
+--
+someList.forEach((item,i) => 
+{
+    //do something with item object, i = index of current item
+});//Provides a method of iterating over the elements of an IEnumerable and performing an action.
+var mySortedList = myList.OrderBy("PropertyName");
+var myDescSortedList = myList.OrderBy("PropertyName desc"); //Sorts an lEnumerable by a single property name and flag for descending.
+var mySortedList = myList.OrderByMultiple("Category|0,Description|1");//Sorts an IEnumerable based on the string passed in.
+var filteredList = myList.Where(i => i.Property == "value");//Applies a boolean predicate against the IEnumerable and returns an IEnumerable<T>.
+myMethodBuilder.AddMethodImplAttributes("clr.System.Reflection.MethodImplAttributes.Managed");//Adds a MethodImplAttributes flag to the current value.
+var typesTB = sp.NativeModule().CreateType("Types", "Class,Public,SequentialLayout,Serializable");//Alias for ModuleBuilder.DefineType to simplify obtaining an instantiated System Reflection.Emit.TypeBuilder object. This creates a finalized type, so it cannot be altered, only added to via nested elements.
+sp.NativeModule().DefineEnum("TestEnum",
+                             "Low,High",
+                             [0,1]).Create();//Overload for ModuleBuilder.DefineEnum to simplify obtaining an instantiated System -Reflection.Emit.EnumBuilder object.
+var user32TB = sp.NativeModule().DefineType("User32", "Class,Public,SequentialLayout,Serializable");
+//Make additional fields/methods/nested types here
+user32TB.Create();//Overload for ModuleBuilder.DefineType to simplify obtaining an instantiated System.Reflection.Emit.TypeBuilder object. This defines the type, but does not create it, so the type can still be defined further.
+var myTypeTB = sp.NativeModule().DefineType("MyType", "Class,Public,SequentialLayout,Serializable");
+myTypeTB.Create();
+var newType = new NativeModules.MyType();//Calls TypeBuilder.CreateType() and refreshes the script engine types.
+var typesTB = sp.NativeModule().CreateType("Types", "Class,Public,SequentialLayout,Serializable");
+typesTB.DefineNestedEnum("NestedEnum",
+                         "Low,High",
+                         [0,1]).Create();//Alias for TypeBuilder.DefineNestedType to simplify obtaining an instantiated System Reflection.Emit.TypeBuilder object.
+var typesTB = sp.NativeModule().CreateType("Types", "Class,Public,SequentialLayout,Serializable");
+typesTB.DefineNestedStruct("RECT", 
+                           "Left,Top,Right,Bottom", 
+                           [Int32T,Int32T,Int32T,Int32T]).Create();//Alias for TypeBuilder.DefineNestedType to simplify obtaining an instantiated System.Reflection.Emit.TypeBuilder object.
+var IntPtrT = host.typeOf(clr.System.IntPtr);
+var BooleanT = host.typeOf(clr.System.Boolean);
+var user32TB = sp.NativeModule().DefineType('User32', 'Class,Public,SequentialLayout,Serializable');
+user32TB.DefinePInvokeMethod('EnumWindows',
+	'user32.dll',
+	[IntPtrT, IntPtrT],
+	BooleanT,
+	'PreserveSig');
+user32TB.Create()   //Overload for TypeBuilder.DefinePinvokeMethod to simplify obtaining an instantiated System.Reflection.Emit.MethodBuilder object.
+if(!NativeModules.MyType)
+{
+    var StringT = host.typeOf(clr.System.String);
+    var emit = clr.System.Reflection.Emit;
+    myTypeTB = sp.NativeModule().DefineType("MyType", "Class,Public,SequentialLayout,Serializable");
+    var myMethod = myTypeTB.NewMethod("MyMethod",
+                                      [StringT], 
+                                      StringT, 
+                                      "Public",
+                                      "Standard"
+    );
+    //Additional code necessary to build method, below is a simple example
+    var myMethodIL = myMethod.GetILGenerator();
+    myMethodIL.Emit(emit.OpCodes.Ldstr, "Hi! ");
+    myMethodIL.Emit(emit.OpCodes.Ldarg_1);
+    var conCatParamTypes = new List(clr.System.Type);
+    conCatParamTypes.Add(StringT);
+    conCatParamTypes.Add(StringT);
+    var infoMethod = StringT.GetMethod("Concat", conCatParamTypes.ToArray());
+    myMethodIL.Emit(emit.OpCodes.Call, infoMethod);
+    myMethodIL.Emit(emit.OpCodes.Ret);
+    myTypeTB.Create();
+}
+var newType  = new NativeModules.MyType();
+var result = newType.MyMethod("Test");
+sp.MessageBox(`Result: ${result}`, "Success!")//Alias for TypeBuilder.DefineMethod to simplify obtaining an instantiated System.Reflection.Emit.MethodBuilder object.
+====================================================================
+Files
+var version = sp.GetFileProductVersionInfo('C:\\Windows\\Notepad.exe');//Returns a string represnting the file's product version, as returned by FileVersioninfo.ProductVersion.
+var version = sp.GetFileVersionInfo('C:\\Windows\\Notepad.exe');//Returns a string representing the file's version number, in the format of xxx
+====================================================================
+Floaters 
+sp.TouchFloaterCloseCustomFloater('FloaterName');//Close a custom floater by name. Only works if floaters are currently shown.
+var floaterLoc = sp.TouchFloaterGetLocation();//Get the location of the main fioater. Returns null if floaters are not currently shown.
+sp.TouchFloaterHide();//Hides the floaters.
+sp.TouchFloaterIsCustomFloaterLoaded('FloaterName');//Returns true if the floater matching the name is currently loaded.
+sp.TouchFloaterIsShown();//Returns true if the main floater is shown.
+sp.TouchFloaterLoadCustomFloater('FloaterName');//Load a custom fioater by name. Only works if floaters are currently shown.
+sp.TouchFloaterLoadLayout('LayoutName');//Load a floater layout by name. Only works if floaters are currently shown.
+sp.TouchFloaterSetCustomFloaterLocation('FloaterName', new Point(100,100));//Move a custom floater to a new location. Only works if floaters are currently shown.
+sp.TouchFloaterSetLocation(new Point(100,100));//Move a custom floater to a new location. Only works if floaters are currently shown.
+sp.TouchFloaterShow();//Shows the main floater.
+sp.TouchFloatersReset();//Resets the main floaters to their default positions.
+sp.TouchFloaterToggle();//Toggles the visibility of the floaters.
+sp.TouchFloaterToggleOthers();//Toggles the visibility of the non-primary floaters.
+====================================================================
+Input and Display
+var result = sp.Confirm('Message', 'Title');//Displays a simple Yes/No popup with a title and message. Returns true if Yes clicked, otherwise returns false.
+sp.DisplayImage(clip.GetImage(), true); //Assumes an image is on the clipboard, enables mouse wheel scroll zooming//Displays a popup on the screen containing the image passed in. Click and drag to move the window, press Escape or double-click the window to close.
+var info = new DisplayTextInfo();
+info.Title = 'Test';
+info.TitleAlignment = 'Center';
+info.Message = 'Message';
+info.MessageAlignment = 'Left';
+info.Duration = 2000;
+//The transparency of the popup, valid ranges: 0.05 - 1.0  (1.0 is no transparency)
+info.Opacity = 0.7;
+//Location supports location as well, use this format to specify a type: '100,200'
+//types: topleft, top, topright, right, bottomright, bottom, bottomleft, left
+info.Location = 'top'; 
+info.TitleFont = new Font('Segoe UI', 12, host.flags(FontStyle.Bold));
+info.MessageFont = new Font('Segoe UI Semibold', 12);
+info.BackColor = 'black';//'56,169,255'; //Also supports RGB
+info.ForeColor = 'white';
+info.Padding = 15;
+info.FadeSteps = 18;
+//If true, always displays on primary screen (unless Location is a point type), 
+//otherwise displays on the screen where the gesture started
+info.UsePrimaryScreen = true; 
+sp.DisplayText(info);//Displays a popup on the screen containing a title and text. Fonts, colors, opacity, duration, among other properties can be controlled. See DisplayTextinfo for more details.
+sp.DisplayTextClose();//Closes a popup previously displayed via sp.DisplayText.
+var info = new DisplayTextInfo();
+info.Title = 'Test';
+info.TitleAlignment = 'Center';
+info.Message = 'Message';
+info.MessageAlignment = 'Left';
+info.Duration = 2000;
+//The transparency of the popup, valid ranges: 0.05 - 1.0  (1.0 is no transparency)
+info.Opacity = 0.7;
+//Location supports location as well, use this format to specify a type: '100,200'
+//types: topleft, top, topright, right, bottomright, bottom, bottomleft, left
+info.Location = 'top'; 
+info.TitleFont = new Font('Segoe UI', 12, host.flags(FontStyle.Bold));
+info.MessageFont = new Font('Segoe UI Semibold', 12);
+info.BackColor = 'black';//'56,169,255'; //Also supports RGBinfo.ForeColor = 'white';
+info.Padding = 15;
+info.FadeSteps = 18;
+//If true, always displays on primary screen (unless Location is a point type), 
+//otherwise displays on the screen where the gesture started
+info.UsePrimaryScreen = true; 
+sp.DisplayTextUpdate(info);//Updates the current popup created by sp.DisplayText. This is far more efficient than closing and displaying a new popup.
+// This function is called when the HTML window is created, passing the ID and window Handle
+// Example of JSON sent on window created:
+//  {
+//     "StrokesPlusHTMLWindow": {"ID" : "windowID", "Handle" : "123456"}
+//  }
+
+// It is also how to pass messages to your S+ script from the HTML window via using
+// window.chrome.webview.postMessage 
+function testWindowCallback(val) 
+{
+    let obj = JSON.parse(val);
+    if (obj.StrokesPlusHTMLWindow) {
+        var handle = new IntPtr(parseInt(obj.StrokesPlusHTMLWindow.Handle))
+        sp.StoreHandle("testWindowHandle",handle);
+        sp.WindowFromHandle(handle).Maximize();
+    } 
+    else if (obj.action)
+    {
+        switch(obj.action) {
+            case "Close":
+                sp.WindowFromHandle(sp.GetStoredHandle("testWindowHandle")).SendClose();        
+                break;
+            default:
+                sp.MessageBox(obj.action, "Callback Action");
+                break;
+        }
+    }
+    else
+    {
+        sp.MessageBox(val, "Callback Value");
+    }
+}
+// Create new HTML window
+// sp.HTMLWindow(title, HTML, callback, loadScript, windowId, includeBootstrapJQuery);
+sp.HTMLWindow("Window Title",
+                                `<div class="container mt-2">
+                                      <p>Test</p>
+                                      <button id="buttonOK" class="btn btn-primary">OK</button>
+                                      <button id="buttonString" class="btn btn-secondary">Send String</button>
+                                      <button id="buttonClose" class="btn btn-default">Close</button>
+                                  </div>
+                                  <script>
+                                        $('#buttonOK').click(function (b) {
+                                            window.chrome.webview.postMessage({ action: 'OK', message: 'clicked OK'});
+                                        });
+                                        $('#buttonString').click(function (b) {
+                                            window.chrome.webview.postMessage("Test String");
+                                        });
+                                        $('#buttonClose').click(function (b) {
+                                            window.chrome.webview.postMessage({ action: 'Close', message: 'clicked Cancel'});
+                                        });
+                                  </script>`, 
+    "testWindowCallback",                     // script callback (to process data from window.chrome.webview.postMessage)
+    "//alert('testWindow Loaded');",  // script (within scope of HTML) to be executed on HTML doc load 
+    "",       // window ID, if not supplied, will be a new GUID
+    true);  // include Bootstrap 4, JQuery, document wrapper (your HTML will be inserted inside the <body> tag)
+                 // false will not include any additional HTML beyond what is passed in from above//Displays a window which hosts a WebView2 control to display and make interactive HTML windows.
+// Assumes you are using the Example from HTMLWindow
+	sp.HTMLWindowExecuteScriptAsync(sp.GetStoredHandle("testWindowHandle"), "alert('Hello!');");//Executes JavaScript inside the specified HTML window.
+var inputBoxInfo = new InputBoxInfo();
+inputBoxInfo.Title = 'Title text';
+inputBoxInfo.Message = 'Test';
+inputBoxInfo.Items.Add('Test Item');
+inputBoxInfo.AllowDirectInput = true;
+inputBoxInfo.Sort = true;
+inputBoxInfo.ShowAtMouseCursor = true;
+var res = sp.InputBox(inputBoxInfo);
+if(res != null) {
+	sp.MessageBox(res, 'Result');
+}//Displays a window which can be used to collect user input. See InputBoxinfo for more details.
+sp.MessageBox('Message', 'Title');//Displays a simple message box with a title and message.
+// Object based notation, including font
+sp.Sleep(10); //To allow caret position update in active control
+var items = new List(PopupListItem);
+items.Add(new PopupListItem("Item 1", "sp.SendString('Item 1');"));
+items.Add(new PopupListItem("Item 2", "sp.SendString('Item 2');"));
+//items.Add(new PopupListItem("―――――――――――――――", ""));
+items.Add(new PopupListItem("Item 3", "sp.SendString('Item 3');"));
+var subItems1 = new List(PopupListItem);
+subItems1.Add(new PopupListItem("· Sub Item A", "sp.SendString('Sub Item A');"));
+var subSubItems1 = new List(PopupListItem);
+subSubItems1.Add(new PopupListItem("· Sub Sub Item X", "sp.SendString('Sub Sub Item X');"));
+subItems1.Add(new PopupListItem("· Sub Sub Menu >", "", false, subSubItems1));
+items.Add(new PopupListItem("Sub Menu >", "", false, subItems1));
+items.Add(new PopupListItem("Selected Item", "sp.SendString('Selected Item');", true));
+items.Add(new PopupListItem("LooooooooooooooONg and Tall", `clip.SetText("Reallllllly long block of text that would take a bit long to send each character, so use clipboard instead."); 
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);`));
+items.Add(new PopupListItem("Close"));
+var font = new Font(new FontFamily("Kristen ITC"),
+                                22,
+                                host.flags(FontStyle.Bold, FontStyle.Italic),
+                                GraphicsUnit.Pixel
+                               );
+sp.PopupList(items, new Point(), font);
+// JavaScript array notation
+sp.Sleep(10); //To allow caret position update in active control
+var items =  
+[
+    ["Item 1", "sp.SendString('Item 1');"],
+    ["Item 2", "sp.SendString('Item 2');"],
+    ["Sub Menu >",  "", false, [
+          ["· Sub Item A", "sp.SendString('Sub Item A');"],
+          ["· Sub Sub Menu >", "", false, [ 
+                ["· Sub Sub Item X", "sp.SendString('Sub Sub Item X');"]
+          ]]
+    ]],
+    ["Selected Item", "sp.SendString('Selected Item');", true],
+    ["LooooooooooooooONg and Tall", 
+      `clip.SetText("Reallllllly long block of text that would take a bit long to send each character, so use clipboard instead."); 
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);`
+    ],
+    ["Close"]
+]
+var font = new Font(new FontFamily("Kristen ITC"),
+                                22,
+                                host.flags(FontStyle.Bold, FontStyle.Italic),
+                                GraphicsUnit.Pixel
+                               );
+sp.PopupList(items, new Point(), font); // Remove ", font" to use default font
+//Example specifying colors:
+/*
+sp.PopupList(items, 
+    new Point() , 
+    font, 
+    Color.FromName("White"), //Background Color (NO alpha, will crash)
+    drawing.System.Drawing.SystemColors.MenuHighlight, // Highlight color (supports alpha)
+    Color.FromArgb(128,255,0,0) // Text color (supports alpha)
+); 
+*/ //Shows a popup list, like a menu, which can execute scripts and supports nested items.
+//Types include: Warning, Error, Info, None
+//Duration (5000 ms below) can be overridden by Windows Accessibility settings
+sp.ShowBalloonTip('Title', 'Message here', 'Info', 5000);//Displays a balloon tool window or a toast style notification popup depending on the version of Windows. NOTE: This functionality can be overridden or prevented based on Windows settings and rules that govern notifications.
+var popupMenuInfo = new  PopupMenuInfo();
+popupMenuInfo.Items.Add('Test 1');
+popupMenuInfo.Items.Add('Test 2');
+popupMenuInfo.Items.Add('-');
+popupMenuInfo.Items.Add('Test 3');
+popupMenuInfo.Location = action.End;
+popupMenuInfo.Callback = 'PopupMenuCallback';
+var res = sp.ShowPopupMenu(popupMenuInfo);
+//Example callback function to put in your Load Scripts section
+function PopupMenuCallback(id) {
+	sp.MessageBox(''+id, 'Selected Menu Item');
+} //Displays a context menu from which the user can select an item. This requires a global javascript callback to receive the selected item. See PopupMenuinfo and the examples for more information.
+//For script is running in an action, otherwise use a Point instead of action.End
+var popupMenuInfoEx = new PopupMenuInfoEx(action.End);
+popupMenuInfoEx.MenuItems.Add(new PopupMenuItem("Test", `sp.MessageBox("Test", "Test");`));
+popupMenuInfoEx.MenuItems.Add(new PopupMenuItem("-"));
+var mnuSubMenu = new PopupMenuItem("Sub Menu");
+    mnuSubMenu.SubMenuItems.Add(new PopupMenuItem("Sub Item 1", `sp.MessageBox("Sub Item 1", "Sub Item 1");`));
+    var mnuSubSubMenu = new PopupMenuItem("Sub Sub Menu");
+        mnuSubSubMenu.SubMenuItems.Add(new PopupMenuItem("Sub Sub Item 1", `sp.MessageBox("Sub Sub Item 1", "Sub Sub Item 1");`));
+    mnuSubMenu.SubMenuItems.Add(mnuSubSubMenu);
+    mnuSubMenu.SubMenuItems.Add(new PopupMenuItem("Sub Item 2", `sp.MessageBox("Sub Item 2", "Sub Item 2");`));
+popupMenuInfoEx.MenuItems.Add(mnuSubMenu);
+popupMenuInfoEx.MenuItems.Add(new PopupMenuItem("Last", `sp.MessageBox("Last", "Last");`));
+popupMenuInfoEx.MenuItems.Add(new PopupMenuItem("-"));
+popupMenuInfoEx.MenuItems.Add(new PopupMenuItem("Close Popup", ""));
+sp.ShowPopupMenuEx(popupMenuInfoEx); //Displays a context menu from which the user can select an item. This is an extended version of ShowPopupMenu that allows for more a complex menu structure and doesn't require a callback.
+====================================================================
+Internal
+sp.CloseSettings(true);//Closes the Settings window, with or without saving changes.
+sp.ConsumePhysicalInput(true); //Physical input will be automatically re-enabled after 60 seconds
+sp.ConsumePhysicalInput(true, 600); //Physical input will be automatically re-enabled after 600 seconds (10 minutes)
+sp.ConsumePhysicalInput(true, 0); //You MUST call again passing false to re-enable input. Win+L and Ctrl+Alt+Del will also re-enable input depending on your Windows version and configuration
+sp.ConsumePhysicalInput(false); //Re-enables physical input//Consumes ALL physical mouse and keyboard input. NOTE: Be very careful when using this function, if you call it with true and either forget to call it again with false (or the script runs into an error), you may be stuck unable to use the computer!
+sp.Disable();//Disable StrokesPlus.net.
+sp.DisableCapture();//Disables the mouse and keyboard hooks.
+sp.DisableNext();//Disables the next stroke or secondary stroke button press from capturing.
+sp.Enable();//Enables StrokesPlus.net. Note: The only way to execute this would be via timer created by sp.CreateTimer.
+sp.EnableCapture();//Enables the mouse and keyboard hooks.
+sp.ExecutePreviousScript(0);//Executes one of the previous 5 scripts that were executed. The last 5 scripts are stored in history and the index specifies which one to retrieve. The index is zero based, so 0 is the most recent script, 4 is the oldest script in history.
+sp.ExecuteStoredScript('storedscriptname');//Executes a script previously stored via sp.StoreHistoryScript.
+sp.Exit();//Stops all timers and scripts, saves settings, and closes StrokesPlus.net.
+sp.GetHistoryScript(0);//Returns a history script of the specified index. The last 5 scripts are stored in history and the index specifies which one to retrieve. The index is zero based, so 0 is the most recent script, 4 is the oldest script in history.
+sp.OpenSettings();//Opens the Settings window.
+sp.RelayGesture(action.GesturePoints, action.StrokeButton);//Relays the mouse down, mouse movements, and mouse release based on the points and button specified.
+sp.Reload();//Stops all scripts, timers, and reloads StrokesPlus.net.
+sp.ReloadScriptEnginePool();//Stops all scripts and reloads the script engine pool.
+sp.StopAllActionSteps();//Stops all action step execution.
+sp.StopAllScripts();//Stops all currently executing scripts.
+sp.ToggleTrayIcon();//Toggles the visibility of the StrokesPlus.net tray icon.
+====================================================================
+Keystrokes
+var caretLoc = sp.GetCaretLocation();//Returns the location of the caret on the screen. If the location cannot be determined, returns null.
+var isShiftDown = sp.GetKeyState(vk.SHIFT) & 0x8000//Returns a short (number) containing the key state data for the specified key. See the GetKeyState Microsoft documentation for key state data details.
+var isZKeyDown = sp.IsKeyDown(vk.VK_Z);//Returns true if the specified key is currently pressed (down).
+var isCapsLockOn = sp.IsKeyToggled(vk.CAPITAL);//Returns true if the specified key is toggled on. This is intended for the Caps, Num, and Scroll lock keys.
+sp.SendAltDown();//Simulates pressing the left Alt key down.
+sp.SendAltUp();//Simulates releasing the left Alt key.
+sp.SendCharacter('a');//Simulates pressing and releasing the specified character.
+sp.SendControlDown();//Simulates pressing the left Control key down.
+sp.SendControlUp();//Simulates releasing the left Control key.
+sp.SendKeyDown('a');//Simulates pressing the specified character key down.
+sp.SendKeys('^a');//Simulates sending a sequence of keystrokes using the Microsoft SendKeys.SendWait() method. Search the internet for ‘SendKeys Class’ to find specific rules and keywords when using this action.
+sp.SendKeyUp('a');//Simulates releasing the specified character.
+sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.VK_A, vk.VK_C]);//Simulates pressing a key combination, like Ctrl+S, Win+E, etc. The modifiers are held down, the keys are sent, then the modifiers are released.
+sp.SendShiftDown();//Simulates pressing the left Shift key down.
+sp.SendShiftUp();//Simulates releasing the left Shift key.
+sp.SendString('This is a test');//Simulates sending a sequence of characters.
+sp.SendUnicodeString('‽');//Simulates sending a sequence of Unicode characters. Not sure if this function is required, | wanted to provide multiple methods for international users.
+sp.SendVKey(vk.CONTROL);//Simulates pressing and releasing the specified VirtualKeyCode.
+sp.SendVKeyDown(vk.CONTROL);//Simulates pressing the specified virtual key down.
+sp.SendVKeyUp(vk.CONTROL);//Simulates releasing the specified VirtualKeyCode.
+sp.SendWinDown();//Simulates pressing the left Win key down.
+sp.SendWinUp();//Simulates releasing the left Win key.
+====================================================================
+Language/Culture
+sp.ChangeCulture('en-US');//Changes the current language culture to the specified one.
+sp.GetCurrentCulture();//Returns the current culture code, e.g. en-US, pI-PL.
+====================================================================
+Locate Windows or Controls
+var wnds = sp.AllApplications();
+var apps = '';
+for (var i = 0, len = wnds.Length; i < len; i++) {
+	apps = apps + 'Class: ' + wnds[i].ClassName + ' Title: ' + wnds[i].Title + '\r\n';
+}
+clip.SetText(apps); //Returns an array of SystemWindow objects for all primary application windows. This may incorrectly skip or include unconventional applications. See also sp.AllWindows().
+var wnds = sp.AllWindows();
+var apps = '';
+for (var i = 0, len = wnds.Length; i < len; i++) {
+	apps = apps + 'Class: ' + wnds[i].ClassName + ' Title: ' + wnds[i].Title + '\r\n';
+}
+clip.SetText(apps); //Returns an array of SystemWindow objects for all controls and windows. See also sp.AllApplications().
+var desktopWindow = sp.DesktopWindow();//Returns a SystemWindow object for the Desktop window. This is the actual desktop window, not necessarily the window which contains the desktop icons. See also sp.DesktopWindowListView).
+var desktopSurface = sp.DesktopWindowListView();//Returns a SystemWindow object for the Desktop ListView window, which is where the desktop icons reside.
+sp.ForegroundWindow().Center();//Returns a SystemWindow object of the current foreground window
+var lastWindow = sp.LastActiveWindow();//Returns a SystemWindow object for the last active primary window.
+sp.LastApplication();//Activates the last active, non-minimized window, similar to Alt+Tab
+var lastControl = sp.LastFocusControl();//Returns a SystemWindow object for the last active control.
+sp.NextApplication();//Activates the next window in the stack
+var notepad = sp.WindowFromClassOrTitle('Notepad', '')//Returns a SystemWindow object for a control or window based on the class name and/or title.
+sp.WindowFromHandle(action.Window.HWnd).Center();//Returns a SystemWindow object of a window or control from an existing handle
+sp.WindowFromPoint(action.Start, true).Center();//Returns a SystemWindow object of a control or window (based on topLevelOnly parameter) from a point (coordinate) on the screen
+var notepadmatches = sp.WindowsFromTitlePartial('notepad');//Returns an array of SystemWindow objects for controls or windows based on a partial title match.
+var matches = sp.WindowsFromTitleRegex(' - Notepad$');//Returns an array of SystemWindow objects for controls or windows based on a regular expression title match.
+====================================================================
+Macros
+sp.GetMacroScript('categoryname', 'macroname');//Returns the full script for the specified macro.
+var lastscript = sp.GetTemporaryMacroScript();//Returns the script of the last temporary macro.
+sp.PlayTemporaryMacro();//MPORTANT: If calling this from a hotkey, make sure to add a sp.Sleep(1000); before calling this function to ensure you release the hotkeys before the macro starts or the keys could be stuck in the down state, or send the key up events for the keys used in the hotkey as shown in the full example.
+sp.RecordTemporaryMacro();//Note: If calling this from a hotkey, you should add a sp.Sleep(1000); before the calling this function, to ensure when you release the hotkey that those aren't recorded.
+====================================================================
+Media
+var captureMixer = sp.GetCaptureMixer();//Returns a AudioSwitcher.AudioApi.CoreAudio.CoreAudioDevice object which allows controlling the default capture (record) mixer/device.
+var commCaptureMixer = sp.GetCommunicationsCaptureMixer();//Returns a AudioSwitcher AudioApi.CoreAudio.CoreAudioDevice object which allows controlling the default communications capture (record) mixer/device.
+var commMixer = sp.GetCommunicationsMixer();//Returns a AudioSwitcher.AudioApi.CoreAudio.CoreAudioDevice object which allows controlling the default communications mixer/device.
+var currentVolume = sp.GetCommunicationsVolume();//Returns the current volume level of the default communications mixer/device. (0 - 100)
+var playMixer = sp.GetPlaybackMixer();//Returns a AudioSwitcher.AudioApi.CoreAudio.CoreAudioDevice object which allows controlling the default playback mixer/device.
+var currentVolume = sp.GetPlaybackVolume();//Returns the current volume level of the default playback mixer/device. (0 - 100)
+sp.PlaySound('C:\\Windows\\Media\\ding.wav');//Plays a .wav file. Does not support other sound formats.
+sp.SetCommunicationsVolume(50);//Sets the volume level of the default communications mixer/device. (0 - 100)
+sp.SetPlaybackVolume(50);//Sets the volume level of the default playback mixer/device. (0 - 100)
+sp.ToggleCommunicationsMute();//Toggles mute on the default communications mixer/device.
+sp.TogglePlaybackMute();//Toggles mute on the default playback mixer/device.
+====================================================================
+Mouse
+var currentMouseCursor = sp.GetCurrentMouseCursor();//Returns the name of the current mouse cursor. NOTE: This will only compare against the standard Windows cursors as defined by the Microsoft ‘Cursors Class’ properties, e.g. ‘AppStarting’, ‘Arrow’, ‘Hand’, etc. Any custom cursors will not be recognized and the return value will be ‘Unknown’.
+var currentMouseLocation = sp.GetCurrentMousePoint();//Returns a point containing the coordinates of the current mouse position.
+sp.HideMouseCursor();//Hides the mouse cursor. NOTE: This basically makes all cursors transparent and are restored via sp ShowMouseCursor0. However, this simply resets the mouse cursors to the default icon set, so any custom cursors you have selected will be reverted.
+var isLeftMouseDown = sp.IsButtonDown(MouseButtons.Left);//Returns true if the specified mouse button is currently pressed (down).
+sp.MouseClick(new Point(100,100), MouseButtons.Left, true, true);//Simulates pressing and/or releasing a mouse button at a specific location.
+sp.MouseMove(new Point(100, 100));//Moves the mouse to the specified location.
+var mouseRestricted = sp.MouseRestrictActive();//Returns true or false, indicating whether the mouse is being restricted via sp.MouseRestrictToRectangle.
+sp.MouseRestrictClear();//Removes the mouse movement restriction previously set via sp.MouseRestrictToRectangle.
+sp.MouseRestrictToRectangle(action.Window.Rectangle);//Restricts mouse movement to only within the specified rectangle.
+sp.MouseWheel(new Point(100, 100), false, 120);//Simulates scrolling the mouse wheel vertically (default) or horizontally.
+sp.SetMouseCursor("Arrow", "C:\\Windows\\Cursors\\aero_arrow_xl.cur");//Sets the specified system cursor to the cursor loaded from the specified file. This cursor is not saved, reloading Windows or calling sp ShowMouseCursor() will revert to cursor defined in Control Panel.
+sp.ShowMouseCursor();//Shows the mouse cursor after a call to sp.HideMouseCursor. NOTE: This simply resets all cursors to the Windows default, overwriting any custom cursor selections.
+====================================================================
+Native and Dynamic
+var IntPtrT = host.typeOf(clr.System.IntPtr);
+var BooleanT = host.typeOf(clr.System.Boolean);
+//Create the JavaScript function
+function EnumWindowsProc(hWnd, lParam)
+{
+	//Do something in the callback, invoked by the API callee
+	return true;
+}
+//Create the delegate, the returned pointer can by passed to an API as a callback pointer
+var delPtr = sp.NativeDelegate("EnumWindowsProc", [IntPtrT, IntPtrT], BooleanT); //Compiles a custom static C# class to host the delegate for a native API callback pointer.
+var IntPtrT = host.typeOf(clr.System.IntPtr);
+var BooleanT = host.typeOf(clr.System.Boolean);
+//Create the JavaScript functions
+function EnumWindowsProc(hWnd, lParam)
+{
+	//Do something in the callback, invoked by the API callee
+	return true;
+}
+function EnumWindowsProcA(hWnd, lParam)
+{
+	//Do something in the callback, invoked by the API callee
+	return true;
+}
+var fnptrList = sp.NativeDelegateList([["EnumWindowsProc", [IntPtrT, IntPtrT], BooleanT],
+                                       ["EnumWindowsProcA", [IntPtrT, IntPtrT], BooleanT]]);
+// fnptrList[0].Key == "EnumWindowsProc"
+// fnptrList[0].Value.ToInt64() == 2484548244844
+
+// fnptrList[1].Key == "EnumWindowsProcA"
+// fnptrList[1].Value.ToInt64() == 2484548243804 //Creates a custom class for multiple function delegates at the same time.
+var defaultModBuilder = sp.NativeModule();
+var apiModBuilder = sp.NativeModule("WinAPI"); //Retrieves (or creates) a native module as a ModuleBuilder. Default is the module if no name is provided. This ModuleBuilder lets you create custom types, methods, Pinvokes, enums via System.Reflection.Emit.
+sp.RefreshNativeModules();//Refreshes the dynamic native modules and delegates within the script engine type list. These would be any types or objects within NativeModules. or NativeDelegates.
+====================================================================
+Operating System
+sp.EmptyRecycleBins();//Empties ALL recycle bins.
+var expanded = sp.ExpandEnvironmentVariables('My profile directory = %userprofile%');//Returns a string with the environment variables expanded.
+var path = sp.GetActiveExplorerPath(action.Window.HWnd);//Returns a string containing path of the specified Explorer window.
+var items = sp.GetItemsInExplorer(action.Window.HWnd, false, true, false);//Returns a array of strings containing each file selected in the specified Explorer window.
+var files = sp.GetSelectedFilesInExplorer(action.Window.HWnd);//Returns a array of strings containing each file selected in the specified Explorer window.
+var files = sp.GetSelectedFilesOnDesktop();//Returns a array of strings containing each file selected in the Desktop window list view.
+var Int32T = host.type('System.Int32');
+var intValue = host.cast(Int32T, SystemMetric.SM_XVIRTUALSCREEN);
+sp.GetSystemMetricsByIndex(intValue); //Returns an int value of the specified SystemMetric.
+sp.Run('notepad');//Opens a file or runs a program. This is the same as typing something in the Run dialog (Win+R) and pressing Enter. Use sp.RunProgram for more specific execution options.
+sp.RunOrActivate('C:\\Windows\\System32\\notepad.exe');//Takes a full path and EXE name and looks to see if there is a window already running for that EXE and activates it, otherwise it runs the EXE.
+sp.RunProgram('notepad', '', 'open', 'normal', true, false, false);//Opens a file or runs a program.
+//fileName The file name of the item to execute or open. 
+//arguments ‘Command line arguments to pass to the program. 
+//verb The ShellExecute verb to use, if applicable. 
+//windowstyle State of the window when started, valid values: hidden, normal, minimized, maximized. 
+//useShellExecute If true, uses the Windows shell to execute the program or open the file. False executes only a program directly.
+//noWindow If true, uses the Windows shell to execute the program or open the file. False executes only a program directly. Specifies that no window should be created for the process.
+//waitForExit If true, this method will wait until the program has exited, which returns the exit code from the program.
+sp.RunStoreApp('Microsoft.WindowsCalculator'); //Or just 'Calculator' if there are no other similarly named apps installed.//Takes a full or partial Store app package name and activates or runs it. If more than one match is found, the first match will be used. Note there is a slight delay due to enumerating all installed Store apps.
+====================================================================
+Regions(Functions for working with StrokesPlus.net regions.)
+var columns = 3;
+var rows = 3;
+var region = sp.GetRegionFromPoint(action.Window.Rectangle, action.Start, columns, rows); //Returns a RectRegion based on the location of the point within the rectangle passed in, which is divided into regions based on the number of columns and rows specified. This could be used to have a action perform different logic based on the location of a point within the area of the screen or application window, for example.
+sp.GetRegions(action.Window.Rectangle, 3, 3);//Returns an array of RectRegion based on the rectangle passed in along with the number of columns and rows specified. This could be used to have a action perform different logic based on the area of the screen or application window, for example.
+====================================================================
+Registry (Functions for working with the Windows Registry.)
+====================================================================
+Script Objects
+These objects are passed into StrokesPlus.net automations which can be used in your steps or script as needed.
+All regular actions will be passed in an ActionVars object named "action".
+Global Actions > Mouse Events > Mouse Wheel are passed in a WheelTick object named "wheel".
+Global Actions > Mouse Events > Mouse Click are passed in a Click object named "click".
+Floater events will be passed in a FloaterVars object named "floater".
+Passed into normal actions, variable name in script: action
+    public class ActionVars
+    {
+        public string ApplicationName;
+        public string CategoryName;
+        public string ActionName;
+        public string GestureName;
+        public MouseButtons StrokeButton;
+        public int SynapticFingers; 
+        public Point[] GesturePoints;
+        public int WheelDelta;
+        public Point Start;
+        public Point End;
+        public Rectangle Bounds;
+        //see SystemWindow information for more details
+        public SystemWindow Window;
+        //see SystemWindow information for more details
+        public SystemWindow Control;
+    } 
+Passed into Global Actions > Mouse Events > Mouse Click automations, variable name in script: click
+    public class Click
+    {
+        public MouseButtons Button;
+        public bool Down; 
+        public uint FWKeys;
+        public System.Drawing.Point Point;
+        public int X { get { return Point.X; } }
+        public int Y { get { return Point.Y; } }
+        //see SystemWindow information for more details
+        public SystemWindow Window;
+        //see SystemWindow information for more details
+        public SystemWindow Control;
+    } 
+Used when calling sp.DisplayText()
+    public class DisplayTextInfo
+    {
+        public string Title { get; set; }
+        public string TitleAlignment { get; set; }
+        public string Message { get; set; }
+        public string MessageAlignment { get; set; }
+        public int Duration { get; set; }
+        public double Opacity { get; set; }
+        public string Location { get; set; }
+        public Font TitleFont { get; set; }
+        public Font MessageFont { get; set; }
+        public string BackColor { get; set; }
+        public string ForeColor { get; set; }
+        public int Padding { get; set; }
+        public int FadeSteps { get; set; }
+        public bool UsePrimaryScreen { get; set; }
+        public bool ClipToWorkingArea { get; set; } = true;
+    } 
+//Passed into floater events, variable name in script: floater
+    public class FloaterVars
+    {
+        public string Name;
+        public string Text;
+        public Color TextColor;
+        public bool KeyMode;
+        public float Opacity;
+        public Point Location; 
+        public int X;
+        public int Y;
+        public CustomFloaterSetting Settings;
+        public int Size;
+    } 
+Used when calling sp.InputBox()
+    public class InputBoxInfo
+    {
+        public string Title { get; set; }
+        public string Message { get; set; }
+        public List<string> Items { get ;}
+        public string SelectedValue { get; set; }
+        public bool AllowDirectInput { get; set; }
+        public bool Sort { get; set; }
+        public string Result { get; set; }
+        public bool ShowAtMouseCursor { get; set; }
+    } 
+Used when calling sp.ShowPopupMenu()
+    public class PopupMenuInfo
+    {
+        public Point Location { get; set; }
+        public List<string> Items { get; }
+        public string Callback { get; set; }
+        public uint SelectedID { get; set; }
+    }
+Used when calling sp.ShowPopupMenuEx()
+    public class PopupMenuInfoEx
+    {
+        public Point Location { get; set; }
+        public List<PopupMenuItem> MenuItems { get; set;}
+    }
+Used when constructing an instance of PopupMenuInfoEx
+    public class PopupMenuItem
+    {
+        public Point Text { get; set; } //Use "-" for separator
+        public string Script { get; set; }
+        public List<PopupMenuItem> SubMenuItems { get; set; }
+    }
+Passed into Global Actions > Mouse Events > Mouse Wheel automations, variable name in script: wheel
+    public class WheelTick
+    {
+        public bool Horizontal;
+        public long HWndControl;
+        public uint WParam;
+        public uint LParam;
+        public System.Drawing.Point Point;
+        public int X { get { return Point.X; } }
+        public int Y { get { return Point.Y; } }
+        public short Delta;
+        //see SystemWindow information for more details
+        public SystemWindow Window;
+        //see SystemWindow information for more details
+        public SystemWindow Control;
+    }
+====================================================================
+Store/Retrieve Data (Functions for storing, retrieving, and deleting stored data.)
+sp.DeleteAllSavedStrings();//Removes all saved value previously saved via sp.SaveString or StrokesPlus.SavedStrings.Set.
+sp.DeleteAllStoredBools();//Deletes all stored booleans.
+sp.DeleteAllStoredDecimals();//Deletes all stored history decimals.
+sp.DeleteAllStoredHandles();//Deletes all stored handles.
+sp.DeleteAllStoredHistoryScripts();//Deletes all stored history scripts.
+sp.DeleteAllStoredNumbers();// Deletes all stored numbers.
+sp.DeleteAllStoredObjects();//Deletes all stored objects.
+sp.DeleteAllStoredPoints();//Deletes all stored points.
+sp.DeleteAllStoredRectangles();//Deletes all stored rectangles.
+sp.DeleteAllStoredStrings();//Deletes all stored strings.
+sp.DeleteAllStoredValues();//Deletes all stored values of all types.
+sp.DeleteSavedString('testName');//Deletes a previously saved string using sp.SaveString, sp.SaveString, or StrokesPlus.SavedStrings.Set.
+sp.DeleteStoredBool('test');//Deletes a boolean previously stored using sp.StoreBool or StrokesPlus.StoredValues.Booleans.Set
+sp.DeleteStoredDecimal('test');//Deletes a decimal previously stored using sp.StoreDecimal or StrokesPlus.StoredValues.Decimals.Set.
+sp.DeleteStoredHandle('test');//Deletes a handle previously stored using sp.StoreHandle or StrokesPlus.StoredValues.Handles.Set
+sp.DeleteStoredHistoryScript('test');//Deletes a history script previously stored using sp.StoreHistoryScript or StrokesPlus.StoredValues.HistoryScripts.Set
+sp.DeleteStoredNumber('test');//Deletes a number previously stored using sp.StoreNumber or StrokesPlus.StoredValues.Numbers.Set
+sp.DeleteStoredObject('test');//Deletes an object previously stored using sp.StoreObject or StrokesPlus.StoredValues.Objects.Set
+sp.DeleteStoredPoint('test');//Deletes a point previously stored point using sp.StorePoint.
+sp.DeleteStoredRectangle('test');//Deletes a rectangle previously stored using sp.StoreRectangle or StrokesPlus.StoredValues.Rectangles.Set
+sp.DeleteStoredString('test');//Deletes a string previously stored string using sp.StoreString or StrokesPlus.StoredValues.Strings.Set
+var savedString = sp.GetSavedString('testName');//Returns a string previously saved using sp.SaveString or StrokesPlus.SavedStrings.Set.
+var storedbool = sp.GetStoredBool('test');//Returns a boolean previously stored using sp.StoreBool or StrokesPlus.StoredValues.Booleans.Set
+var storeddec = sp.GetStoredDecimal('test');//Returns a decimal previously stored using sp.StoreNumber.
+var storedhandle = sp.GetStoredHandle('test');//Returns an handle previously stored using sp.StoreHandle or StrokesPlus.StoredValues.Handles.Set
+var scriptval = sp.GetStoredHistoryScript('test');//Returns a history script previously stored using sp.StoreHistoryScript or StrokesPlus.StoredValues.HistoryScripts.Set
+var storednum = sp.GetStoredNumber('test');//Returns a number previously stored using sp.StoreNumber or StrokesPlus.StoredValues.Numbers.Set
+var storedobj = sp.GetStoredObject('test');//Returns an object previously stored using sp.StoreObject or StrokesPlus.StoredValues.Objects.Set
+var storedpoint = sp.GetStoredPoint('test');//Returns a point previously stored using sp.StorePoint or StrokesPlus.StoredValues.Points.Set
+var storedrect = sp.GetStoredRectangle('test');//Returns a rectangle previously stored using sp.StoreRectangle or StrokesPlus.StoredValues.Rectangles.Set
+var stringval = sp.GetStoredString('test');//Returns a string previously stored using sp.StoreString or StrokesPlus.StoredValues.Strings.Set
+sp.SaveString('testName', 'testValue');//Saves a string value to the StrokesPlus.net configuration file, which will persist after S+ closes. Use sp.GetSavedstring or StrokesPlus.Savedstrings.Get to retrieve value.
+sp.StoreBool('test', true);//Stores a boolean using the specified name. Value can be retrieved via sp.GetStoredBool.
+sp.StoreDecimal('test', 123.0);//Stores a decimal using the specified name. Value can be retrieved via sp.GetStoredDecimal or StrokesPlus.StoredValues.Decimals.Set
+sp.StoreHandle('test', action.Window.HWnd);//Stores a handle using the specified name. Value can be retrieved via sp.GetStoredHandle.
+sp.StoreHistoryScript('test', timer);//Stores a history script using the specified name. Value can be retrieved via sp.GetStoredHistoryScript.
+sp.StoreNumber('test', 123);//Stores a number using the specified name. Value can be retrieved via sp.GetStoredNumber.
+sp.StoreObject('test', 123);//Stores an object using the specified name.
+sp.StorePoint('test', new Point(100,100));//Stores a point using the specified name. Value can be retrieved via sp.GetStoredPoint.
+sp.StoreRectangle('test', action.Window.Rectangle);//Stores a rectangle using the specified name. Value can be retrieved via sp.GetStoredRectangle.
+sp.StoreString('test', 'value');//Stores a string using the specified name. Value can be retrieved via sp.GetStoredstring.
+====================================================================
+System Window
+Examples:
+action.Window.Center();// Action script, center the window where the gesture started
+var exeName = action.Window.Process.MainModule.ModuleName;// Action script, get the name of the executable where the gesture started
+if(action.Window.Maximized) {
+  action.Window.Restore();
+} else {
+  action.Window.Maximize();
+} // Action script, maximize or minimize window where the gesture started
+var title = action.Window.Title;// Action script, get the title of the window where the gesture started
+action.Window.MoveToPreviousScreen();// Action script, move window where the gesture started to the previous screen
+sp.ForegroundWindow().Center();// Any script, center the foreground window
+400 x 400
+var matches = sp.WindowsFromTitleRegex("- Notepad$");
+for (var i = 0, len = matches.Length; i < len; i++) {
+  var wnd = matches[i];
+  while (wnd.ParentSymmetric != null) {
+    wnd = wnd.ParentSymmetric;
+  }
+  var pos = wnd.Position;
+  pos.Left = 100;
+  pos.Top = 100;
+  pos.Right = 400;
+  pos.Bottom = 400;
+  wnd.Position = pos;
+} // Any script, find all notepad windows, move them to all to the location 100, 100 and resize them to 
+.AbsoluteRectangle//Returns a Rectangle object for the window frame, including window borders.
+.Activate()//Restores, shows, and brings the window to the foreground.
+.AllChildWindows//Returns an array of SystemWindow objects for direct child controls or window.
+.AllDescendantWindows//Returns an array of SystemWindow objects for all descendant controls or window.
+.AllScreens()//Returns an array of Screen objects containing all screens as defined by Windows.
+.Alpha = 128//Gets or sets the transparency of the window (0 - 255 where 0 is invisible).
+.BringToFront()//Sets the window as the foregroup window.
+.Center()//Centers the window on the screen where the window resides.
+.CheckState//Whether this control, which is a check box or radio button, is checked.
+.ClassName//Gets the class name of the control or window.
+.ClientPointToScreenPoint(new Point(0,0));//Returns a Point translated from client coordinates to screen coordinates relative to the upper-left corner of the screen.
+.ClientRectangle//Returns a Rectangle object for the client position of the control cor window on the screen. ClientRectangle always starts with the top left of 0,0.
+.ClipToScreen()//Clips the window to the screen where the window resides.
+.ColorKey = Color.White; //See Color struct docs for known colors
+.ColorKey = Color.FromArgb(255, 255, 255); //RGB
+.ColorKey = Color.Transparent; //Remove color key //Gets or sets the color key (transparent color) of the window, use Color.Transparent to remove the color key. Some applications behave erratically and cannot be clicked.
+.CommandLine//Gets the command line for the process via WMI.
+.DialogID//Returns the dialog ID for the control or window.
+.Enabled//Gets or sets the enabled state of the control or window.
+.EnsureVisible()//Moves the window to ensure it's displayed as fully as it can be on the current or closest screen.
+.ExecutableName//Returns the file name of the executable which owns the window; use ExecutablePath to get the folder.
+.ExecutablePath//Returns the folder to the executable which owns the window; use ExecutableName to get the actual file name.
+.FirstMoveableParent//Returns a SystemWindow object for first parent window which is moveable; a window which has a system menu. If the window itself is moveable, it returns itself. If no matching parent is found, returns null.
+.FitToScreen()//Fits the window on the screen where the window resides.
+.GetRootOwnerWindow//Returns a SystemWindow object for the root owner control or window.
+.Highlight()//Highlights the window with a red border. Not very consistent or reliable.
+.HWnd//Returns the handle to the control or window.
+.Image//Returns an image object of the window, similar to Alt+Print Screen.
+.IsCloaked//Returns true if the window is cloaked, such as background Win8/10 apps or windows in a different virtual desktop.
+.IsDescendantOf(window)//Returns true if this object is a child of the ancestor object.
+.IsImmersive//Returns true if the window is flagged as immersive, which is generally a Windows 8 Metro/Store type app.
+.IsUnicode//Returns true if the windows is flagged as Unicode.
+.LegacyModuleName//Returns the module name for this control or window's process using a direct WinAPI call.
+.Location//The location of the control or window inside its parent or on the screen, does not include window borders.
+.Maximize()//Maximizes the window.
+.Maximized//Returns true if the window is maximized.
+.Minimize()//Minimizes the window.
+.Minimized//Returns true if the window in minimized.
+.Movable//Returns true if the window has the WS_SYSMENU flag.
+.MoveToNextScreen()//Moves the window to the next screen as defined in Windows, returns the new Screen.
+.MoveToPreviousScreen()//Moves the window to the previous screen as defined in Windows, returns the new Screen.
+.MoveToScreen(0);
+.MoveToScreen(Screen.FromPoint(sp.GetCurrentMousePoint()));//Moves the window to the specified screen number (index) as defined in Windows or Screen object, returns the new Screen.
+.Parent//Returns a SystemWindow object for the parent control or window.
+.ParentSymmetric//Returns a SystemWindow object for the parent control or window, but only if the control or window is a descendant of the Parent.
+.Position//Returns a RECT object for the control or window position inside its parent or in workspace coordinates. Use Rectangle for absolute coordinates without borders, and AbsoluteRectangle for full rectangle.
+.PostMessageObj(message, wParam, lParam);//Posts a message to the control or window.
+message object (casts to uint) The message value to post, casted to uint. 
+wParam object (casts to int then IntPtr) The wParam value to post, casted to IntPtr. 
+lParam ‘object (casts to int then IntPtr) The IParam value to post, casted to IntPtr
+.Process//Returns the Process object for the control or window.
+.RealParent//Returns a SystemWindow object for the parent control or window, using a different set of rules to determine parent.
+.RECT//Returns a RECT object for the absolute position of the control or window on the screen, does not include window frame borders. Probably more convenient to use .Rectangle instead. Use Position for relative location of controls.
+.Rectangle//Returns a Rectangle object for the position of the control or window on the screen, does not include window frame borders. Use .Position for relative location of controls and AbsoluteRectangle for full rectangle.
+.RectangleF//Returns a RectangleF (float) object for the position of the control or window on the screen, does not include window frame borders.
+.Refresh()//If supported, invalidates the client area of the window and forces a redraw.
+.Region//Gets (if defined) or sets the region of the control or window.
+.Resizable//Returns true if the window has the WS_THICKFRAME flag.
+.Restore()//Restores the window.
+.RootWindow//Returns a SystemWindow object for the root control or window.
+.Screen//Gets the Screen object for the screen where the window currently resides.
+.ScreenFromPoint(new Point(100,100));//Returns a screen based on a location.
+.ScreenPointToClientPoint(new Point(0,0));//Returns a Point translated from screen coordinates to client coordinates relative to the upper-left corner of the window's client area.
+.SendClose()//Sends the WM_CLOSE message to the window.
+.SendMessageGetTextObj(message, wParam, length);//Sends a get text message to the control or window and returns a string containing the text.
+.SendMessageObj(message, wParam, lParam);//Sends a message to the control or window.
+.SendMessageSetTextObj(message, wParam, lParam, useAnsi);//Sends a set text message to the control or window.
+.SendToBottom()//Sends the window to the bottom of the window stack/z-index.
+.Size//The size of the control or window, excluding window borders.
+.SupportsSelection//Returns true if the control supports selections via messaging (DLGC_HASSETSEL)
+.Text//Gets or sets the text of the control, if supported.
+.Thread//Returns the ProcessThread object for the control or window.
+.Title//Gets or sets the title/text of the control or window.
+.TopMost//Gets or sets the top most status of the control or window.
+.VisibilityFlag//Gets or sets the visibility status of the control or window.
+.Visible//Gets the visible status of the control or window.
+.WindowAbove//Gets the SystemWindow object for the window above.
+.WindowBelow//Gets the SystemWindow object for the window below.
+.WindowState//Returns the window state of the window.
+====================================================================
+Timers 
+sp.CreateTimer('test', 1000, -1, String.raw`sp.MessageBox('Test', 'Timer');sp.DeleteTimer('test');`);//Creates a timer that executes a script repeatedly until stopped via sp.DeleteTimer.
+sp.DeleteAllTimers();//Stops and deletes all timers created via sp.CreateTimer.
+sp.DeleteTimer('test');//Stops and deletes a timer previously created via sp.CreateTimer.
+var timer = sp.GetTimer('test')//Returns a timer previously created via sp.CreateTimer.
+var script = sp.GetTimerScript('test');//Returns the script from the previouly created timer via sp-CreateTimer.
+====================================================================
+Utilities 
+// Get all devices and return list. 
+// Each device has only the four properties listed below
+var devices = sp.AllDevices();
+var deviceList = "";
+for(var i = 0; i < devices.Count; i++)
+{
+    deviceList += `DeviceID: ${devices[i].DeviceID}
+    Name: ${devices[i].Name}
+    Description: ${devices[i].Description}
+    Status: ${devices[i].Status}
+`;
+}
+// Copy list to clipboard
+clip.SetText(deviceList);
+// Example to look for a specific device
+if(devices.Where(d => d.Name == "Rob's Galaxy Note10").Count() > 0) {
+    sp.MessageBox("Phone connected!", "Galaxy Phone via Bluetooth");
+} //Returns a List<Devicelnfo> of all PnP entities.
+FindImageWithinImage
+IMPORTANT: The two images being compared should be PNG or Bitmap without compression, full 24-bit or 32-bit images without transparency.
+// Image to find inside app window
+var sourceImage = System.Drawing.Image.FromFile("C:\\Temp\\NotePad_Edit.png");
+// Rectange of the action window
+var rect = action.Window.Rectangle;
+// Setup graphics objects 
+var memoryImage = new System.Drawing.Bitmap(rect.Width, rect.Height);
+var memoryGraphics = System.Drawing.Graphics.FromImage(memoryImage);    
+// Copy screen pixels of app window
+memoryGraphics.CopyFromScreen( 
+   rect.X, 
+   rect.Y, 
+   0, 
+   0, 
+   new System.Drawing.Size(rect.Width, rect.Height)
+);
+// Look for sourceImage inside app window pizels/image
+var needlePoint = sp.FindImageWithinImage(sourceImage, memoryImage);
+// If the sourceImage was found inside the app window's image
+if(needlePoint != null) {
+    // Translate the coordinates inside the app window to screen coordinates
+    var screenPoint = action.Window.ClientPointToScreenPoint(needlePoint);
+    // Click Left mouse button in the center of where the sourceImage was found
+    sp.MouseClick(
+                    new Point(screenPoint.X + parseInt(sourceImage.Width / 2), 
+                              screenPoint.Y + parseInt(sourceImage.Height / 2)), 
+                    MouseButtons.Left, 
+                    true, 
+                    true);
+}
+// Cleanup objects
+memoryGraphics.Dispose();
+memoryImage.Dispose();
+sourceImage.Dispose(); 
+sp.GetMethod('GetMethod');//Returns a Methodinfo object for the specified function.
+var spms = sp.GetMethods();//Returns an array of Methodinfo for all sp functions.
+sp.GetPixelColorFromPoint(new Point(100, 100));//Returns a Color struct for the pixel at the location of the point passed in.
+sp.Pause(2); //Wait two seconds (Wait for the specified seconds before continuing execution. Use sp.Sleep for short or precise delays.)
+sp.Sleep(100)//Wait for the specified milliseconds before continuing execution. This is a high resolution timer which should only be used for short pauses.
