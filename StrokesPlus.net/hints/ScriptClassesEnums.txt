@@ -1,0 +1,59 @@
+        //Passed into normal actions
+	//Variable name in script: action
+        public class ActionVars
+        {
+            public string ApplicationName;
+            public string CategoryName;
+            public string ActionName;
+            public string GestureName;
+            public MouseButtons StrokeButton;
+            public int SynapticFingers; 
+            public Point[] GesturePoints;
+            public int WheelDelta;
+            public Point Start;
+            public Point End;
+            public Rectangle Bounds;
+            public ManagedWinapi.Windows.SystemWindow Window;  //see SystemWindow.cs
+            public ManagedWinapi.Windows.SystemWindow Control; //see SystemWindow.cs
+        }
+
+        //Passed into Wheel and Horizontal Wheel mouse events
+	//Variable name in script: wheel
+        public class WheelTick
+        {
+            public bool Horizontal;
+            public long HWndControl;
+            public uint WParam;
+            public uint LParam;
+            public System.Drawing.Point Point;
+            public int X { get { return Point.X; } }
+            public int Y { get { return Point.Y; } }
+            public short Delta;
+            public ManagedWinapi.Windows.SystemWindow Window;  //see SystemWindow.cs
+            public ManagedWinapi.Windows.SystemWindow Control; //see SystemWindow.cs
+        }
+
+        //Passed into click mouse events 
+	//Variable name in script: click
+        public class Click
+        {
+            public MouseButtons Button;
+            public bool Down;
+            public uint FWKeys;
+            public System.Drawing.Point Point;
+            public int X { get { return Point.X; } }
+            public int Y { get { return Point.Y; } }
+            public ManagedWinapi.Windows.SystemWindow Window;  //see SystemWindow.cs
+            public ManagedWinapi.Windows.SystemWindow Control; //see SystemWindow.cs
+        }
+
+        //Referenced by ActionVars and Click
+        public enum MouseButtons
+        {
+            None = 0,
+            Left = 1048576,
+            Right = 2097152,
+            Middle = 4194304,
+            XButton1 = 8388608,
+            XButton2 = 16777216
+        }

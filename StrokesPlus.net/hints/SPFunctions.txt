@@ -1,0 +1,492 @@
+Method: AllApplications()
+Returns: SystemWindow[]
+Gets an array of windows where the windows meet the general criteria to be considered a main application window.
+
+Method: AllWindows()
+Returns: SystemWindow[]
+Gets an array of all windows
+
+Method: ChangeCulture(String cultureName)
+Returns: Boolean
+Changes the current culture to the specific value (e.g. "en-US", "fr-FR", "pl-PL"). This is primarily used for changing langauges in the Resources folder.
+
+Method: ConsumePhysicalInput(System.Boolean bVal)
+Returns: Void
+Prevent all keyboard and mouse activity. Accepts true or false.
+
+Method: CreateTimer(System.String name, System.Int32 startdelay, System.Int32 interval, System.String script)
+Returns: Timer
+Creates a new timer which starts after startdelay (in milliseconds) and repeats every interval (in milliseconds), executing the script passed in
+
+Method: DeleteStoredBool(System.String name)
+Returns: Void
+Deletes the stored value from memory
+
+Method: DeleteStoredHandle(System.String name)
+Returns: Void
+Deletes the stored value from memory
+
+Method: DeleteStoredHistoryScript(System.String name)
+Returns: Void
+Deletes the stored value from memory
+
+Method: DeleteStoredNumber(System.String name)
+Returns: Void
+Deletes the stored value from memory
+
+Method: DeleteStoredPoint(System.String name)
+Returns: Void
+Deletes the stored value from memory
+
+Method: DeleteStoredRectangle(System.String name)
+Returns: Void
+Deletes the stored value from memory
+
+Method: DeleteStoredString(System.String name)
+Returns: Void
+Deletes the stored value from memory
+
+Method: DeleteTimer(System.String name)
+Returns: Void
+Deletes (stops and removes) a previously created timer
+
+Method: DesktopWindow()
+Returns: SystemWindow
+Gets the desktop window.
+
+Method: DesktopWindowListView()
+Returns: SystemWindow
+Gets the actual desktop window which contains your icons (unless desktop composition is disabled..it's complicated!)
+
+Method: Disable()
+Returns: Void
+Disable StrokesPlus.net
+
+Method: DisableCapture()
+Returns: Void
+StrokesPlus.net remains hooked to the mouse and keyboard, but ignores capturing.
+
+Method: DisableNext()
+Returns: Void
+Ignore the next gesture/stroke button down.
+
+Method: DisplayText(StrokesPlus.net.Engine.DisplayTextInfo info)
+Returns: Void
+Shows a floating window with text. See Example Scripts for more details.
+
+Method: DisplayTextClose()
+Returns: Void
+Manually close the window from DisplayText.
+
+Method: DisplayTextUpdate(StrokesPlus.net.Engine.DisplayTextInfo info)
+Returns: Void
+Updates the text and location of the currently displayed popup created by DisplayText. Also restarts the timeout each time this function is called.
+
+Method: EmptyRecycleBins()
+Returns: Void
+Empty all recycle bins.
+
+Method: Enable()
+Returns: Void
+Enable StrokesPlus.net.
+
+Method: EnableCapture()
+Returns: Void
+Enable capture (after previous call to DisableCapture()).
+
+Method: ExecutePreviousScript(System.Int32 index)
+Returns: Void
+
+Method: ExecuteStoredScript(System.String name)
+Returns: Void
+Executes a previously stored script by name
+
+Method: Exit()
+Returns: Void
+Exit StrokesPlus.net.
+
+Method: ExpandEnvironmentVariables(System.String value)
+Returns: String
+Expands environment variables into their actual values. For example, "%%windir%%\explorer.exe" becomes "C:\Windows\explorer.exe"
+
+Method: ForegroundWindow()
+Returns: SystemWindow
+Gets the foreground window.
+
+Method: GetCommunicationsMixer()
+Returns: CoreAudioDevice
+Gets the mixer object for the default communications device.
+
+Method: GetCurrentCulture()
+Returns: String
+Get the current UI culture, for example "en-US" for US English (can be used in conjunction with ChangeCulture)
+
+Method: GetCurrentMouseCursor() 
+Returns: String 
+Gets the name of the current mouse cursor. As with all cursor functions, there are no guarantees about the result if the user or an application is
+not using the standard cursor set. The default return value is "Unknown" when a cursor handle doesn't match one of the known cursor types retrievable 
+by the .NET framework's Windows.Forms class described here: https://msdn.microsoft.com/en-us/library/system.windows.forms.cursors.aspx or after 
+trying via the Windows OEM cursor set described here: https://msdn.microsoft.com/en-us/library/windows/desktop/ms648395.aspx. Note that the return 
+string will always be a .NET cursor name, "Hand" not "OCR_HAND" for example. Also, OCR_NORMAL is returned as "Arrow", the corresponding .NET cursor 
+name; the rest of the names in the OEM cursor set have obvious correlations to their respective .NET equivalent.
+
+Method: GetCurrentMousePoint()
+Returns: Point
+Get the coordinates of the current location of the mouse.
+
+Method: GetFileProductVersionInfo(System.String filePath)
+Returns: String
+Gets the string representation of the product version of a file.
+
+Method: GetFileVersionInfo(System.String filePath)
+Returns: String
+Gets the string representation of the version of a file.
+
+Method: GetHistoryScript(System.Int32 index)
+Returns: HistoryScript
+Returns a HistoryScript from memory (0 - 4)
+
+Method: GetMethods()
+Returns: MethodInfo[]
+Gets a MethodInfo array containing all of the methods in the sp class (this was used to create this file you're reading).
+
+Method: GetPixelColorFromPoint(System.Drawing.Point pt)
+Returns: Color
+Gets the System.Drawing.Color at the specified coordinates (in Point form).
+
+Method: GetPlaybackMixer()
+Returns: CoreAudioDevice
+Gets the mixer object for the default playback device.
+
+Method: GetPoint(System.Int32 x, System.Int32 y)
+Returns: Point
+Resturns a point from the specific coordinates
+
+Method: GetRegionFromPoint(System.Drawing.Rectangle rectangle, System.Drawing.Point point, System.Int32 columns, System.Int32 rows)
+Returns: RectRegion
+Gets a RectRegion (which has .Column and .Row properties) for a point (X,Y) within the specified rectangle. columns and rows define how the rectangle is divided.
+
+Method: GetRegions(Rectangle rect, int columns, int rows)
+Returns RectRegion[]
+Gets an array of RectRegion (which each have .Column and .Row properties) for the specified rectangle and columns/rows. columns and rows define how the rectangle is divided.
+
+Method: GetSelectedFilesInExplorer(System.IntPtr hWnd)
+Returns: String[]
+Gets a string array of the files selected in the Explorer window represented by hWnd.
+
+Method: GetStoredBool(System.String name)
+Returns: Boolean
+Gets the value of the specified name which was previous stored.
+
+Method: GetStoredHandle(System.String name)
+Returns: IntPtr
+Gets the value of the specified name which was previous stored.
+
+Method: GetStoredNumber(System.String name)
+Returns: Int32
+Gets the value of the specified name which was previous stored.
+
+Method: GetStoredPoint(System.String name)
+Returns: Point
+Gets the value of the specified name which was previous stored.
+
+Method: GetStoredRectangle(System.String name)
+Returns: Rectangle
+Gets the value of the specified name which was previous stored.
+
+Method: GetStoredString(System.String name)
+Returns: String
+Gets the value of the specified name which was previous stored.
+
+Method: GetSystemMetricsByIndex(System.Int32 index)
+Returns: Int32
+Gets the value of the specified system metric (see MSDN documentation for GetSystemMetrics).
+
+Method: GetTimer(string name) 
+Returns: System.Threading.Timer
+Gets a previously created timer as a .NET object of type System.Threading.Timer
+
+Method: GetTimerScript(string name)
+Returns: System.string
+Gets the script for a previously created timer
+
+Method: HideMouseCursor()
+Returns: Void
+Hides the mouse cursor (not support feature due to inconsistency of possible cursors per user).
+
+Method: InputBox(StrokesPlus.net.Engine.InputBoxInfo info)
+Returns: String
+Displays a window for the user to select something. See Example Scripts for more information.
+
+Property: KeyboardCaptureEnabled
+Type: Boolean
+If false, instructs S+.net to not intercept, interfere, or react to any keyboard events (excludes hotkeys since those are handled by Windows). This is not a saved setting.
+
+Method: LastActiveWindow()
+Returns: SystemWindow
+Same as ALT+TAB
+
+Method: LastApplication()
+Returns: Void
+Same as ALT+TAB
+
+Method: LastFocusControl()
+Returns: SystemWindow
+Returns the last control which had focus
+
+Method: LockWorkStation()
+Returns: Boolean
+Same as WIN+L, lock Windows.
+
+Method: MessageBox(System.Object message, System.Object title)
+Returns: Void
+Shows a simple message box popup with a message and title.
+
+Method: MouseClick(System.Drawing.Point pt, System.String btn, System.Boolean down, System.Boolean up)
+Returns: Void
+Clicks the mouse at the specified point, btn types: Left, Right, Middle, XButton1, XButton2. Pass true or false for the down and up parameters; both as true for a full click.
+
+Method: MouseClick(System.Drawing.Point pt, System.Windows.Forms.MouseButtons btn, System.Boolean down, System.Boolean up)
+Returns: Void
+Clicks the specified MouseButton at the specified point. Pass true or false for the down and up parameters; both as true for a full click.
+
+Method: MouseMove(System.Drawing.Point pt)
+Returns: Void
+Move the mouse to the specified point.
+
+Method: MouseRestrictActive()
+Returns: Boolean
+Determines in a mouse restriction is currently active (from a previous call to MouseRestrictToRectangle)
+
+Method: MouseRestrictClear()
+Returns: Void
+Clears the mouse restriction
+
+Method: MouseRestrictToRectangle(System.Drawing.Rectangle rect)
+Returns: Void
+Confines the mouse cursor inside the specified rectangle, rect must exist somewhere on the screen(s) and be at least 50px wide and 50px high)
+
+Method: MouseWheel(System.Drawing.Point pt, System.Boolean horizontal, System.Object delta)
+Returns: Void
+Send the mouse wheel event at the specified point. Pass true for horizontal to simulate horizontal wheel scroll. delta should be 120 or -120, for indicating the direction of the scroll.
+
+Method: NextApplication()
+Returns: Void
+Activate the next window in the stack of open windows.
+
+Method: OpenSettings()
+Returns: Void
+Open the StrokesPlus.net Settings window.
+
+Method: PlaySound(System.String filePath)
+Returns: Void
+Play the specified .WAV file.
+
+Method: RegistryDelete(Microsoft.Win32.RegistryKey baseKey, System.String keyName, System.String keyValue, System.Boolean showErrors)
+Returns: Boolean
+(more help to follow...)
+
+Method: RegistryDeleteSubKey(Microsoft.Win32.RegistryKey baseKey, System.String keyName, System.Boolean showErrors)
+Returns: Boolean
+(more help to follow...)
+
+Method: RegistryReadMultiString(Microsoft.Win32.RegistryKey baseKey, System.String keyName, System.String keyValue, System.Boolean showErrors)
+Returns: String[]
+(more help to follow...)
+
+Method: RegistryReadNumber(Microsoft.Win32.RegistryKey baseKey, System.String keyName, System.String keyValue, System.Boolean showErrors)
+Returns: Int32
+(more help to follow...)
+
+Method: RegistryReadString(Microsoft.Win32.RegistryKey baseKey, System.String keyName, System.String keyValue, System.Boolean showErrors)
+Returns: String
+(more help to follow...)
+
+Method: RegistryWrite(Microsoft.Win32.RegistryKey baseKey, System.String keyName, System.String keyValue, System.Object value, System.String kind, System.Boolean showErrors)
+Returns: Boolean
+(more help to follow...)
+
+Method: RelayGesture(System.Drawing.Point[] points, System.Windows.Forms.MouseButtons button)
+Returns: Void
+Relay the gesture by array of points and mouse button.
+
+Method: Reload()
+Returns: Void
+Reload StrokesPlus.net.
+
+Method: ReloadScriptEnginePool()
+Returns: Void
+Reload the StrokesPlus.net script engines.
+
+Method: RunProgram(System.String fileName, System.String arguments, System.String verb, System.String style, System.Boolean useShellExecute, System.Boolean noWindow, System.Boolean waitForExit)
+Returns: Int32
+(more help to follow...)
+
+Method: SendAltDown()
+Returns: Void
+Send the ALT key down event.
+
+Method: SendAltUp()
+Returns: Void
+Send the ALT key up event.
+
+Method: SendCharacter(System.String ch)
+Returns: Void
+Send a single character keystroke.
+
+Method: SendControlDown()
+Returns: Void
+Send the CTRL key down event.
+
+Method: SendControlUp()
+Returns: Void
+Send the CTRL key up event.
+
+Method: SendKeyDown(System.String ch)
+Returns: Void
+Send the key down event for the specified character.
+
+Method: SendKeys(System.String str)
+Returns: Void
+Send a string of keys, see MSDN documentation for SendKeys.
+
+Method: SendKeyUp(System.String ch)
+Returns: Void
+Send the key up event for the specified character.
+
+Method: SendModifiedVKeys(System.Object Modifiers, System.Object Keys)
+Returns: Void
+
+Method: SendShiftDown()
+Returns: Void
+Send the SHIFT key down event.
+
+Method: SendShiftUp()
+Returns: Void
+Send the SHIFT key up event.
+
+Method: SendString(System.String str)
+Returns: Void
+Send a string of characters to the foreground window.
+
+Method: SendUnicodeString(System.String str)
+Returns: Void
+Send a Unicode string of characters to the foreground window (may not be needed...)
+
+Method: SendVKey(WindowsInput.Native.VirtualKeyCode vk)
+Returns: Void
+Send the specified Virtual Key code to the foreground window.
+
+Method: SendVKeyDown(WindowsInput.Native.VirtualKeyCode vk)
+Returns: Void
+Send the key down event for the specified Virtual Key code to the foreground window.
+
+Method: SendVKeyUp(WindowsInput.Native.VirtualKeyCode vk)
+Returns: Void
+Send the key up event for the specified Virtual Key code to the foreground window.
+
+Method: SendWinDown()
+Returns: Void
+Send the WIN key down event.
+
+Method: SendWinUp()
+Returns: Void
+Send the WIN key up event.
+
+Method: ShowBalloonTip(System.String title, System.String text, System.String icon, System.Object timeout)
+Returns: Void
+Show a balloon popup window with the specified title and text. icon types: error, info, warning, timeout is how long to show.
+
+Method: ShowMouseCursor()
+Returns: Void
+Shows the mouse cursor (not support feature due to inconsistency of possible cursors per user).
+
+Method: ShowPopupMenu(StrokesPlus.net.Engine.PopupMenuInfo info)
+Returns: Void
+Shows a popup menu for the user to make a selection (see Example Scripts for more information).
+
+Method: Sleep(System.Int32 milliseconds)
+Returns: Void
+Puts the script's thread to sleep for the specified milliseconds.
+
+Method: StopAllActions()
+Returns: Void
+Stop all running actions.
+
+Method: StopAllScripts()
+Returns: Void
+Stop all running scripts.
+
+Method: StoreBool(System.String name, System.Boolean value)
+Returns: Void
+Stores a value into memory associated with the name specified.
+
+Method: StoreHandle(System.String name, System.IntPtr value)
+Returns: Void
+Stores a value into memory associated with the name specified.
+
+Method: StoreHistoryScript(System.String name, StrokesPlus.net.Engine.HistoryScript value)
+Returns: Void
+
+Method: StoreNumber(System.String name, System.Int32 value)
+Returns: Void
+Stores a value into memory associated with the name specified.
+
+Method: StorePoint(System.String name, System.Drawing.Point value)
+Returns: Void
+Stores a value into memory associated with the name specified.
+
+Method: StoreRectangle(System.String name, System.Drawing.Rectangle value)
+Returns: Void
+Stores a value into memory associated with the name specified.
+
+Method: StoreString(System.String name, System.String value)
+Returns: Void
+Stores a value into memory associated with the name specified.
+
+Method: ToggleTrayIcon()
+Returns: Void
+Toggle the StrokesPlus.net tray icon shown or hidden based on its current state.
+
+Method: TouchFloaterHide()
+Returns: Void
+Hides the touch floater
+
+Method: TouchFloaterIsShown()
+Returns: Boolean
+Returns true if the touch floater is currently loaded/shown, false if not
+
+Method: TouchFloaterShow()
+Returns: Void
+Shows the touch floater
+
+Method: TouchFloatersReset()
+Returns: Void
+
+Method: TouchFloaterToggle()
+Returns: Void
+Toggles the touch floater between shown and hidden, based on its current state
+
+Method: TouchFloaterToggleOthers()
+Returns: Void
+Toggles the visibility of the floaters which are not the S+ floater
+
+Method: WindowFromClassOrTitle(System.String className, System.String windowTitle)
+Returns: SystemWindow
+Gets a window based on the class and or title passed in.
+
+Method: WindowFromHandle(System.IntPtr hWnd)
+Returns: SystemWindow
+Gets the window for the specified handle (hWnd).
+
+Method: WindowFromPoint(System.Drawing.Point pt, System.Boolean topLevelOnly)
+Returns: SystemWindow
+Gets the window at the specified point, topLevelOnly returns the main window (not the control).
+
+Method: WindowsFromTitlePartial(System.String partialTitle)
+Returns: SystemWindow[]
+Gets an array of windows matching the partial title match.
+
+Method: WindowsFromTitleRegex(System.String regexTitle)
+Returns: SystemWindow[]
+Gets an array of windows matching the specified regular expression pattern.

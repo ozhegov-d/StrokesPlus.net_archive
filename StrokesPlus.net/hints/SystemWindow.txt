@@ -1,0 +1,322 @@
+/************************************************************************************
+
+This is a list of the methods and properties in the SystemWindow class. 
+
+The SystemWindow class is the default object for a window (or control) in StrokesPlus.net.
+
+For example, action.Window and action.Control are both SystemWindow objects.
+
+sp.ForegroundWindow is also a SystemWindow as are any of the objects returned by the various
+sp. functions which return a window or windows.
+
+It's important to note that some of these may not apply to all windows/controls, depending on
+the type. Also, some of these may not be easily called from script, such as 
+FilterDescendantWindows(bool directOnly, Predicate<SystemWindow> predicate) since building a
+predicate in script may be a challenge (but might be possible, I have not tried). This is why
+I have added various sp. functions which end up calling those methods, to provide a friendly
+wrapper for the end user.
+
+The return types are either project specific (StrokesPlus.net or a dependency), or they are 
+native .NET Framework types. So if you're looking for a list of properties/methods of one
+of the return types below, try searching MSDN. For example the Process property is a .NET 
+framework System.Diagnostics.Process class, which has many methods/properties like .Kill()
+
+************************************************************************************/
+
+/// Return all descendant windows (child windows and their descendants).
+public SystemWindow[] AllDescendantWindows
+
+
+/// Return all direct child windows.
+public SystemWindow[] AllChildWindows
+
+
+/// Is the window marked as Immersive (generally a Windows 8 style app)
+public bool IsImmersive
+
+
+/// Returns all child windows that match the given predicate.
+/// <param name="directOnly">Whether to include only direct children (no descendants)</param>
+/// <param name="predicate">The predicate to filter.</param>
+/// <returns>The list of child windows.</returns>
+public SystemWindow[] FilterDescendantWindows(bool directOnly, Predicate<SystemWindow> predicate)
+
+
+/// The post message to this window.
+public void PostMessage(uint message, IntPtr wParam, IntPtr lParam)
+
+
+/// The post message to this window with parameters as object type to support javascript calls.
+public void PostMessageObj(object message, object wParam, object lParam)
+
+
+/// Set this window as the foreground window.
+public void BringToFront()
+
+
+/// Center the window on the current screen where the window resides.
+public void Center()
+
+
+/// Fit the window to the current screen where the window resides.
+public void FitToScreen()
+
+
+/// Clip the window to fit within the current screen where the window resides.
+public void ClipToScreen()
+
+/// Gets the command line for the window, returns empty string if process no longer exists or access to process is denied
+public string CommandLine
+
+/// Get the screen where the window resides.
+public Screen Screen
+
+
+/// Send the monitor to the next screen.
+public Screen MoveToNextScreen()
+
+
+/// Send the monitor to the previous screen.
+public Screen MoveToPreviousScreen()
+
+
+/// Send the monitor to the specified screen.
+public Screen MoveToScreen(object number)
+
+
+/// Get all screens
+public static Screen[] AllScreens()
+
+
+/// Get screen from point
+public static Screen ScreenFromPoint(Point pt)
+
+
+/// The Window handle of this window.
+public IntPtr HWnd 
+
+
+/// The title of this window (by the <c>GetWindowText</c> API function).
+public string Title
+
+
+/// The text of the control, if available.
+public string Text
+
+
+/// The name of the window class (by the <c>GetClassName</c> API function).
+/// This class has nothing to do with classes in C# or other .NET languages.
+public string ClassName
+
+
+/// Whether this window is currently visible. A window is visible if its 
+/// and all ancestor's visibility flags are true.
+public bool Visible
+
+
+/// Whether this window always appears above all other windows
+/// that do not have this property set to true.
+public bool TopMost
+
+
+/// Whether this window is currently enabled (able to accept keyboard input).
+public bool Enabled
+
+
+/// Returns or sets the visibility flag.
+/// <seealso cref="SystemWindow.Visible"/>
+public bool VisibilityFlag
+
+
+/// This window's style flags.
+public WindowStyleFlags Style
+
+
+/// This window's extended style flags.
+public WindowExStyleFlags ExtendedStyle
+
+
+/// This window's parent. A dialog's parent is its owner, a component's parent is
+/// the window that contains it.
+public SystemWindow Parent
+
+
+/// The window's parent, but only if this window is its parent child. Some
+/// parents, like dialog owners, do not have the window as its child. In that case,
+/// <c>null</c> will be returned.
+public SystemWindow ParentSymmetric
+
+
+/// The window parent, based on some different processing rules than the Parent property.
+public SystemWindow RealParent
+
+
+/// The window's root parent.
+public SystemWindow RootWindow
+
+
+/// The window root owner.
+public SystemWindow GetRootOwnerWindow
+
+
+/// The window's position inside its parent or on the screen.
+public RECT Position
+
+
+/// The window's position inside its parent or on the screen.
+public void SendToBottom()
+
+
+/// The window's location inside its parent or on the screen.
+public Point Location
+
+
+/// The window's size.
+public Size Size
+
+
+/// The window's position in absolute screen coordinates.  
+/// <see cref="Position"/> if you want to use the relative position.
+public RECT RECT
+
+
+/// The window's position in absolute screen coordinates.  
+/// <see cref="Position"/> if you want to use the relative position.
+public Rectangle Rectangle
+
+
+/// The window's position in absolute screen coordinates returned as a RectangleF 
+/// <see cref="Position"/> if you want to use the relative position.
+public RectangleF RectangleF
+
+
+/// Check whether this window is a descendant of <c>ancestor</c>
+/// <param name="ancestor">The suspected ancestor</param>
+/// <returns>If this is really an ancestor</returns>
+public bool IsDescendantOf(SystemWindow ancestor)
+
+
+/// The process which created this window.
+public Process Process
+
+
+///  The Thread which created this window.
+public ProcessThread Thread
+
+
+/// Whether this window is minimized or maximized.
+public FormWindowState WindowState
+
+/// Activate window, restoring if minimized, and bringing it to the foreground
+public void Activate()
+
+/// Maximize the window.
+public void Maximize()
+
+
+/// Minimize the window.
+public void Minimize()
+
+
+/// Restore the window.
+public void Restore()
+
+
+/// Whether this window is maximized.
+public bool Maximized
+
+
+/// Whether this window is minimized.
+public bool Minimized
+
+
+/// Whether this window can be moved on the screen by the user.
+public bool Movable
+
+
+/// Whether this window can be resized by the user. Resizing a window that
+/// cannot be resized by the user works, but may be irritating to the user.
+public bool Resizable
+
+
+/// An image of this window. Unlike a screen shot, this will not
+/// contain parts of other windows (partially) cover this window.
+/// If you want to create a screen shot, use the 
+/// <see cref="System.Drawing.Graphics.CopyFromScreen(System.Drawing.Point,System.Drawing.Point,System.Drawing.Size)"/> 
+/// function and use the <see cref="SystemWindow.Rectangle"/> property for
+/// the range.
+public Image Image
+
+
+/// The window's visible region.
+public Region Region
+
+
+/// The character used to mask passwords, if this control is
+/// a text field. May be used for different purpose by other
+/// controls.
+public char PasswordCharacter
+
+
+/// The ID of a control within a dialog. This is used in
+/// WM_COMMAND messages to distinguish which control sent the command.
+public int DialogID
+
+
+/// Get the window that is below this window in the Z order,
+/// or null if this is the lowest window.
+public SystemWindow WindowBelow
+
+
+/// Get the window that is above this window in the Z order,
+/// or null, if this is the foreground window.
+public SystemWindow WindowAbove
+
+
+/// Gets a device context for this window.
+/// <param name="clientAreaOnly">Whether to get the context for
+/// the client area or for the full window.</param>
+public WindowDeviceContext GetDeviceContext(bool clientAreaOnly)
+
+
+/// The content of this window. Is only supported for some
+/// kinds of controls (like text or list boxes).
+public WindowContent Content
+
+
+/// Whether this control, which is a check box or radio button, is checked.
+public CheckState CheckState
+
+
+/// Whether this SystemWindow represents a valid window that existed
+/// when this SystemWindow instance was created. To check if a window
+/// still exists, better check its <see cref="ClassName"/> property.
+public bool IsValid()
+
+
+/// Send a message to this window that it should close. This is equivalent
+/// to clicking the "X" in the upper right corner or pressing Alt+F4.
+public void SendClose()
+
+
+/// Highlights the window with a red border.
+public void Highlight()
+
+
+/// Forces the window to invalidate its client area and immediately redraw itself and any child controls. 
+public void Refresh()
+
+///Indicates if the window or control was registered as Unicode
+public bool IsUnicode()
+
+///Indicates if control has DLGC_HASSETSEL flag. This would be true for native Edit and RichText controls, but returns false for Word, Outlook, Visual Studio, etc.
+public bool SupportsSelection()
+
+///Sends a message to the window/control, returns IntPtr reply
+public IntPtr SendMessageObj(object message, object wParam, object lParam) 
+
+///Internally passes lParam as a StringBuilder with the specified length, returning the string if successful (otherwise empty string). For example, this would be used with a WM_GETTEXT message.
+public String SendMessageGetTextObj(object message, object wParam, object length) [string] to
+
+///Treats lParam as a string for use with StringBuilder before sending message. If the edit control only supports ANSI, you'll need to set useAnsi to true, otherwise false will default to Auto which will generally be Unicode.
+public IntPtr SendMessageSetTextObj(object message, object wParam, object lParam, object useAnsi) [IntPtr] to
