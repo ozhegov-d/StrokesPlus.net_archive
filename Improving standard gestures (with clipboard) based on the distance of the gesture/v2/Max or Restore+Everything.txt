@@ -1,0 +1,64 @@
+//Short gesture, text not selected - Window maximized/restored
+//Short gesture, text selected - search in Everything
+//Long gesture, distance > 270 - open Everything
+
+//program path
+var everythingPath = 'C:\\test\\test2\\Everything64.exe'; //Keep in mind that there should be two backslashes \\
+
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'left';
+info.Duration = 500;
+info.Opacity = 0; //0.6
+info.MessageFont = new Font('Segoe UI Semibold', 18);
+info.BackColor = 'black';
+info.ForeColor = 'white'; 
+info.Padding = 0; 
+info.FadeSteps = 18;
+
+function displayMessage(message) {
+    info.Message = message;
+    info.Location = typeof action !== 'undefined' && action.End 
+        ? `${action.End.X + 5},${action.End.Y - 55}`
+        : '100,100';
+    sp.DisplayText(info);
+}
+
+function toggleWindowState() {
+    if (action.Window.Maximized) {
+        action.Window.Restore();
+        displayMessage('⤢ Window restored');
+    } else {
+        action.Window.Maximize();
+        displayMessage('⬈ Window maximized');
+    }
+}
+
+var distance = Math.sqrt(Math.pow((action.End.X - action.Start.X), 2) + Math.pow((action.End.Y - action.Start.Y), 2));
+var exeName = action.Window.Process.MainModule.ModuleName.toLowerCase();
+var isExplorer = action.Window.ClassName.toLowerCase().includes('explorer');
+var withoutclipboard = ['potplayermini64', 'mpc-hc64' , 'xnview'].some(name => exeName.includes(name)); //where the window is only restored or maximized without searching in Everything.
+if (isExplorer || distance > 270) {
+    sp.RunProgram(everythingPath, '', '', '', true, false, false);
+} else if (withoutclipboard) {
+    toggleWindowState();
+} else {
+    var originalClipboardContent = clip.GetText();
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.Sleep(100);
+
+    var newClipboardContent = clip.GetText();
+
+    if (newClipboardContent !== originalClipboardContent) {
+        var searchText = newClipboardContent.trim().replace(/"/g, '');
+        if (searchText !== '') {
+            var escapedSearchText = searchText.replace(/\\/g, '\\\\');
+            sp.RunProgram(everythingPath, '-search "' + escapedSearchText + '"', '', '', true, false, false);
+            displayMessage('🔎');
+        }
+    } else {
+        toggleWindowState();
+    }
+
+    // Restore the original contents of the clipboard
+    originalClipboardContent ? clip.SetText(originalClipboardContent) : clip.Clear();
+}
