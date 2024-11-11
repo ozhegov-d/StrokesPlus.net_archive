@@ -57,6 +57,7 @@ If the window has the same HWnd (and it should be restored), then sp.LastApplica
 https://github.com/user-attachments/assets/753058d4-5b75-4de0-a20e-e06383c07207
 
 ### Max or Restore+Everything
+Everything is a program for fast file searching on your compute
 
 + Short gesture, text not selected - Window maximized/restored
 + Short gesture, text selected - search in Everything
