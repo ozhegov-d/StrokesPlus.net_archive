@@ -1,7 +1,7 @@
 //Works only for DeepL for Windows
 //You need to change the settings by setting your hotkeys and check the Capture text on screen checkbox.
 
-//short gesture text highlighted - translation
+//short gesture - If text is highlighted - then translation, if no text is highlighted - then Esc.
 //long gesture - Translation of text from the screen
 
 var DEBUG_MODE = false; // Set true to enable console messages
