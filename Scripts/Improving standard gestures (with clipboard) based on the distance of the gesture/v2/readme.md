@@ -17,7 +17,7 @@ Works only for DeepL for Windows
 
 You need to change the settings by setting your hotkeys and check the Capture text on screen checkbox.
 
-+ short gesture - If text is highlighted — then translation, if no text is highlighted — then Esc.
++ short gesture - If text is highlighted - then translation, if no text is highlighted - then Esc.
 + long gesture - Translation of text from the screen
 
 https://github.com/user-attachments/assets/ce7b1791-0962-43c2-a39d-0cdf3c525628
