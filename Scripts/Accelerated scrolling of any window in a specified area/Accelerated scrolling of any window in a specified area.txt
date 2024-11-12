@@ -1,0 +1,126 @@
+//Global Actions > Mouse Events > Mouse Wheel
+
+var globalAcceleratedScrollingEnabled = true; // Global switch for accelerated scrolling
+
+  //Setting the percentage of the sides for accelerated scrolling (from 0 to 100)
+var defaultSettings = { //for all applications.
+    leftSide: 0,
+    rightSide: 15, //20% on the right will have accelerated scrolling
+    topSide: 0,
+    bottomSide: 15, //20% at the bottom will have accelerated scrolling
+    
+    // Time threshold between scrolls in ticks (300000 ticks — approximately 250 ms)
+    WHEEL_FAST_SCROLL_TICKS: 300000, // If the time between the current scroll and the previous one is greater than this value, the acceleration counter is reset
+    // A higher value (for example, 350000) allows for longer acceleration to be maintained between scrolls.
+    // A lower value (for example, 250000) means the acceleration counter resets faster.
+
+    // Maximum number of mouse wheel "clicks" per iteration
+    MAX_WHEEL_COUNT: 40, // This limit prevents scrolling from becoming too fast, even if you continue to spin the wheel quickly
+    // A higher value (for example, 50) allows for a higher maximum scrolling speed.
+    // A lower value (for example, 30) limits the maximum scrolling speed to a lower level.
+ 
+    // The amount by which the scroll counter increases with each scroll event
+    WHEEL_COUNT_INCREMENT: 2 // We increase the scrolling intensity by 2 units with each scroll event if the conditions for acceleration are met  
+    // A higher value (for example, 3) results in faster acceleration of scrolling speed.
+    // A lower value (for example, 1) provides a smoother, more gradual increase in speed.
+};
+  var useCustomSettings = true; // Global switch for custom Settings (enable true)
+  var customAppSettings = {
+    "explorer.exe": { enabled: false }, //If you want the acceleration for this application to be disabled
+    "test.exe": { enabled: true, //separate settings for each application
+        leftSide: 0, rightSide: 50, topSide: 0, bottomSide: 20,
+        WHEEL_FAST_SCROLL_TICKS: 400000,
+        MAX_WHEEL_COUNT: 40,
+        WHEEL_COUNT_INCREMENT: 1
+    },
+};
+var customTitleSettings = { //window title
+    "test": { enabled: false },  //If you want the acceleration for this application to be disabled
+    "test2": { 
+        enabled: true, 
+        leftSide: 100, rightSide: 0, topSide: 0, bottomSide: 0,
+        WHEEL_FAST_SCROLL_TICKS: 200000,
+        MAX_WHEEL_COUNT: 60,
+        WHEEL_COUNT_INCREMENT: 4
+    }
+};
+
+var currentMousePoint = sp.GetCurrentMousePoint();
+var wnd = sp.WindowFromPoint(currentMousePoint, true);
+
+// Apply default settings
+var currentSettings = defaultSettings;
+var useAcceleratedScrolling = globalAcceleratedScrollingEnabled;
+
+if (useCustomSettings && wnd && wnd.IsValid()) {
+    var windowTitle = wnd.Title ? wnd.Title.toString() : "";
+    var processName = wnd.Process.MainModule.ModuleName.toLowerCase();
+  
+    var lowerProcessName = processName.toLowerCase();
+    var appSettings = Object.keys(customAppSettings).find(key => key.toLowerCase() === lowerProcessName);
+    var titleSettings = Object.keys(customTitleSettings).find(title => 
+        windowTitle.toLowerCase().includes(title.toLowerCase())
+    );
+    if (appSettings) {
+        currentSettings = {...defaultSettings, ...customAppSettings[appSettings]};
+        useAcceleratedScrolling = currentSettings.enabled !== undefined ? currentSettings.enabled : globalAcceleratedScrollingEnabled;
+    } else if (titleSettings) {
+        currentSettings = {...defaultSettings, ...customTitleSettings[titleSettings]};
+        useAcceleratedScrolling = currentSettings.enabled !== undefined ? currentSettings.enabled : globalAcceleratedScrollingEnabled;
+    }
+}
+if (wnd && wnd.IsValid() && currentMousePoint.X > wnd.Rectangle.Left && currentMousePoint.X < wnd.Rectangle.Right) {
+    if (useAcceleratedScrolling) {
+        var windowWidth = wnd.Rectangle.Width;
+        var windowHeight = wnd.Rectangle.Height;
+        var leftSideWidth = windowWidth * (currentSettings.leftSide / 100);
+        var rightSideWidth = windowWidth * (currentSettings.rightSide / 100);
+        var topSideHeight = windowHeight * (currentSettings.topSide / 100);
+        var bottomSideHeight = windowHeight * (currentSettings.bottomSide / 100);
+        var isLeftSide = currentMousePoint.X < (wnd.Rectangle.Left + leftSideWidth);
+        var isRightSide = currentMousePoint.X > (wnd.Rectangle.Right - rightSideWidth);
+         var isTopSide = currentMousePoint.Y < (wnd.Rectangle.Top + topSideHeight);
+        var isBottomSide = currentMousePoint.Y > (wnd.Rectangle.Bottom - bottomSideHeight);
+
+        if (!isLeftSide && !isRightSide && !isTopSide && !isBottomSide) {
+            // Normal scrolling for the central part of the window
+            //sp.MouseWheel(wheel.Point, wheel.Horizontal, wheel.Delta);
+        } else {
+            // Accelerated scrolling
+            var WHEEL_FAST_SCROLL_TICKS = currentSettings.WHEEL_FAST_SCROLL_TICKS;
+            var MAX_WHEEL_COUNT = currentSettings.MAX_WHEEL_COUNT;
+            var WHEEL_COUNT_INCREMENT = currentSettings.WHEEL_COUNT_INCREMENT;
+
+            var wheelLastTick = parseInt(sp.GetStoredObject("WheelLastTick")) || 0;
+            var isWheelForward = wheel.Delta > 0;
+            var storedWheelForward = sp.GetStoredBool("WheelForward");
+            var currentTicks = DateTime.Now.Ticks;
+
+            var shouldResetWheelCount = storedWheelForward !== isWheelForward || 
+                                        wheelLastTick === 0 || 
+                                        (currentTicks - wheelLastTick) > WHEEL_FAST_SCROLL_TICKS;
+            if (shouldResetWheelCount) {
+                sp.StoreNumber("WheelCount", 1);
+            } else {
+                var currentWheelCount = sp.GetStoredNumber("WheelCount");
+                var newWheelCount = Math.min(currentWheelCount + WHEEL_COUNT_INCREMENT, MAX_WHEEL_COUNT);
+                sp.StoreNumber("WheelCount", newWheelCount);
+            }
+            var scrollCount = sp.GetStoredNumber("WheelCount");
+            for (var i = 0; i < scrollCount; i++) {
+                sp.MouseWheel(wheel.Point, wheel.Horizontal, wheel.Delta);
+            }
+
+            sp.StoreBool("WheelForward", isWheelForward);
+            sp.StoreObject("WheelLastTick", currentTicks);
+        }
+    } else {
+        // Normal scrolling if accelerated scrolling is disabled for this application
+        //sp.MouseWheel(wheel.Point, wheel.Horizontal, wheel.Delta);
+    }
+    // Activate the window
+    //wnd.Activate(); // Activates the window, making it active (in the foreground) and passing input focus to it (resets some submenus when scrolling).
+} else {
+    // If the window is invalid or the cursor is outside the window, perform the standard action
+    //sp.MouseWheel(wheel.Point, wheel.Horizontal, wheel.Delta);
+}
