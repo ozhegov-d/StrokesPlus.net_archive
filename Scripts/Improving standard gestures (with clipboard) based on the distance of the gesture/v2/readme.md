@@ -12,12 +12,12 @@ There are only two states: paste or scroll the page to the top
 
 https://github.com/user-attachments/assets/a17a7c5a-7fda-4b6b-9acd-385654811520
 
-### Deepl+Escape
+### Deepl+Esc
 Works only for DeepL for Windows
 
 You need to change the settings by setting your hotkeys and check the Capture text on screen checkbox.
 
-+ short gesture - Text Highlighted and Its translation
++ short gesture - If text is highlighted — then translation, if no text is highlighted — then Esc.
 + long gesture - Translation of text from the screen
 
 https://github.com/user-attachments/assets/ce7b1791-0962-43c2-a39d-0cdf3c525628
