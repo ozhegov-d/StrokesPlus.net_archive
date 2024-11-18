@@ -1,0 +1,78 @@
+var programPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+function getClipboardStoragePath() {
+    return System.IO.Path.Combine(programPath, "StrokesPlus_ClipboardStorage.json");
+}
+
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'top';
+info.Duration = 600;
+info.Opacity = 0.9;
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+info.Padding = 15;
+info.FadeSteps = 18;
+
+function displayMessage(message) {
+    info.Message = message;
+    var screenWidth = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Width;
+    var screenHeight = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Height;
+    var messageWidth = info.MessageFont.Size * message.length;
+    var messageHeight = info.MessageFont.Size;
+    info.Location = `${(screenWidth - messageWidth) / 2},${(screenHeight - messageHeight) / 2}`;
+    sp.DisplayText(info);
+}
+
+function getClipboard() {
+    try {
+        const filePath = getClipboardStoragePath();
+        if (System.IO.File.Exists(filePath)) {
+            const clipboardJson = System.IO.File.ReadAllText(filePath);
+            return JSON.parse(clipboardJson);
+        }
+    } catch (error) {
+        sp.ConsoleError("Error loading clipboard: " + error.message, "Error");
+    }
+    return Array(3).fill(null); 
+}
+
+function setClipboard(clipboard) {
+    try {
+        const clipboardJson = JSON.stringify(clipboard);
+        System.IO.File.WriteAllText(getClipboardStoragePath(), clipboardJson);
+    } catch (error) {
+        sp.ConsoleError("Error saving clipboard: " + error.message, "Error");
+    }
+}
+
+function getClipboardContent(index) {
+    const clipboard = getClipboard();
+    return clipboard[index - 1] ? clipboard[index - 1].text : '';
+}
+
+function setClipboardContent(index, value) {
+    const clipboard = getClipboard();
+    clipboard[index - 1] = { text: value, timestamp: new Date().toLocaleString() };
+    setClipboard(clipboard);
+}
+
+function pasteClipboardContent(clipboardIndex) {
+    var clipboardContent = getClipboardContent(clipboardIndex);
+    if (clipboardContent !== '') {
+        clip.SetText(clipboardContent);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+        displayMessage(`Pasted from clipboard ${clipboardIndex}`);
+    } else {
+        displayMessage(`Clipboard ${clipboardIndex} is empty`);
+    }
+}
+
+// Functions to paste from specific clipboards
+function pasteFromClipboard1() { pasteClipboardContent(1); }
+function pasteFromClipboard2() { pasteClipboardContent(2); }
+function pasteFromClipboard3() { pasteClipboardContent(3); }
+function pasteFromClipboard4() { pasteClipboardContent(4); }
+function pasteFromClipboard5() { pasteClipboardContent(5); }
+
+// Example usage: Paste from Clipboard 1
+pasteFromClipboard1();
