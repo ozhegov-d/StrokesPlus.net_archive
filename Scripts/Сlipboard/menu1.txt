@@ -1,0 +1,152 @@
+
+var numberOfCharacters = 50; // how many characters to display
+var numberOfLines = 3; // how many lines of text to show 
+var numberOfClipboardsToShow = 7; // maximum number of items on the clipboard
+// Function to get the path to the clipboard storage file
+var programPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+function getClipboardStoragePath() {
+    return System.IO.Path.Combine(programPath, "StrokesPlus_ClipboardStorage1.json");
+}
+
+// Function to get the clipboard content
+function getClipboard() {
+    try {
+        const filePath = getClipboardStoragePath();
+        if (System.IO.File.Exists(filePath)) {
+            const clipboardJson = System.IO.File.ReadAllText(filePath);
+            return JSON.parse(clipboardJson);
+        }
+    } catch (error) {
+        sp.ConsoleError("Error loading clipboard: " + error.message, "Error");
+    }
+    return [];
+}
+
+
+// Returns a preview of the clipboard's content
+function getClipboardPreview(text, maxWidth, maxLines) {
+    if (!text) return ["[empty]"];
+    
+    text = text.replace(/\s+/g, ' ').trim();
+    let lines = [];
+    let currentLine = "";
+    let currentWidth = 0;
+
+    for (let i = 0; i < text.length; i++) {
+        let char = text[i];
+        let charWidth = getCharWidth(char);
+        
+        if (currentWidth + charWidth > maxWidth) {
+            lines.push(currentLine);
+            currentLine = "";
+            currentWidth = 0;
+            if (lines.length >= maxLines) break;
+        }
+        
+        currentLine += char;
+        currentWidth += charWidth;
+    }
+
+    if (currentLine && lines.length < maxLines) {
+        lines.push(currentLine);
+    }
+
+    if (text.length > lines.join('').length) {
+        let lastLine = lines[lines.length - 1];
+        lines[lines.length - 1] = lastLine.slice(0, -3) + "...";
+    }
+
+    return lines;
+}
+
+function getCharWidth(char) {
+    if (char.match(/[\u3000-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F]/)) {
+        return 2;
+    }
+    if (char.match(/[\uAC00-\uD7A3]/)) {
+        return 2;
+    }
+    return 1;
+}
+function base64Encode(str) {
+    return System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(str));
+}
+
+function base64Decode(str) {
+    return System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(str));
+}
+
+
+// Function to paste from clipboard
+function pasteFromClipboard(encodedText) {
+    const decodedText = base64Decode(encodedText);
+    clip.SetText(decodedText);
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+}
+
+// Function to add a new clipboard item, checking for duplicates
+function addClipboardItem(text) {
+    const clipboard = getClipboard();
+    const encodedText = base64Encode(text);
+
+    // Check for duplicates based on encoded text
+    if (clipboard.some(item => item.text === encodedText)) {
+        return; 
+    }
+
+    const newItem = {
+        text: encodedText,
+        timestamp: new Date().toLocaleString()
+    };
+
+    clipboard.unshift(newItem); // the new item to the beginning
+
+    if (clipboard.length > numberOfClipboardsToShow) {
+        clipboard.pop(); // Remove the oldest item if the limit is exceeded
+    }
+
+    saveClipboard(clipboard);
+}
+// Function to show the clipboard selection menu
+function showClipboardSelectionMenu() {
+    const currentPoint = sp.GetCurrentMousePoint();
+    const items = new List(PopupListItem);
+
+    function addMenuItem(label, action) {
+        items.Add(new PopupListItem(label, action));
+    }
+
+    const clipboard = getClipboard();
+    const displayCount = Math.min(numberOfClipboardsToShow, clipboard.length); 
+
+    for (let i = 0; i < displayCount; i++) {
+    const item = clipboard[i];
+    const text = item.text;
+    const timestamp = item.timestamp;
+    const encodedText = base64Encode(text);
+    const pasteAction = `pasteFromClipboard('${encodedText}');`;
+
+    const label = `${timestamp} (${text.length} chars.)`;
+    addMenuItem(label, pasteAction);
+
+    const previewLines = getClipboardPreview(text, numberOfCharacters, numberOfLines); 
+    for (const line of previewLines) {
+        addMenuItem(line, pasteAction);
+    }
+
+    if (i < displayCount - 1) {
+        items.Add(new PopupListItem("―――――――――――――――", ""));
+    }
+}
+
+    const contentFont = new Font(new FontFamily("Tahoma"), 11, FontStyle.Regular, GraphicsUnit.Point); 
+    sp.PopupList(items, currentPoint, contentFont,);
+}
+
+function onClipboardChange() {
+    const newClipboardText = clip.GetText();
+    addClipboardItem(newClipboardText);
+}
+
+// Show the clipboard selection menu
+showClipboardSelectionMenu();

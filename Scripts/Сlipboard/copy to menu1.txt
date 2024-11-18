@@ -1,0 +1,66 @@
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'top';
+info.Duration = 600;
+info.Opacity = 0.7;
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+info.Padding = 15;
+info.FadeSteps = 18;
+
+// maximum number of items on the clipboard
+var numberOfClipboardsToShow = 10;
+
+function displayMessage(message) {
+    info.Message = message;
+    if (typeof action !== 'undefined' && action.End) {
+        info.Location = `${action.End.X + 10},${action.End.Y + 10}`;
+    } else {
+        info.Location = `100,100`;
+    }
+    sp.DisplayText(info);
+}
+
+var programPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+function getClipboardStoragePath() {
+    return System.IO.Path.Combine(programPath, "StrokesPlus_ClipboardStorage1.json");
+}
+function getClipboard() {
+    try {
+        const filePath = getClipboardStoragePath();
+        if (System.IO.File.Exists(filePath)) {
+            const clipboardJson = System.IO.File.ReadAllText(filePath);
+            return JSON.parse(clipboardJson);
+        }
+    } catch (error) {
+        sp.ConsoleError("Error loading clipboard: " + error.message, "Error");
+    }
+    return [];
+}
+function setClipboard(clipboard) {
+    try {
+        const clipboardJson = JSON.stringify(clipboard);
+        System.IO.File.WriteAllText(getClipboardStoragePath(), clipboardJson);
+    } catch (error) {
+        sp.ConsoleError("Error saving clipboard: " + error.message, "Error");
+    }
+}
+function copyToClipboard() {
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.Sleep(100);
+    var newText = clip.GetText();
+    var clipboard = getClipboard();
+    if (!clipboard.some(item => item.text === newText)) {
+        var now = new Date();
+        var timestamp = now.toLocaleString();  // Get current date and time
+        clipboard.unshift({text: newText, timestamp: timestamp});  // Add timestamp
+        if (clipboard.length > numberOfClipboardsToShow) {
+            clipboard = clipboard.slice(0, numberOfClipboardsToShow);
+        }
+        setClipboard(clipboard);
+        displayMessage(`Copied to clipboard X`);
+    } else {
+        displayMessage('Text is already in the clipboard');
+    }
+}
+copyToClipboard();
