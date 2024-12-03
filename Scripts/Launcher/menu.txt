@@ -1,0 +1,1118 @@
+var ht = sp.ForegroundWindow().Screen.Bounds.Height;
+var wd = sp.ForegroundWindow().Screen.Bounds.Width;
+var Forms = forms.System.Windows.Forms;
+
+var program = true; //show programs (true/false)
+var showProgramIcons = true; //show program icons
+var showProgramText = true; //how program names
+var Website = true;
+var showWebsiteIcons = true;
+var showWebsiteText = true;
+
+var closeFormAfterLaunch = true; //whether to keep the form running after opening a program/site
+
+var separatorPanels = [];
+var separatorConfig = {
+    margin: 40,         // Distance between separators
+    topMargin: 0,       // Top indent
+    bottomMargin: 0,   // Bottom indent
+    height: 1,          // Height of separators
+    count: 2            // Number of separators
+};
+function createOrUpdateSeparators() {
+    // Save current separators positions
+    var oldPositions = separatorPanels.map(function(panel) {
+        return panel.Top;
+    });
+
+    // Remove existing separators
+    while (separatorPanels.length > 0) {
+        var panel = separatorPanels.pop();
+        form2.Controls.Remove(panel);
+        panel.Dispose();
+    }
+
+    // Create new separators
+    for (var i = 0; i < separatorConfig.count; i++) {
+        (function(index) {
+            var panel = new Forms.Panel();
+            panel.Name = "separator_" + index;
+            panel.Width = form2.ClientSize.Width;
+            panel.Height = separatorConfig.height;
+            panel.Left = 0;
+            panel.Top = oldPositions[index] !== undefined
+                ? oldPositions[index]
+                : separatorConfig.topMargin + index * (separatorConfig.margin + separatorConfig.height);
+            panel.BackColor = System.Drawing.Color.Gray;
+            panel.Cursor = Forms.Cursors.SizeNS;
+
+            panel.MouseEnter.connect(function(sender, e) {
+                sender.Height = 5;
+            });
+
+            panel.MouseLeave.connect(function(sender, e) {
+                sender.Height = separatorConfig.height;
+            });
+
+            panel.MouseDown.connect(function(sender, e) {
+                if (e.Button === Forms.MouseButtons.Left) {
+                    var cursorPos = Forms.Cursor.Position;
+                    var panelPos = sender.Top;
+                    var deltaY = cursorPos.Y - form2.Top - panelPos;
+                    sender.Tag = { deltaY: deltaY };
+                }
+            });
+
+            panel.MouseMove.connect(function(sender, e) {
+                if (e.Button === Forms.MouseButtons.Left && sender.Tag) {
+                    var cursorPos = Forms.Cursor.Position;
+                    var deltaY = sender.Tag.deltaY;
+                    var newY = cursorPos.Y - form2.Top - deltaY;
+                    newY = Math.max(
+                        separatorConfig.topMargin,
+                        Math.min(newY, form2.ClientSize.Height - separatorConfig.bottomMargin - separatorConfig.height)
+                    );
+                    sender.Top = newY;
+                }
+            });
+
+            panel.MouseUp.connect(function(sender, e) {
+                if (e.Button === Forms.MouseButtons.Left) {
+                    sender.Tag = null;
+                    saveSettings();
+                }
+            });
+
+            form2.Controls.Add(panel);
+            separatorPanels.push(panel);
+        })(i);
+    }
+}
+
+var form2 = new Forms.Form();
+var textLocation = "top"; // where the text will be displayed (Possible values: "bottom", "top")
+var iconOnlySettings = {
+    programIconSize: 33, //program icon size
+    websiteIconSize: 32, //icon size for websites
+
+    programColumnWidth: 40,
+    websiteColumnWidth: 50,
+    programRowHeight: 40,
+    websiteRowHeight: 40,
+    xOffset: 10,  // Left indent for icons and text
+    programColumns: 10, 
+    websiteColumns: 10,
+    programRows: 10, // to accommodate all programs (if there are not enough then the latest programs will not be displayed)
+    websiteRows: 10 // to accommodate all the sites
+};
+var settings = iconOnlySettings;
+var settingsForm = null;
+// Настройка формы 2
+form2.StartPosition = Forms.FormStartPosition.Manual;
+form2.FormBorderStyle = Forms.FormBorderStyle.Sizable;
+form2.TopMost = true; 
+form2.ShowInTaskbar = false;
+form2.ControlBox = false;
+//  Enable double buffering (if there is flickering (smoother rendering)).
+//form2.GetType().GetProperty("DoubleBuffered",
+//    host.flags(clr.System.Reflection.BindingFlags.NonPublic,
+//    clr.System.Reflection.BindingFlags.Instance))
+//    .SetValue(form2, true); 
+form2.Shown.connect(function () {
+        form2.TopMost = true;
+        form2.Activate(); 
+});
+var programPath = System.Windows.Forms.Application.StartupPath;
+var programs = [
+    {title:"calc", run:"calc", ico:"C:\\Windows\\System32\\calc.exe"},
+    {title:"notepad", run:"notepad", ico:"C:\\Windows\\System32\\notepad.exe"},
+    {title:"paint", run:"mspaint", ico:"C:\\Windows\\System32\\mspaint.exe"},
+    {title:"explorer", run:"explorer", ico:"C:\\Windows\\explorer.exe"},
+    {title:"taskmgr",  run:"taskmgr", ico:"C:\\Windows\\System32\\Taskmgr.exe"},
+    {title:"cmd",  run:"cmd", ico:""},
+    {title:"cmd2",  run:"C:\\Windows\\System32\\cmd.exe", ico:""},
+];
+var websites = [
+{title:"YouTube", run:"https://www.youtube.com", ico:"icons\\youtube.png"},
+{title:"DuckDuckGo", run:"duckduckgo.com", ico:"icons\\duckduckgo.png"},
+{title:"Bing", run:"bing.com", ico:"icons\\bing.png"},
+{title:"Google", run:"www.google.com", ico:"icons\\google.png"},
+{title:"Wikipedia", run:"en.wikipedia.org", ico:"icons\\wiki1.png"},
+{title:"Reddit", run:"www.reddit.com", ico:"icons\\reddit.png"},
+{title:"GitHub", run:"github.com", ico:"icons\\github.png"},
+{title:"StackOverflow", run:"https://stackoverflow.com", ico:"icons\\stackoverflow.png"},
+{title:"Twitter", run:"https://twitter.com", ico:"icons\\twitter.png"}
+];
+// Program Creation
+if (program) {
+    var programIndex = 0;
+    for (var i = 0; i < settings.programColumns; i++) {
+        var xColumn = settings.xOffset + i * settings.programColumnWidth; // indentation for programs on the left
+        for (var j = 0; j < settings.programRows; j++) {
+            if (programIndex >= programs.length) break;
+            var program = programs[programIndex];
+            var panelContainer = new Forms.Panel();
+            panelContainer.Name = "program_container_" + programIndex;
+            var pictureBox = null;
+            var panelWidth = 0;
+            var panelHeight = 0;
+
+            if (showProgramIcons) {
+                pictureBox = new Forms.PictureBox();
+                var iconPath = program.ico || program.run;
+                var hasIcon = iconPath && System.IO.File.Exists(iconPath);
+                if (hasIcon) {
+                    try {
+                        var icon = System.Drawing.Icon.ExtractAssociatedIcon(iconPath);
+                        var originalBitmap = icon.ToBitmap();
+                        var resizedBitmap = new System.Drawing.Bitmap(originalBitmap, new Size(settings.programIconSize, settings.programIconSize));
+                        pictureBox.Size = new Size(settings.programIconSize, settings.programIconSize);
+                        pictureBox.Image = resizedBitmap;
+                        pictureBox.SizeMode = Forms.PictureBoxSizeMode.StretchImage;
+                        pictureBox.Location = new Point(0, 0);
+                        pictureBox.Name = "program_icon_" + programIndex;
+                        panelContainer.Controls.Add(pictureBox);
+                        panelWidth = settings.programIconSize;
+                        panelHeight = settings.programIconSize;
+                        icon.Dispose();
+                        originalBitmap.Dispose();
+                        form2.FormClosed.connect(function() {
+                            resizedBitmap.Dispose();
+                            pictureBox.Dispose();
+                        });
+                    } catch (e) {
+                        sp.ConsoleError("Error loading image: " + e.message);
+                    }
+                } else {
+                    // If there is no icon, create an empty PictureBox
+                    pictureBox.Size = new Size(settings.programIconSize, settings.programIconSize);
+                    pictureBox.BackColor = System.Drawing.Color.Transparent;
+                    panelContainer.Controls.Add(pictureBox);
+                    panelWidth = settings.programIconSize;
+                    panelHeight = settings.programIconSize;
+                }
+            }
+
+            var label = null;
+            if (showProgramText) {
+                label = new Forms.Label();
+                label.Text = program.title;
+                label.AutoSize = true;
+                label.Name = "program_label_" + programIndex;
+                panelContainer.Controls.Add(label);
+            }
+
+            var containerWidth = 0;
+            var containerHeight = 0;
+            if (showProgramIcons && pictureBox) {
+                containerWidth = pictureBox.Width;
+                containerHeight = pictureBox.Height;
+                if (showProgramText && label) {
+                    switch (textLocation) {
+                        case "bottom":
+                            containerWidth = Math.max(pictureBox.Width, label.Width);
+                            containerHeight += label.Height + 5;
+                            label.Location = new Point(
+                                Math.floor((containerWidth - label.Width) / 2),
+                                pictureBox.Height + 5
+                            );
+                            break;
+                        case "top":
+                            containerWidth = Math.max(pictureBox.Width, label.Width);
+                            containerHeight += label.Height + 5;
+                            pictureBox.Location = new Point(
+                                Math.floor((containerWidth - pictureBox.Width) / 2),
+                                label.Height + 5
+                            );
+                            break;
+                    }
+                }
+            } else if (showProgramText && label) {
+                containerWidth = label.Width;
+                containerHeight = label.Height;
+            }
+
+            panelContainer.Size = new Size(containerWidth, containerHeight);
+            panelContainer.Location = new Point(xColumn, 5 + j * (Math.max(settings.programRowHeight, containerHeight)));
+            // handler for dragging and clicking
+            attachEventHandlers(panelContainer, program, launchProgram);
+
+            form2.Controls.Add(panelContainer);
+            form2.FormClosed.connect(function() {
+                panelContainer.Dispose();
+            });
+
+            programIndex++;
+        }
+    }
+}
+
+// Website creation
+if (Website) {
+    // Creating site icons
+    var websiteY = settings.xOffset + settings.programRows * settings.programRowHeight + separatorConfig.topMargin + panelHeight + separatorConfig.bottomMargin;
+    var websiteIndex = 0;
+    for (var i = 0; i < settings.websiteColumns; i++) {
+    var xColumn = settings.xOffset + i * settings.websiteColumnWidth;
+    for (var j = 0; j < settings.websiteRows; j++) {
+        if (websiteIndex >= websites.length) break;
+        var website = websites[websiteIndex];
+        var yRow = websiteY + j * settings.websiteRowHeight;
+
+        // Create a container for icon and/or text
+        var panelContainer = new Forms.Panel();
+        panelContainer.Name = "website_container_" + websiteIndex;
+            //panelContainer.Location = new System.Drawing.Point(xColumn, yRow);
+            var containerWidth = 0;
+            var containerHeight = 0;
+            if (showWebsiteIcons) {
+                var iconPath = website.ico ? website.ico.trim() : "";             
+                if (iconPath && !System.IO.Path.IsPathRooted(iconPath)) {
+                    iconPath = System.IO.Path.Combine(programPath, iconPath);
+                }           
+                var hasIcon = iconPath && System.IO.File.Exists(iconPath);
+                if (hasIcon) {
+                    try {
+                        var originalImage = System.Drawing.Image.FromFile(iconPath);
+                        var pictureBox = new Forms.PictureBox();
+                        var image = new System.Drawing.Bitmap(originalImage, new Size(settings.websiteIconSize, settings.websiteIconSize));
+                        pictureBox.Size = new Size(settings.websiteIconSize, settings.websiteIconSize);
+                        pictureBox.Image = image;
+                        pictureBox.SizeMode = Forms.PictureBoxSizeMode.StretchImage;
+                        pictureBox.Location = new Point(0, 0);
+                        pictureBox.Name = "websites_icon_" + websiteIndex;
+                        panelContainer.Controls.Add(pictureBox);
+
+                        containerWidth = settings.websiteIconSize;
+                        containerHeight = settings.websiteIconSize;
+
+                        originalImage.Dispose();
+                        form2.FormClosed.connect(function() {
+                            image.Dispose();
+                            pictureBox.Dispose();
+                        });
+                    } catch (e) {
+                        sp.ConsoleError("Error loading image: " + e.message + " (Path: " + iconPath + ")");
+                    }
+                }
+            }
+            if (showWebsiteText) {
+                var label = new Forms.Label();
+                label.Text = website.title;
+                label.AutoSize = true;
+                label.Name = "website_label_" + websiteIndex;
+                panelContainer.Controls.Add(label);
+
+                if (showWebsiteIcons) {
+                    label.Location = new Point(0, settings.websiteIconSize + 5);
+                    containerWidth = Math.max(containerWidth, label.Width);
+                    containerHeight += label.Height + 5;
+                } else {
+                    label.Location = new Point(0, 0);
+                    containerWidth = label.Width;
+                    containerHeight = label.Height;
+                }
+            }
+            panelContainer.Size = new Size(containerWidth, containerHeight);
+            // handler for dragging and clicking
+               attachEventHandlers(panelContainer, website, launchWebsite);
+
+form2.Controls.Add(panelContainer);
+form2.FormClosed.connect(function() {
+    panelContainer.Dispose();
+});
+websiteIndex++;
+        }
+    }
+}
+form2.KeyPreview = true;
+form2.MinimumSize = new Size(200, 150);
+
+function formMouseDown(sender, e) {
+    if (e.Button === Forms.MouseButtons.Left) {
+        var cursorPos = Forms.Cursor.Position;
+        var formPos = form2.Location;
+        var deltaX = cursorPos.X - formPos.X;
+        var deltaY = cursorPos.Y - formPos.Y;
+
+        form2.Tag = { deltaX: deltaX, deltaY: deltaY };
+    }
+}
+
+function formMouseMove(sender, e) {
+    if (e.Button === Forms.MouseButtons.Left && form2.Tag) {
+        var cursorPos = Forms.Cursor.Position;
+        var deltaX = form2.Tag.deltaX;
+        var deltaY = form2.Tag.deltaY;
+
+        form2.Location = new System.Drawing.Point(
+            cursorPos.X - deltaX,
+            cursorPos.Y - deltaY
+        );
+    }
+}
+
+function formMouseUp(sender, e) {
+    if (e.Button === Forms.MouseButtons.Left) {
+        form2.Tag = null;
+    }
+}
+
+// Connect handlers
+form2.MouseDown.connect(formMouseDown);
+form2.MouseMove.connect(formMouseMove);
+form2.MouseUp.connect(formMouseUp);
+
+// Handle KeyDown event
+function handleFormKeyDown(sender, e) {
+    if (e.KeyCode === Forms.Keys.Escape) {
+        form2.Close();
+    }
+}
+
+// Handle MouseDoubleClick event
+function handleFormMouseDoubleClick(sender, e) {
+    form2.Close();
+}
+
+// Connect the event handlers
+form2.KeyDown.connect(handleFormKeyDown);
+form2.MouseDoubleClick.connect(handleFormMouseDoubleClick);
+
+// Create a customization button
+var settingsButton = new Forms.Button();
+settingsButton.Text = "⚙";
+settingsButton.Size = new System.Drawing.Size(30, 30);
+settingsButton.Cursor = Forms.Cursors.Hand;
+
+// Set the anchor for the button to the bottom right corner
+settingsButton.Anchor = Forms.AnchorStyles.Bottom | Forms.AnchorStyles.Right;
+
+// Add a button to the form
+form2.Controls.Add(settingsButton);
+
+// Create a sort button
+var arrangeButton = new Forms.Button();
+arrangeButton.Text = "⇲"; 
+arrangeButton.Size = new Size(30, 30);
+arrangeButton.Cursor = Forms.Cursors.Hand;
+
+// Set the anchor for the button to the bottom right corner
+arrangeButton.Anchor = Forms.AnchorStyles.Bottom | Forms.AnchorStyles.Right;
+
+// Add a button to the form
+form2.Controls.Add(arrangeButton);
+
+// Function for customizing button styles and event handlers
+function setupButton(button) {
+    button.Visible = true;
+    button.BackColor = System.Drawing.Color.Transparent;
+    button.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+    button.FlatAppearance.BorderSize = 0;
+    button.ForeColor = System.Drawing.Color.Transparent;
+
+    // Event handlers for the button
+    button.MouseEnter.connect(function() {
+        button.ForeColor = System.Drawing.Color.Black; // or any other color
+    });
+
+    button.MouseLeave.connect(function() {
+        button.ForeColor = System.Drawing.Color.Transparent;
+    });
+}
+
+// Apply the function to our buttons
+setupButton(settingsButton);
+setupButton(arrangeButton);
+
+var showProgramIconsCheckBox;
+var showProgramCheckBox;
+var showProgramTextCheckBox;
+
+function updateItemVisibility(type) {
+    // Defining type-specific settings
+    var showIcons = type === "program" ? showProgramIcons : showWebsiteIcons;
+    var showText = type === "program" ? showProgramText : showWebsiteText;
+    var iconSize = type === "program" ? settings.programIconSize : settings.websiteIconSize;
+    var itemVisible = type === "program" ? program : Website;
+
+    // Maintain current positions
+    var savedPositions = {};
+    for (var i = 0; i < form2.Controls.Count; i++) {
+        var control = form2.Controls[i];
+        if (control.Name && control.Name.startsWith(type + "_container_")) {
+            savedPositions[control.Name] = {
+                x: control.Left,
+                y: control.Top
+            };
+        }
+    }
+
+    // Updating the visibility of elements
+    for (var i = 0; i < form2.Controls.Count; i++) {
+        var control = form2.Controls[i];
+        if (control && control.Name && control.Name.startsWith(type + "_container_")) {
+            var iconControl = null;
+            var textControl = null;
+            for (var j = 0; j < control.Controls.Count; j++) {
+                var subControl = control.Controls[j];
+                if (subControl.Name && subControl.Name.indexOf("icon") !== -1) {
+                    iconControl = subControl;
+                }
+                if (subControl.Name && subControl.Name.indexOf("label") !== -1) {
+                    textControl = subControl;
+                }
+            }
+
+            if (iconControl) {
+                iconControl.Visible = showIcons;
+                iconControl.Size = new Size(iconSize, iconSize);
+                // Update the icon image with the new size
+                if (iconControl.Image) {
+                    var newImage = new System.Drawing.Bitmap(iconControl.Image, new Size(iconSize, iconSize));
+                    iconControl.Image.Dispose();
+                    iconControl.Image = newImage;
+                }
+            }
+            if (textControl) textControl.Visible = showText;
+
+            var newWidth = showIcons && iconControl ? iconControl.Width : 0;
+            var newHeight = showIcons && iconControl ? iconControl.Height : 0;
+
+            if (showText && textControl) {
+                newWidth = Math.max(newWidth, textControl.Width);
+                newHeight += textControl.Height;
+                if (showIcons) newHeight += 5;
+            }
+
+            if (showText && textControl) {
+                if (showIcons && iconControl) {
+                    if (textLocation === "bottom") {
+                        textControl.Location = new Point(
+                            Math.floor((newWidth - textControl.Width) / 2),
+                            iconControl.Height + 5
+                        );
+                        iconControl.Location = new Point(
+                            Math.floor((newWidth - iconControl.Width) / 2),
+                            0
+                        );
+                    } else { // top
+                        textControl.Location = new Point(
+                            Math.floor((newWidth - textControl.Width) / 2),
+                            0
+                        );
+                        iconControl.Location = new Point(
+                            Math.floor((newWidth - iconControl.Width) / 2),
+                            textControl.Height + 5
+                        );
+                    }
+                } else {
+                    textControl.Location = new Point(
+                        Math.floor((newWidth - textControl.Width) / 2),
+                        0
+                    );
+                }
+            } else if (showIcons && iconControl) {
+                iconControl.Location = new Point(
+                    Math.floor((newWidth - iconControl.Width) / 2),
+                    0
+                );
+            }
+
+            control.Size = new Size(newWidth, newHeight);
+            control.Visible = itemVisible && (showIcons || showText);
+
+            // After updating the dimensions, restore the position
+            if (savedPositions[control.Name]) {
+                control.Location = new Point(
+                    savedPositions[control.Name].x,
+                    savedPositions[control.Name].y
+                );
+            }
+        }
+    }
+}
+
+// Click handler for the settings button
+settingsButton.Click.connect(function () {
+    if (settingsForm && !settingsForm.IsDisposed) {
+        if (settingsForm.Visible) {
+            settingsForm.Hide();
+        } else {
+            positionSettingsForm();
+            settingsForm.Show();
+        }
+    } else {
+        createSettingsForm();
+    }
+    positionSettingsForm();
+});
+
+function createSettingsForm() { // form3
+    if (settingsForm && !settingsForm.IsDisposed) {
+        settingsForm.Close();
+    }
+
+    settingsForm = new Forms.Form();
+    settingsForm.Text = "Settings";
+    settingsForm.TopMost = true;
+
+    settingsForm.Size = new Size(250, 370);
+    settingsForm.FormBorderStyle = Forms.FormBorderStyle.FixedDialog;
+    settingsForm.MaximizeBox = false;
+    settingsForm.MinimizeBox = false;
+    settingsForm.StartPosition = Forms.FormStartPosition.Manual;
+
+    var y = 10;
+
+    //  settings
+    var showIcons = new Forms.CheckBox();
+    showIcons.Parent = settingsForm;
+    showIcons.Text = "Show Program Icons";
+    showIcons.Bounds = new System.Drawing.Rectangle(10, y, 200, 20);
+    showIcons.Checked = showProgramIcons;
+    y += 30;
+
+    var showText = new Forms.CheckBox();
+    showText.Parent = settingsForm;
+    showText.Text = "Show Program Names";
+    showText.Bounds = new System.Drawing.Rectangle(10, y, 200, 20);
+    showText.Checked = showProgramText;
+    y += 30;
+
+    var showWebsiteIconsCheckBox = new Forms.CheckBox();
+    showWebsiteIconsCheckBox.Parent = settingsForm;
+    showWebsiteIconsCheckBox.Text = "Show Website Icons";
+    showWebsiteIconsCheckBox.Bounds = new System.Drawing.Rectangle(10, y, 200, 20);
+    showWebsiteIconsCheckBox.Checked = showWebsiteIcons;
+    y += 30;
+
+    var showWebsiteTextCheckBox = new Forms.CheckBox();
+    showWebsiteTextCheckBox.Parent = settingsForm;
+    showWebsiteTextCheckBox.Text = "Show Website Names";
+    showWebsiteTextCheckBox.Bounds = new System.Drawing.Rectangle(10, y, 200, 20);
+    showWebsiteTextCheckBox.Checked = showWebsiteText;
+    y += 30;
+   
+    var closeFormCheckBox = new Forms.CheckBox();
+    closeFormCheckBox.Parent = settingsForm;
+    closeFormCheckBox.Text = "Close form after launch";
+    closeFormCheckBox.Bounds = new System.Drawing.Rectangle(10, y, 200, 20);
+    closeFormCheckBox.Checked = closeFormAfterLaunch;
+    y += 30;
+
+    // Size of program icons
+    var programIconSizeLabel = new Forms.Label();
+    programIconSizeLabel.Parent = settingsForm;
+    programIconSizeLabel.Text = "Program Icon Size:";
+    programIconSizeLabel.Bounds = new System.Drawing.Rectangle(10, y, 120, 20);
+
+    var programIconSizeNumeric = new Forms.NumericUpDown();
+    programIconSizeNumeric.Parent = settingsForm;
+    programIconSizeNumeric.Minimum = 16;
+    programIconSizeNumeric.Maximum = 128;
+    programIconSizeNumeric.Value = settings.programIconSize;
+    programIconSizeNumeric.Bounds = new System.Drawing.Rectangle(140, y, 60, 20);
+    y += 30;
+
+    // Size of site icons
+    var websiteIconSizeLabel = new Forms.Label();
+    websiteIconSizeLabel.Parent = settingsForm;
+    websiteIconSizeLabel.Text = "Website Icon Size:";
+    websiteIconSizeLabel.Bounds = new System.Drawing.Rectangle(10, y, 120, 20);
+
+    var websiteIconSizeNumeric = new Forms.NumericUpDown();
+    websiteIconSizeNumeric.Parent = settingsForm;
+    websiteIconSizeNumeric.Minimum = 16;
+    websiteIconSizeNumeric.Maximum = 128;
+    websiteIconSizeNumeric.Value = settings.websiteIconSize;
+    websiteIconSizeNumeric.Bounds = new System.Drawing.Rectangle(140, y, 60, 20);
+    y += 30;
+
+    // Drop-down list for selecting the text location
+    var textLocationLabel = new Forms.Label();
+    textLocationLabel.Parent = settingsForm;
+    textLocationLabel.Text = "Text Location:";
+    textLocationLabel.Bounds = new System.Drawing.Rectangle(10, y, 120, 20);
+
+    var textLocationComboBox = new Forms.ComboBox();
+    textLocationComboBox.Parent = settingsForm;
+    textLocationComboBox.DropDownStyle = Forms.ComboBoxStyle.DropDownList;
+    textLocationComboBox.Items.Add("top");
+    textLocationComboBox.Items.Add("bottom");
+    textLocationComboBox.SelectedItem = textLocation; // Set the current value
+    textLocationComboBox.Bounds = new System.Drawing.Rectangle(140, y, 80, 20);
+    y += 30;
+
+    // Number of dividers
+    var separatorsLabel = new Forms.Label();
+    separatorsLabel.Parent = settingsForm;
+    separatorsLabel.AutoSize = true;
+    separatorsLabel.Text = "Separator line:";
+    separatorsLabel.Bounds = new System.Drawing.Rectangle(10, y, 120, 20);
+
+    var separatorsNumeric = new Forms.NumericUpDown();
+    separatorsNumeric.Parent = settingsForm;
+    separatorsNumeric.Minimum = 0;
+    separatorsNumeric.Maximum = 15;
+    separatorsNumeric.Value = separatorConfig.count; 
+    separatorsNumeric.Bounds = new System.Drawing.Rectangle(140, y, 60, 20);
+    y += 30;
+
+    // Height of dividers
+    var separatorHeightLabel = new Forms.Label();
+    separatorHeightLabel.Parent = settingsForm;
+    separatorHeightLabel.Text = "Separator height:";
+    separatorHeightLabel.Bounds = new System.Drawing.Rectangle(10, y, 120, 20);
+
+    var separatorHeightNumeric = new Forms.NumericUpDown();
+    separatorHeightNumeric.Parent = settingsForm;
+    separatorHeightNumeric.Minimum = 1;
+    separatorHeightNumeric.Maximum = 10;
+    separatorHeightNumeric.Value = separatorConfig.height;
+    separatorHeightNumeric.Bounds = new System.Drawing.Rectangle(140, y, 60, 20);
+    y += 30;
+
+    // Change handlers
+    function updateSeparatorSettings() {
+        separatorConfig.count = separatorsNumeric.Value;
+        separatorConfig.height = separatorHeightNumeric.Value;
+        createOrUpdateSeparators();
+        saveSettings();
+    }
+
+    separatorsNumeric.ValueChanged.connect(updateSeparatorSettings);
+    separatorHeightNumeric.ValueChanged.connect(updateSeparatorSettings);
+
+    // Other handlers for customization
+    programIconSizeNumeric.ValueChanged.connect(function() {
+        settings.programIconSize = programIconSizeNumeric.Value;
+        updateAllVisibility();
+        saveSettings();
+    });
+
+    websiteIconSizeNumeric.ValueChanged.connect(function() {
+        settings.websiteIconSize = websiteIconSizeNumeric.Value;
+        updateAllVisibility();
+        saveSettings();
+    });
+
+    showIcons.CheckedChanged.connect(function() {
+        showProgramIcons = showIcons.Checked;
+        updateItemVisibility("program");
+        saveSettings();
+    });
+
+    showText.CheckedChanged.connect(function() {
+        showProgramText = showText.Checked;
+        updateItemVisibility("program");
+        saveSettings();
+    });
+
+    showWebsiteIconsCheckBox.CheckedChanged.connect(function() {
+        showWebsiteIcons = showWebsiteIconsCheckBox.Checked;
+        updateItemVisibility("website");
+        saveSettings();
+    });
+
+    showWebsiteTextCheckBox.CheckedChanged.connect(function() {
+        showWebsiteText = showWebsiteTextCheckBox.Checked;
+        updateItemVisibility("website");
+        saveSettings();
+    });
+
+    closeFormCheckBox.CheckedChanged.connect(function() {
+        closeFormAfterLaunch = closeFormCheckBox.Checked;
+        saveSettings();
+    });
+
+    textLocationComboBox.SelectedIndexChanged.connect(function() {
+        textLocation = textLocationComboBox.SelectedItem;
+        updateAllVisibility();
+        saveSettings();
+    });
+
+    // Set the position of the settings form next to the main form
+    positionSettingsForm();
+
+    settingsForm.Show();
+}
+
+// Function for setting the position of the settings form to the right of form 2
+function positionSettingsForm() {
+    if (form2 && settingsForm && !settingsForm.IsDisposed) {
+        var screen = Forms.Screen.FromControl(form2);
+        var newLeft = form2.Right;
+        var newTop = form2.Top;
+
+        // Check that the form does not extend beyond the screen boundaries
+        if (newLeft + settingsForm.Width > screen.WorkingArea.Right) {
+            newLeft = form2.Left - settingsForm.Width;
+        }
+        if (newTop + settingsForm.Height > screen.WorkingArea.Bottom) {
+            newTop = screen.WorkingArea.Bottom - settingsForm.Height;
+        }
+
+        settingsForm.Location = new Point(newLeft, newTop);
+    }
+}
+// Add a button to the form
+form2.Controls.Add(settingsButton);
+
+form2.Resize.connect(function() {
+    // Update the width of the separators
+    for (var i = 0; i < separatorPanels.length; i++) {
+        var panel = separatorPanels[i];
+        panel.Width = form2.ClientSize.Width; // Use ClientSize for accuracy
+    }
+
+    // Update the position of the settings and sorting buttons
+    settingsButton.Location = new System.Drawing.Point(
+        form2.ClientSize.Width - settingsButton.Width - arrangeButton.Width - 5,
+        form2.ClientSize.Height - settingsButton.Height - 5
+    );
+    arrangeButton.Location = new Point(
+        form2.ClientSize.Width - arrangeButton.Width - 5,
+        form2.ClientSize.Height - arrangeButton.Height - 5
+    );
+
+    // Update the position of the settings form
+    if (settingsForm && !settingsForm.IsDisposed && settingsForm.Visible) {
+        positionSettingsForm();
+    }
+
+    // Save the settings (including the new form dimensions)
+    saveSettings();
+});
+
+// Function for updating the button position
+function updateArrangeButtonPosition() {
+    arrangeButton.Location = new Point(
+        form2.ClientSize.Width - arrangeButton.Width - 5,
+        form2.ClientSize.Height - arrangeButton.Height - 5
+    );
+}
+// Add a click handler for the button
+arrangeButton.Click.connect(function() {
+    arrangeIcons();
+});
+
+// Add a button to the form
+form2.Controls.Add(arrangeButton);
+
+// Set the initial position of the button
+updateArrangeButtonPosition();
+
+// Set the Z-order of the button to be on top of other elements
+arrangeButton.BringToFront();
+settingsButton.BringToFront();
+
+function arrangeIcons() {
+    var formWidth = form2.ClientSize.Width;
+    var xOffset = settings.xOffset;
+    var yOffset = 5;
+    var currentX = xOffset;
+    var currentY = yOffset;
+    var maxHeightInRow = 0;
+
+    // For programs
+    for (var i = 0; i < programs.length; i++) {
+        var containerName = "program_container_" + i;
+        var container = findControlByName(containerName);
+        if (container && container.Visible) {
+            // Check if the element fits in the current line
+            if (currentX + container.Width > formWidth) {
+                // Move to a new line
+                currentX = xOffset;
+                currentY += maxHeightInRow + 10; // 10 pixels indent between lines
+                maxHeightInRow = 0;
+            }
+
+            container.Location = new Point(currentX, currentY);
+            currentX += container.Width + 10; // 10 pixels indent between lines
+            maxHeightInRow = Math.max(maxHeightInRow, container.Height);
+        }
+    }
+
+    // Indent before sites
+    currentY += maxHeightInRow + 20; // 20 pixels between programs and sites
+    currentX = xOffset;
+    maxHeightInRow = 0;
+
+    // For websites
+    for (var i = 0; i < websites.length; i++) {
+        var containerName = "website_container_" + i;
+        var container = findControlByName(containerName);
+        if (container && container.Visible) {
+            if (currentX + container.Width > formWidth) {
+                currentX = xOffset;
+                currentY += maxHeightInRow + 10;
+                maxHeightInRow = 0;
+            }
+
+            container.Location = new Point(currentX, currentY);
+            currentX += container.Width + 10;
+            maxHeightInRow = Math.max(maxHeightInRow, container.Height);
+        }
+    }
+
+    saveSettings();
+}
+
+// Auxiliary function for searching by name
+function findControlByName(name) {
+    for (var i = 0; i < form2.Controls.Count; i++) {
+        var control = form2.Controls[i];
+        if (control.Name === name) {
+            return control;
+        }
+    }
+    return null;
+}
+
+function attachEventHandlers(container, item, launchAction) {
+    var startDragLocation = null;
+    var isDragging = false;
+    var initialContainerLocation = null;
+    var dragThreshold = 5; //  Minimum distance for dragging
+
+    function mouseDownHandler(s, e) {
+        if (e.Button === Forms.MouseButtons.Left) {
+            startDragLocation = form2.PointToClient(Forms.Cursor.Position);
+            initialContainerLocation = container.Location;
+            isDragging = false;
+        }
+    }
+
+    function mouseMoveHandler(s, e) {
+        if (startDragLocation != null) {
+            var currentMousePosition = form2.PointToClient(Forms.Cursor.Position);
+            var deltaX = currentMousePosition.X - startDragLocation.X;
+            var deltaY = currentMousePosition.Y - startDragLocation.Y;
+
+            if (Math.abs(deltaX) > dragThreshold || Math.abs(deltaY) > dragThreshold) {
+                isDragging = true;
+            }
+
+            if (isDragging) {
+                var newX = initialContainerLocation.X + deltaX;
+                var newY = initialContainerLocation.Y + deltaY;
+
+                // Restrict movement within the form
+                newX = Math.max(0, Math.min(newX, form2.ClientSize.Width - container.Width));
+                newY = Math.max(0, Math.min(newY, form2.ClientSize.Height - container.Height));
+
+                // Set the new position of the container
+                container.Location = new Point(newX, newY);
+            }
+        }
+    }
+
+    function mouseUpHandler(s, e) {
+        if (e.Button === Forms.MouseButtons.Left) {
+            if (!isDragging) {
+                // If there was no drag and drop is a click, perform the launch action
+                launchAction(item);
+                if (closeFormAfterLaunch) {
+                    form2.Close();
+                }
+            } else {
+                // If there was a drag and drop - save the new positions
+                saveSettings();
+            }
+            startDragLocation = null;
+            isDragging = false;
+        }
+    }
+
+    container.MouseDown.connect(mouseDownHandler);
+    container.MouseMove.connect(mouseMoveHandler);
+    container.MouseUp.connect(mouseUpHandler);
+
+    // Apply handlers to all elements inside the container
+    for (var i = 0; i < container.Controls.Count; i++) {
+        var control = container.Controls[i];
+        control.MouseDown.connect(mouseDownHandler);
+        control.MouseMove.connect(mouseMoveHandler);
+        control.MouseUp.connect(mouseUpHandler);
+    }
+}
+function launchProgram(program) {
+    var runPath = program.run;
+    try {
+        System.Diagnostics.Process.Start(runPath);
+        //sp.ConsoleLog("Program started: " + runPath);
+    } catch (ex) {
+        sp.ConsoleError("Error starting program: " + ex.message);
+    }
+}
+
+function launchWebsite(website) {
+    var url = website.run;
+    if (!url.startsWith("http")) {
+        url = "https://" + url;
+    }
+    try {
+        System.Diagnostics.Process.Start(url);
+    } catch (ex) {
+        sp.RunProgram(url, '', 'open', 'normal', true, false, false);
+    }
+}
+
+function loadSettings() {
+    var filePath = System.IO.Path.Combine(programPath, "settingsMenu.json");
+
+    // // Set the default form size when there is no settingsMenu.json yet
+    var defaultSize = new Size(350, 350); //form 2 
+
+    if (System.IO.File.Exists(filePath)) {
+        try {
+            var loadedSettings = JSON.parse(System.IO.File.ReadAllText(filePath));
+
+            // Load form size
+            if (loadedSettings.formSize) {
+                form2.Size = new Size(
+                    parseInt(loadedSettings.formSize.width), 
+                    parseInt(loadedSettings.formSize.height)
+                );
+            } else {
+                form2.Size = defaultSize;
+                sp.ConsoleWarning("formSize not found in settings file. Using default size.");
+            }
+
+            // Loading separator settings
+            if (loadedSettings.separators !== undefined) {
+                separatorConfig.count = loadedSettings.separators;
+            }
+            if (loadedSettings.separatorHeight !== undefined) {
+                separatorConfig.height = loadedSettings.separatorHeight;
+            }
+
+            // Create or update delimiters
+            createOrUpdateSeparators();
+
+            // Restore separators positions
+            if (loadedSettings.separatorPositions) {
+                for (var i = 0; i < loadedSettings.separatorPositions.length; i++) {
+                    if (separatorPanels[i]) {
+                        separatorPanels[i].Top = loadedSettings.separatorPositions[i];
+                    }
+                }
+            }
+
+            // Loading icon positions
+            if (loadedSettings.iconPositions) {
+                for (var i = 0; i < form2.Controls.Count; i++) {
+                    var control = form2.Controls[i];
+                    if (control && control.GetType && control.GetType().Name === "Panel") {
+                        if (loadedSettings.iconPositions[control.Name]) {
+                            control.Left = loadedSettings.iconPositions[control.Name].x;
+                            control.Top = loadedSettings.iconPositions[control.Name].y;
+                        }
+                    }
+                }
+            }
+
+            // Loading visibility settings
+            if (loadedSettings.program !== undefined) program = loadedSettings.program;
+            if (loadedSettings.showProgramIcons !== undefined) showProgramIcons = loadedSettings.showProgramIcons;
+            if (loadedSettings.showProgramText !== undefined) showProgramText = loadedSettings.showProgramText;
+            if (loadedSettings.Website !== undefined) Website = loadedSettings.Website;
+            if (loadedSettings.showWebsiteIcons !== undefined) showWebsiteIcons = loadedSettings.showWebsiteIcons;
+            if (loadedSettings.showWebsiteText !== undefined) showWebsiteText = loadedSettings.showWebsiteText;
+
+            // loading text layout settings
+            if (loadedSettings.textLocation !== undefined) textLocation = loadedSettings.textLocation;
+
+            if (loadedSettings.closeFormAfterLaunch !== undefined) closeFormAfterLaunch = loadedSettings.closeFormAfterLaunch;
+            if (loadedSettings.programIconSize !== undefined) settings.programIconSize = loadedSettings.programIconSize;
+            if (loadedSettings.websiteIconSize !== undefined) settings.websiteIconSize = loadedSettings.websiteIconSize;
+
+            updateAllVisibility();
+            //sp.ConsoleLog("Settings loaded successfully.");
+        } catch (e) {
+            sp.ConsoleError("Error loading settings: " + e.message);
+            form2.Size = defaultSize;
+            createOrUpdateSeparators(); // Create default delimiters in case of error
+        }
+    } else {
+        //sp.ConsoleLog("Settings file not found. Using default settings.");
+        form2.Size = defaultSize;
+        createOrUpdateSeparators(); // Create default delimiters if the file is not found
+    }
+
+    // Centering the form relative to the cursor end position
+    var cursorPos = Forms.Cursor.Position;
+    form2.Location = new System.Drawing.Point(
+        cursorPos.X - Math.floor(form2.Width / 2),
+        cursorPos.Y - Math.floor(form2.Height / 2)
+    );
+}
+
+// Connection of the handler for changing the form location
+form2.LocationChanged.connect(function () {
+    if (settingsForm && !settingsForm.IsDisposed && settingsForm.Visible) {
+        positionSettingsForm();
+    }
+});
+
+function saveSettings() {
+    var filePath = System.IO.Path.Combine(programPath, "settingsMenu.json");
+    var settingsToSave = {
+        formSize: {
+            width: form2.Width,
+            height: form2.Height
+        },
+        iconPositions: {},
+        separatorPositions: separatorPanels.map(function(panel) {
+            return panel.Top;
+        }),
+        program: program,
+        showProgramIcons: showProgramIcons,
+        showProgramText: showProgramText,
+        Website: Website,
+        showWebsiteIcons: showWebsiteIcons,
+        showWebsiteText: showWebsiteText,
+        textLocation: textLocation,
+        closeFormAfterLaunch: closeFormAfterLaunch,
+        programIconSize: settings.programIconSize,
+        websiteIconSize: settings.websiteIconSize,
+        separators: separatorConfig.count,
+        separatorHeight: separatorConfig.height
+    };
+
+    // Save the positions of all icons (programs and sites)
+    for (var i = 0; i < form2.Controls.Count; i++) {
+        var control = form2.Controls[i];
+        if (control.Name && (control.Name.startsWith("program_container_") ||
+            control.Name.startsWith("website_container_"))) {
+            settingsToSave.iconPositions[control.Name] = {
+                x: control.Left,
+                y: control.Top
+            };
+        }
+    }
+
+    // Save the positions of all separators
+settingsToSave.separatorPositions = separatorPanels.map(function(panel) {
+    return panel.Top;
+});
+
+
+    // Write the settings to a file
+    System.IO.File.WriteAllText(filePath, JSON.stringify(settingsToSave, null, 2));
+}
+
+
+function updateAllVisibility() {
+    // Updating icon sizes
+    iconOnlySettings.programIconSize = settings.programIconSize;
+    iconOnlySettings.websiteIconSize = settings.websiteIconSize;
+
+    // Update the display of programs and websites
+    updateItemVisibility("program");
+    updateItemVisibility("website");
+    // arrangeIcons();
+}
+loadSettings();
+Forms.Application.Run(form2);
