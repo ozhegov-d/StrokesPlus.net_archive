@@ -253,24 +253,27 @@ if (Website) {
     var websiteY = settings.xOffset + settings.programRows * settings.programRowHeight + separatorConfig.topMargin + panelHeight + separatorConfig.bottomMargin;
     var websiteIndex = 0;
     for (var i = 0; i < settings.websiteColumns; i++) {
-    var xColumn = settings.xOffset + i * settings.websiteColumnWidth;
-    for (var j = 0; j < settings.websiteRows; j++) {
-        if (websiteIndex >= websites.length) break;
-        var website = websites[websiteIndex];
-        var yRow = websiteY + j * settings.websiteRowHeight;
+        var xColumn = settings.xOffset + i * settings.websiteColumnWidth;
+        for (var j = 0; j < settings.websiteRows; j++) {
+            if (websiteIndex >= websites.length) break;
+            var website = websites[websiteIndex];
+            var yRow = websiteY + j * settings.websiteRowHeight;
 
-        // Create a container for icon and/or text
-        var panelContainer = new Forms.Panel();
-        panelContainer.Name = "website_container_" + websiteIndex;
-            //panelContainer.Location = new System.Drawing.Point(xColumn, yRow);
+            // Create a container for icon and/or text
+            var panelContainer = new Forms.Panel();
+            panelContainer.Name = "website_container_" + websiteIndex;
+
             var containerWidth = 0;
             var containerHeight = 0;
+            var hasIcon = false;
+
+            // Check for icon
             if (showWebsiteIcons) {
                 var iconPath = website.ico ? website.ico.trim() : "";             
                 if (iconPath && !System.IO.Path.IsPathRooted(iconPath)) {
                     iconPath = System.IO.Path.Combine(programPath, iconPath);
                 }           
-                var hasIcon = iconPath && System.IO.File.Exists(iconPath);
+                hasIcon = iconPath && System.IO.File.Exists(iconPath);
                 if (hasIcon) {
                     try {
                         var originalImage = System.Drawing.Image.FromFile(iconPath);
@@ -293,17 +296,20 @@ if (Website) {
                         });
                     } catch (e) {
                         sp.ConsoleError("Error loading image: " + e.message + " (Path: " + iconPath + ")");
+                        hasIcon = false; // If an error occurs, consider that the icon is not present
                     }
                 }
             }
-            if (showWebsiteText) {
+
+            // Add label for text
+            if (showWebsiteText || !hasIcon) {
                 var label = new Forms.Label();
                 label.Text = website.title;
                 label.AutoSize = true;
                 label.Name = "website_label_" + websiteIndex;
                 panelContainer.Controls.Add(label);
 
-                if (showWebsiteIcons) {
+                if (hasIcon) {
                     label.Location = new Point(0, settings.websiteIconSize + 5);
                     containerWidth = Math.max(containerWidth, label.Width);
                     containerHeight += label.Height + 5;
@@ -313,15 +319,17 @@ if (Website) {
                     containerHeight = label.Height;
                 }
             }
-            panelContainer.Size = new Size(containerWidth, containerHeight);
-            // handler for dragging and clicking
-               attachEventHandlers(panelContainer, website, launchWebsite);
 
-form2.Controls.Add(panelContainer);
-form2.FormClosed.connect(function() {
-    panelContainer.Dispose();
-});
-websiteIndex++;
+            panelContainer.Size = new Size(containerWidth, containerHeight);
+
+            // Handler for dragging and clicking
+            attachEventHandlers(panelContainer, website, launchWebsite);
+
+            form2.Controls.Add(panelContainer);
+            form2.FormClosed.connect(function() {
+                panelContainer.Dispose();
+            });
+            websiteIndex++;
         }
     }
 }
