@@ -1,0 +1,58 @@
+// Select layout: true (windows stacked vertically), false (windows side by side)
+var vertical = false;
+
+var allWindows = sp.AllApplications();
+
+if (allWindows.Length < 2) {
+    sp.ConsoleError("Not enough windows available to arrange.");
+} else {
+    // Get the top two windows
+    var topWindow1 = allWindows[0];
+    var topWindow2 = allWindows[1];
+    var scr = topWindow1.Screen;
+
+    // Check the current state
+    if (!sp.GetStoredBool("WindowsArranged")) {
+        // Save the original parameters of the windows
+        [topWindow1, topWindow2].forEach(function (win, i) {
+            sp.StorePoint(`Window${i}_Location`, win.Location);
+            sp.StoreNumber(`Window${i}_Width`, win.Size.Width);
+            sp.StoreNumber(`Window${i}_Height`, win.Size.Height);
+            sp.StoreBool(`Window${i}_Maximized`, win.Maximized);
+            if (win.Maximized) win.Restore();
+        });
+
+        // Arrange windows
+        if (vertical) {
+            // Vertical layout
+            topWindow1.Size = new Size(scr.WorkingArea.Width, Math.floor(scr.WorkingArea.Height / 2));
+            topWindow1.Location = scr.WorkingArea.Location;
+
+            topWindow2.Size = new Size(scr.WorkingArea.Width, Math.floor(scr.WorkingArea.Height / 2));
+            topWindow2.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + Math.floor(scr.WorkingArea.Height / 2));
+        } else {
+            // Horizontal layout
+            topWindow1.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Height);
+            topWindow1.Location = scr.WorkingArea.Location;
+
+            topWindow2.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Height);
+            topWindow2.Location = new Point(scr.WorkingArea.Location.X + Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Location.Y);
+        }
+
+        sp.StoreBool("WindowsArranged", true);
+        //sp.ConsoleLog("Windows arranged in " + (vertical ? "vertical" : "horizontal") + " layout.");
+    } else {
+        // Restore the original parameters of the windows
+        [topWindow1, topWindow2].forEach(function (win, i) {
+            win.Location = sp.GetStoredPoint(`Window${i}_Location`);
+            win.Size = new Size(
+                sp.GetStoredNumber(`Window${i}_Width`),
+                sp.GetStoredNumber(`Window${i}_Height`)
+            );
+            if (sp.GetStoredBool(`Window${i}_Maximized`)) win.Maximize();
+        });
+
+        sp.StoreBool("WindowsArranged", false);
+        //sp.ConsoleLog("Windows restored to original positions.");
+    }
+}

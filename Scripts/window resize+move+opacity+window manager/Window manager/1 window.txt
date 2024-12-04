@@ -1,0 +1,51 @@
+var wnd = sp.ForegroundWindow(); // Get the active window
+var scr = wnd.Screen; // Get the screen where the window is located
+
+// Restore the window if it is maximized
+if (wnd.Maximized) {
+    wnd.Restore();
+}
+
+// Get the current position of the window
+var currentLocation = wnd.Location;
+
+// Check if the window's position has been saved before
+var isStored = sp.GetStoredBool("WindowWasMoved") || false;
+
+if (!isStored) {
+    // Save the current position and size
+    sp.StorePoint("Original_Location", currentLocation);
+    sp.StoreNumber("Original_Width", wnd.Size.Width);
+    sp.StoreNumber("Original_Height", wnd.Size.Height);
+
+    // Move the window to the left
+    wnd.Size = new Size(scr.WorkingArea.Width / 2, scr.WorkingArea.Height);
+    wnd.Location = scr.WorkingArea.Location;
+
+    // Set the flag indicating that the window was moved
+    sp.StoreNumber("WindowState", 0); // State: 0 - left, 1 - right, 2 - restore
+    sp.StoreBool("WindowWasMoved", true);
+    // sp.ConsoleLog("Window moved to the left.");
+} else {
+    // Get the current state of the window
+    var state = sp.GetStoredNumber("WindowState");
+
+    if (state === 0) {
+        // Move the window to the right
+        wnd.Location = new Point(scr.WorkingArea.Location.X + scr.WorkingArea.Width / 2, scr.WorkingArea.Location.Y);
+        sp.StoreNumber("WindowState", 1);
+        // sp.ConsoleLog("Window moved to the right.");
+    } else if (state === 1) {
+        // Restore the original position
+        var originalLocation = sp.GetStoredPoint("Original_Location");
+        var originalWidth = sp.GetStoredNumber("Original_Width");
+        var originalHeight = sp.GetStoredNumber("Original_Height");
+
+        wnd.Size = new Size(originalWidth, originalHeight);
+        wnd.Location = originalLocation;
+
+        // Reset the flag
+        sp.StoreBool("WindowWasMoved", false);
+        // sp.ConsoleLog("Window restored to its original position.");
+    }
+}

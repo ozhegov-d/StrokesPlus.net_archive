@@ -1,0 +1,111 @@
+// Window layout configuration: "4" (square), "vertical", "horizontal", "T"
+var layout = "4";
+
+var allWindows = sp.AllApplications();
+
+if (allWindows.Length < 4) {
+    sp.ConsoleError("Not enough windows available to arrange.");
+} else {
+    // Sort windows by Z-order
+    allWindows = Array.from(allWindows);
+    allWindows.sort(function (a, b) {
+        return a.ZOrder - b.ZOrder;
+    });
+
+    var win1 = allWindows[0];
+    var win2 = allWindows[1];
+    var win3 = allWindows[2];
+    var win4 = allWindows[3];
+    var scr = win1.Screen;
+
+    // Check the current arrangement state
+    if (!sp.GetStoredBool("FourWindowsArranged")) {
+        // Save the original parameters of the windows
+        [win1, win2, win3, win4].forEach(function (win, idx) {
+            sp.StorePoint(`Window${idx}_Location`, win.Location);
+            sp.StoreNumber(`Window${idx}_Width`, win.Size.Width);
+            sp.StoreNumber(`Window${idx}_Height`, win.Size.Height);
+            sp.StoreBool(`Window${idx}_Maximized`, win.Maximized);
+            if (win.Maximized) win.Restore();
+        });
+
+        // Arrange windows based on the selected layout
+        switch (layout) {
+            case "4": // Square layout (2x2)
+                var halfWidth = Math.floor(scr.WorkingArea.Width / 2);
+                var halfHeight = Math.floor(scr.WorkingArea.Height / 2);
+
+                win1.Size = new Size(halfWidth, halfHeight);
+                win1.Location = scr.WorkingArea.Location;
+
+                win2.Size = new Size(halfWidth, halfHeight);
+                win2.Location = new Point(scr.WorkingArea.Location.X + halfWidth, scr.WorkingArea.Location.Y);
+
+                win3.Size = new Size(halfWidth, halfHeight);
+                win3.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + halfHeight);
+
+                win4.Size = new Size(halfWidth, halfHeight);
+                win4.Location = new Point(scr.WorkingArea.Location.X + halfWidth, scr.WorkingArea.Location.Y + halfHeight);
+                break;
+
+            case "vertical":
+                // Vertical layout
+                var quarterHeight = Math.floor(scr.WorkingArea.Height / 4);
+
+                [win1, win2, win3, win4].forEach(function (win, idx) {
+                    win.Size = new Size(scr.WorkingArea.Width, quarterHeight);
+                    win.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + idx * quarterHeight);
+                });
+                break;
+
+            case "horizontal":
+                // Horizontal layout
+                var quarterWidth = Math.floor(scr.WorkingArea.Width / 4);
+
+                [win1, win2, win3, win4].forEach(function (win, idx) {
+                    win.Size = new Size(quarterWidth, scr.WorkingArea.Height);
+                    win.Location = new Point(scr.WorkingArea.Location.X + idx * quarterWidth, scr.WorkingArea.Location.Y);
+                });
+                break;
+
+            case "T":
+                // T-shaped layout
+                var topHeight = Math.floor(scr.WorkingArea.Height / 2);
+                var bottomWidth = Math.floor(scr.WorkingArea.Width / 3);
+
+                win1.Size = new Size(scr.WorkingArea.Width, topHeight);
+                win1.Location = scr.WorkingArea.Location;
+
+                win2.Size = new Size(bottomWidth, topHeight);
+                win2.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + topHeight);
+
+                win3.Size = new Size(bottomWidth, topHeight);
+                win3.Location = new Point(scr.WorkingArea.Location.X + bottomWidth, scr.WorkingArea.Location.Y + topHeight);
+
+                win4.Size = new Size(bottomWidth, topHeight);
+                win4.Location = new Point(scr.WorkingArea.Location.X + 2 * bottomWidth, scr.WorkingArea.Location.Y + topHeight);
+                break;
+
+            default:
+                // sp.ConsoleError("Invalid layout. Use '4', 'vertical', 'horizontal', or 'T'.");
+                sp.StoreBool("FourWindowsArranged", false);
+                break;
+        }
+
+        sp.StoreBool("FourWindowsArranged", true);
+        //sp.ConsoleLog("Windows arranged in " + layout + " layout.");
+    } else {
+        // Restore the original parameters of the windows
+        [win1, win2, win3, win4].forEach(function (win, idx) {
+            win.Location = sp.GetStoredPoint(`Window${idx}_Location`);
+            win.Size = new Size(
+                sp.GetStoredNumber(`Window${idx}_Width`),
+                sp.GetStoredNumber(`Window${idx}_Height`)
+            );
+            if (sp.GetStoredBool(`Window${idx}_Maximized`)) win.Maximize();
+        });
+
+        sp.StoreBool("FourWindowsArranged", false);
+        //sp.ConsoleLog("Windows restored to original positions.");
+    }
+}

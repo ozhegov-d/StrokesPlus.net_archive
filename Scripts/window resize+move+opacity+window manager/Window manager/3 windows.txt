@@ -1,0 +1,132 @@
+// Configure the position of the main window: "up", "down", "left", "right", "vert" (stacked vertically), "horiz" (side by side)
+var mainWindowPosition = "down"; // Change to the desired position
+
+var allWindows = sp.AllApplications();
+
+if (allWindows.Length < 3) {
+    sp.ConsoleError("Not enough windows available to arrange.");
+} else {
+    // Sort windows by Z-order
+    allWindows = Array.from(allWindows);
+    allWindows.sort(function (a, b) {
+        return a.ZOrder - b.ZOrder;
+    });
+
+    var mainWindow = allWindows[0];
+    var secondWindow = allWindows[1];
+    var thirdWindow = allWindows[2];
+    var scr = mainWindow.Screen;
+
+    // Check the current state
+    var isArranged = sp.GetStoredBool("ThreeWindowsArranged") || false;
+
+    if (!isArranged) {
+        // Validate the mainWindowPosition value
+        if (
+            mainWindowPosition !== "up" &&
+            mainWindowPosition !== "down" &&
+            mainWindowPosition !== "left" &&
+            mainWindowPosition !== "right" &&
+            mainWindowPosition !== "vert" &&
+            mainWindowPosition !== "horiz"
+        ) {
+            sp.ConsoleError("Invalid mainWindowPosition value. Use 'up', 'down', 'left', 'right', 'vert', or 'horiz'");
+        } else {
+            // Save current positions and sizes
+            [mainWindow, secondWindow, thirdWindow].forEach(function (win, idx) {
+                sp.StorePoint(`Window${idx}_Location`, win.Location);
+                sp.StoreNumber(`Window${idx}_Width`, win.Size.Width);
+                sp.StoreNumber(`Window${idx}_Height`, win.Size.Height);
+                sp.StoreBool(`Window${idx}_Maximized`, win.Maximized);
+                if (win.Maximized) win.Restore();
+            });
+
+            // Arrange windows based on the selected configuration
+            switch (mainWindowPosition) {
+                case "up":
+                    mainWindow.Size = new Size(scr.WorkingArea.Width, Math.floor(scr.WorkingArea.Height / 2));
+                    mainWindow.Location = scr.WorkingArea.Location;
+
+                    secondWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    secondWindow.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + Math.floor(scr.WorkingArea.Height / 2));
+
+                    thirdWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    thirdWindow.Location = new Point(scr.WorkingArea.Location.X + Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Location.Y + Math.floor(scr.WorkingArea.Height / 2));
+                    break;
+
+                case "down":
+                    mainWindow.Size = new Size(scr.WorkingArea.Width, Math.floor(scr.WorkingArea.Height / 2));
+                    mainWindow.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + Math.floor(scr.WorkingArea.Height / 2));
+
+                    secondWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    secondWindow.Location = scr.WorkingArea.Location;
+
+                    thirdWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    thirdWindow.Location = new Point(scr.WorkingArea.Location.X + Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Location.Y);
+                    break;
+
+                case "left":
+                    mainWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Height);
+                    mainWindow.Location = scr.WorkingArea.Location;
+
+                    secondWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    secondWindow.Location = new Point(scr.WorkingArea.Location.X + Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Location.Y);
+
+                    thirdWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    thirdWindow.Location = new Point(scr.WorkingArea.Location.X + Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Location.Y + Math.floor(scr.WorkingArea.Height / 2));
+                    break;
+
+                case "right":
+                    mainWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Height);
+                    mainWindow.Location = new Point(scr.WorkingArea.Location.X + Math.floor(scr.WorkingArea.Width / 2), scr.WorkingArea.Location.Y);
+
+                    secondWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    secondWindow.Location = scr.WorkingArea.Location;
+
+                    thirdWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 2), Math.floor(scr.WorkingArea.Height / 2));
+                    thirdWindow.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + Math.floor(scr.WorkingArea.Height / 2));
+                    break;
+
+                case "vert":
+                    // Vertical layout (three equal parts)
+                    mainWindow.Size = new Size(scr.WorkingArea.Width, Math.floor(scr.WorkingArea.Height / 3));
+                    mainWindow.Location = scr.WorkingArea.Location;
+
+                    secondWindow.Size = new Size(scr.WorkingArea.Width, Math.floor(scr.WorkingArea.Height / 3));
+                    secondWindow.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + Math.floor(scr.WorkingArea.Height / 3));
+
+                    thirdWindow.Size = new Size(scr.WorkingArea.Width, Math.floor(scr.WorkingArea.Height / 3));
+                    thirdWindow.Location = new Point(scr.WorkingArea.Location.X, scr.WorkingArea.Location.Y + 2 * Math.floor(scr.WorkingArea.Height / 3));
+                    break;
+
+                case "horiz":
+                    // Horizontal layout (three equal parts)
+                    mainWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 3), scr.WorkingArea.Height);
+                    mainWindow.Location = scr.WorkingArea.Location;
+
+                    secondWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 3), scr.WorkingArea.Height);
+                    secondWindow.Location = new Point(scr.WorkingArea.Location.X + Math.floor(scr.WorkingArea.Width / 3), scr.WorkingArea.Location.Y);
+
+                    thirdWindow.Size = new Size(Math.floor(scr.WorkingArea.Width / 3), scr.WorkingArea.Height);
+                    thirdWindow.Location = new Point(scr.WorkingArea.Location.X + 2 * Math.floor(scr.WorkingArea.Width / 3), scr.WorkingArea.Location.Y);
+                    break;
+            }
+
+            sp.StoreBool("ThreeWindowsArranged", true);
+            // sp.ConsoleLog("Windows arranged with main window position: " + mainWindowPosition);
+        }
+    } else {
+        // Restore original positions
+        [mainWindow, secondWindow, thirdWindow].forEach(function (win, idx) {
+            win.Location = sp.GetStoredPoint(`Window${idx}_Location`);
+            win.Size = new Size(
+                sp.GetStoredNumber(`Window${idx}_Width`),
+                sp.GetStoredNumber(`Window${idx}_Height`)
+            );
+            if (sp.GetStoredBool(`Window${idx}_Maximized`)) win.Maximize();
+        });
+
+        sp.StoreBool("ThreeWindowsArranged", false);
+        // sp.ConsoleLog("Windows restored to original positions.");
+    }
+}
