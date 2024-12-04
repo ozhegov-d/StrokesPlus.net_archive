@@ -1,0 +1,186 @@
+//Searches only in Global actions - action list and Applications
+
+//Copy the selected text to the clipboard
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(50);
+var selectedText = clip.GetText();
+if (selectedText && selectedText.trim() !== "") {
+    //sp.ConsoleLog(`Copied to clipboard: "${selectedText}"`);
+} else {
+    //sp.ConsoleLog("No text selected or clipboard is empty.");
+}
+
+var inputBoxInfo = new InputBoxInfo(), res, cMsg = [];
+
+// Customizing the input window
+inputBoxInfo.Title = 'Search';
+inputBoxInfo.Message = '';
+inputBoxInfo.AllowDirectInput = true;
+res = sp.InputBox(inputBoxInfo);
+
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+}
+
+if (!res || res.trim() === "") {
+    //sp.MessageBox("Please enter a valid search query.", "Invalid Input");
+} else {
+    // Search function
+function searchIn(lAct, oApp) {
+    let escapedRes = escapeRegExp(res);
+    let searchRegex = new RegExp(escapedRes, 'gi');
+
+    function processLine(line, searchRegex) {
+        function highlightMatch(match) {
+            return `<span style="background-color: yellow;">${match}</span>`;
+        }
+
+        // Replace < and > with their HTML equivalents, except for those inside the tags
+        line = line.replace(/(<[^>]*>)|([^<>]+)/g, (match, tag, text) => {
+            if (tag) {
+                return tag.replace(searchRegex, highlightMatch);
+            } else {
+                return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(searchRegex, highlightMatch);
+            }
+        });
+
+        return line;
+    }
+
+    for (let i = lAct.Count; i--;) {
+        if (!lAct[i].Script || typeof lAct[i].Script !== "string") {
+            continue;
+        }
+        let scriptLines = lAct[i].Script.split('\n');
+        let matchLineIndex = scriptLines.findIndex(line => line.trim().match(searchRegex));
+        
+        if (matchLineIndex !== -1) {
+            var context = '';
+
+            // Extend context to 5 lines
+            var startIndex = Math.max(0, matchLineIndex - 2); //top 2 lines
+            var endIndex = Math.min(scriptLines.length - 1, matchLineIndex + 2);
+
+            for (let j = startIndex; j <= endIndex; j++) {
+                let line = scriptLines[j].trimLeft();  // Removing the initial spaces
+                if (line === '') continue; // Skip the blank lines
+
+                let highlightedLine = processLine(line, searchRegex);
+                context += `${j + 1}: ${highlightedLine}\n`;
+            }
+
+            let appParts = oApp ? 'Applications - ' + oApp.Description : 'Global Actions';
+            let [mainPart, subPart] = appParts.includes(' - ') ? 
+                [appParts.split(' - ')[0] + ' - ' + appParts.split(' - ')[1], appParts.split(' - ').slice(2).join(' - ')] :
+                [appParts, ''];
+
+            cMsg.push({
+                mainPart: mainPart,
+                subPart: subPart,
+                category: lAct[i].Category,
+                action: lAct[i].Description,
+                context: context.trim()
+            });
+        }
+    }
+}
+
+    // Search
+    searchIn(sp_config.GlobalApplication.Actions);
+    for (let i = sp_config.Applications.Count; i--;)
+        searchIn(sp_config.Applications[i].Actions, sp_config.Applications[i]);
+
+    if (cMsg.length === 0) {
+        sp.MessageBox('(none was found)', 'Search result(s):');
+    } else {
+        // Opening the results window
+        var listItems = cMsg.map((item, index) => `
+    <li>
+        <div class="result-header" onclick="toggleVisibility(${index})">
+            <strong style="font-weight: 700;">${item.mainPart}</strong> - <span style="font-weight: 600;">${item.category}</span> - <span style="font-weight: normal;">${item.action}</span>
+        </div>
+        <div id="context-${index}" style="display: none; margin-top: 5px; background-color: #f9f9f9; padding: 10px; border: 1px solid #ddd;">
+            <pre>${item.context}</pre>
+        </div>
+    </li>
+`).join('');
+
+var htmlContent = `
+    <html>
+    <head>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                padding: 10px;
+                margin: 0;
+            }
+            ul {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }
+            li {
+                margin-bottom: 10px;
+            }
+            pre {
+                font-family: monospace;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                margin: 0;
+            }
+            .result-header {
+                cursor: pointer;
+                padding: 5px;
+            }
+            .result-header:hover {
+                background-color: #f0f0f0;
+            }
+            hr {
+                border: 0;
+                height: 1px;
+                background-color: #ccc;
+                margin: 10px 0;
+            }
+        </style>
+        <script>
+            function toggleVisibility(index) {
+                var element = document.getElementById('context-' + index);      
+                element.style.display = element.style.display === 'none' ? 'block' : 'none';
+            }
+        </script>
+    </head>
+    <body>
+        <ul>
+            ${cMsg.map((item, index, array) => {
+                // Check if this is the first element from "Applications", add a line
+                const isFirstApplication = item.mainPart.startsWith("Applications") &&
+                    (index === 0 || !array[index - 1].mainPart.startsWith("Applications"));
+                
+                return `
+                    ${isFirstApplication ? '<hr>' : ''}
+                    <li>
+                        <div class="result-header" onclick="toggleVisibility(${index})">
+                            <strong style="font-weight: 700;">${item.mainPart}</strong> - 
+                            <span style="font-weight: 600;">${item.category}</span> - 
+                            <span style="font-weight: normal;">${item.action}</span>
+                        </div>
+                        <div id="context-${index}" style="display: none; margin-top: 5px; background-color: #f9f9f9; padding: 10px; border: 1px solid #ddd;">
+                            <pre>${item.context}</pre>
+                        </div>
+                    </li>
+                `;
+            }).join('')}
+        </ul>
+    </body>
+    </html>
+`;
+
+// Opening the results window
+sp.HTMLWindow(
+    "Results",
+    htmlContent,
+    "",
+    "",
+    "searchResultsWindow",
+    true
+);}}
