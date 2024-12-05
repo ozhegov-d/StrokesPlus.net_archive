@@ -1,0 +1,74 @@
+//"file" - ignores all process windows (by file name).
+//"window" - ignores only a specific window/tab (by window title and class).
+var ignoreMode = "file"; // window/file
+
+// Getting the current active window
+var wnd = sp.ForegroundWindow();
+var hwnd = host.cast(nint, wnd.HWnd); // Дескриптор окна
+var fileName = clr.System.IO.Path.GetFileName(wnd.Process.MainModule.FileName);
+var title = wnd.Title || fileName;
+var className = wnd.ClassName;
+
+// Log information about the current window
+//sp.ConsoleLog(`Window Info: Title="${title}", File="${fileName}", Class="${className}", Handle=${hwnd}`, "Debug");
+
+// Define the ignore criterion depending on the mode
+var criterionKey = ignoreMode === "file" ? fileName : `${title}|${className}`; // Unique comparison key
+
+// Check if the window or process is in the ignore list
+var ignoredApp = null;
+for (var i = 0; i < sp_config.IgnoredApplications.Count; i++) {
+    var ignored = sp_config.IgnoredApplications[i];
+    var ignoredKey = ignoreMode === "file" 
+        ? (ignored.FileName ? ignored.FileName.Value : null) 
+        : `${ignored.OwnerWindowText?.Value || ""}|${ignored.OwnerClassName?.Value || ""}`;
+
+    //sp.ConsoleLog(`Checking ignored app: Key="${ignoredKey}"`, "Debug");
+
+    if (ignoredKey === criterionKey) {
+        ignoredApp = ignored;
+        break;
+    }
+}
+
+if (ignoredApp) {
+    // // Check if the window or process is in the ignore list
+    sp_config.IgnoredApplications.Remove(ignoredApp);
+    sp_config.Save();
+
+    // Deletion Logging
+    //sp.ConsoleLog(`Removed from ignored list: Key="${criterionKey}"`, "Ignored List");
+    sp.MessageBox(`Removed "${ignoreMode === "file" ? fileName : title}" from the ignored list.`, "Ignored List");
+} else {
+    // Create a new ignore object
+    var ignoredApp = new IgnoredApplication();
+    ignoredApp.Description = ignoreMode === "file" 
+        ? `File: ${fileName}` 
+        : `Window: ${title} (Class=${className})`;
+    ignoredApp.Active = true;
+
+    var matchCriteria = (value) => {
+        var mc = new MatchCriteria();
+        mc.Value = value;
+        return mc;
+    };
+
+     // Setting criteria depending on mode
+    if (ignoreMode === "file") {
+        ignoredApp.FileName = matchCriteria(fileName); // Ignore by filename
+        ignoredApp.OwnerWindowText = matchCriteria(""); // Resetting the window title
+        ignoredApp.OwnerClassName = matchCriteria(""); // Reset window class
+    } else {
+        ignoredApp.OwnerWindowText = matchCriteria(title); // Ignoring by window title
+        ignoredApp.OwnerClassName = matchCriteria(className); //  Ignoring by window class
+        ignoredApp.FileName = matchCriteria(""); // Reset the file name
+    }
+
+    // Reset the file name
+    sp_config.IgnoredApplications.Add(ignoredApp);
+    sp_config.Save();
+
+    // Addition Logging
+    //sp.ConsoleLog(`Added to ignored list: Key="${criterionKey}"`, "Ignored List");
+    sp.MessageBox(`Added "${ignoreMode === "file" ? fileName : title}" to the ignored list.`, "Ignored List");
+}
