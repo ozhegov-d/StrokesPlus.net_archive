@@ -1,4 +1,4 @@
-//"file" - ignores all process windows (by file name).
+//"file" - ignores all windows of the process (by file name).
 //"window" - ignores only a specific window/tab (by window title and class).
 var ignoreMode = "file"; 
 
