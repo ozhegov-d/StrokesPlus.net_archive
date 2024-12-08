@@ -1,0 +1,107 @@
+if (click.Down) {
+    if (sp.GetCurrentMouseCursor() === "IBeam") {
+        var cursorPos = click.Point;
+
+        try {
+            // Get the active window
+            var currentMousePoint = sp.GetCurrentMousePoint();
+            var wnd = sp.WindowFromPoint(currentMousePoint, true);
+
+            if (!wnd || !wnd.IsValid()) {
+                sp.ConsoleError("Invalid window or failed to retrieve window information.");
+            } else {
+                // Get the process name and window title
+                var processName = wnd.Process.MainModule.ModuleName.toLowerCase();
+                var windowTitle = wnd.Title ? wnd.Title.toString() : "";
+
+                // Exclusions where the script will not run
+                var excludedProcessesForLanguageIndicator = ["audition.exe", "test.exe"];
+                var excludedTitlesForLanguageIndicator = ["Special App", "Another App"];
+
+                // Check if the application or window title is excluded
+                var isExcluded =
+                    excludedProcessesForLanguageIndicator.includes(processName) ||
+                    excludedTitlesForLanguageIndicator.some(title => windowTitle.toLowerCase().includes(title.toLowerCase()));
+
+                if (!isExcluded) {
+                    // Get the current input language
+                    var currentCulture = System.Windows.Forms.InputLanguage.CurrentInputLanguage;
+                    var language = currentCulture.Culture.TwoLetterISOLanguageName.toUpperCase();
+
+                    // Display names for languages
+                    var displayNames = {
+                        'EN': "EN",
+                        'RU': "RU",
+                        'JA': "日本",
+                        'FR': "Français",
+                        'DE': "Deutsch",
+                        'ES': "Español",
+                        'IT': "Italiano",
+                        'ZH': "汉字",
+                        'KO': "한국어",
+                        'PT': "Português",
+                        'AR': "العربية",
+                        'HI': "हिन्दी",
+                        'BN': "বাংলা",
+                        'PA': "ਪੰਜਾਬੀ",
+                        'VI': "Tiếng Việt",
+                        'TH': "ไทย",
+                        'TR': "Türkçe",
+                        'ID': "Bahasa",
+                        'FA': "فارسی",
+                        'PL': "Polski",
+                        'UK': "Українська",
+                        'NL': "Nederlands"
+                    };
+
+                    var displayName = displayNames[language] || language;
+
+                    // Display the text
+                    var info = new DisplayTextInfo();
+                    info.Title = '';
+                    info.Message = displayName;
+                    info.Duration = 1000;
+                    info.Opacity = 0.8;
+                    info.Location = cursorPos.X + ',' + (cursorPos.Y + 20);
+
+                    // Colors for each language
+                    var colors = {
+                        'EN': { BackColor: "56,142,142", ForeColor: "255,255,255" },
+                        'RU': { BackColor: "255,182,193", ForeColor: "0,0,0" },
+                        'JA': { BackColor: "255,182,193", ForeColor: "0,0,0" },
+                        'FR': { BackColor: "65,105,225", ForeColor: "255,255,255" },
+                        'DE': { BackColor: "128,0,128", ForeColor: "255,255,255" },
+                        'ES': { BackColor: "255,140,0", ForeColor: "0,0,0" },
+                        'IT': { BackColor: "0,128,128", ForeColor: "255,255,255" },
+                        'ZH': { BackColor: "255,69,0", ForeColor: "255,255,255" },
+                        'KO': { BackColor: "106,90,205", ForeColor: "255,255,255" },
+                        'PT': { BackColor: "34,139,34", ForeColor: "255,255,255" },
+                        'AR': { BackColor: "218,112,214", ForeColor: "255,255,255" },
+                        'HI': { BackColor: "255,215,0", ForeColor: "0,0,0" },
+                        'BN': { BackColor: "255,99,71", ForeColor: "255,255,255" },
+                        'PA': { BackColor: "144,238,144", ForeColor: "0,0,0" },
+                        'VI': { BackColor: "0,191,255", ForeColor: "255,255,255" },
+                        'TH': { BackColor: "255,165,0", ForeColor: "255,255,255" },
+                        'TR': { BackColor: "220,20,60", ForeColor: "255,255,255" },
+                        'ID': { BackColor: "139,69,19", ForeColor: "255,255,255" },
+                        'FA': { BackColor: "255,248,220", ForeColor: "0,0,0" },
+                        'PL': { BackColor: "255,99,71", ForeColor: "0,0,0" },
+                        'UK': { BackColor: "30,144,255", ForeColor: "255,255,255" },
+                        'NL': { BackColor: "72,209,204", ForeColor: "255,255,255" }
+                    };
+
+                    var colorConfig = colors[language] || { BackColor: "128,128,128", ForeColor: "255,255,255" };
+                    info.BackColor = colorConfig.BackColor;
+                    info.ForeColor = colorConfig.ForeColor;
+                    info.Padding = 5;
+
+                    sp.DisplayText(info);
+                } else {
+                    //sp.ConsoleLog(`Script skipped for process: ${processName}, title: ${windowTitle}`);
+                }
+            }
+        } catch (e) {
+            sp.ConsoleError("Error: " + e.message);
+        }
+    }
+}
