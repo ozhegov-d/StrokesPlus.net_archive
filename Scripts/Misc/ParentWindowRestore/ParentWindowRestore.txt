@@ -1,0 +1,1 @@
+sp.RunProgram('C:\\test\\nircmd-x64\\nircmd.exe', 'win enable foreground', 'open', 'normal', true, false, false);
