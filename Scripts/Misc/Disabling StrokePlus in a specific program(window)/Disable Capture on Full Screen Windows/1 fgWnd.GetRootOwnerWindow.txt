@@ -1,0 +1,11 @@
+//Global Actions > Window Events > Foreground Window Change:
+
+// Get foreground window EXE name
+var exeName = sp.ForegroundWindow().Process.MainModule.ModuleName;
+// If the EXE name contains "chrome", "firefox", or "msedge", disable that option, otherwise enable it
+if( exeName.includes("chrome") || exeName.includes("firefox") || exeName.includes("msedge") ) {
+    sp_config.PreventCaptureOnFullScreenWindows = false;
+} else {
+    sp_config.PreventCaptureOnFullScreenWindows = true;
+}
+
