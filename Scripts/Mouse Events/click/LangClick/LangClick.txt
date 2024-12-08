@@ -60,7 +60,7 @@ if (click.Down) {
                     var info = new DisplayTextInfo();
                     info.Title = '';
                     info.Message = displayName;
-                    info.Duration = 1000;
+                    info.Duration = 700; 
                     info.Opacity = 0.8;
                     info.Location = cursorPos.X + ',' + (cursorPos.Y + 20);
 
