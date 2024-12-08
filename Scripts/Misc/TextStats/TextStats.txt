@@ -1,0 +1,107 @@
+// Save the previous clipboard content
+var previousClipboard = clip.GetText();
+
+// Copy the selected text
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(50);
+
+// Retrieve the text from the clipboard
+var selectedText = clip.GetText()?.trim();
+if (selectedText && selectedText !== "") {
+    // Count words and characters
+    var counts = countWordsAndCharacters(selectedText);
+    var uniqueWordCount = countUniqueWords(selectedText); 
+    var wordDistribution = wordLengthDistribution(selectedText); 
+    var stats = calculateLanguageStats(selectedText); 
+
+    if (counts) {
+        // Create a popup window
+        var info = new DisplayTextInfo();
+        info.Message = `Total characters: ${counts.totalChars}
+Without spaces: ${counts.charsWithoutSpaces}
+Word count: ${counts.wordCount}
+Unique words: ${uniqueWordCount}
+Sentences: ${stats.sentenceCount}
+Avg sentence length: ${stats.averageSentenceLength.toFixed(2)} words
+Avg word length: ${stats.averageWordLength.toFixed(2)} chars`;
+        info.Duration = 5000; // Display duration
+        info.Location = 'center';
+        info.BackColor = 'black';
+        info.ForeColor = 'white';
+        info.MessageFont = new Font("Segoe UI", 16);
+        sp.DisplayText(info);
+
+        // Log details to the console
+        //sp.ConsoleLog("Text analysis results:", "");
+        //sp.ConsoleLog(info.Message, "");
+
+        // Log word length distribution
+        //sp.ConsoleLog("Word length distribution:", "");
+        for (var len in wordDistribution) {
+            //sp.ConsoleLog(`Words of length ${len}: ${wordDistribution[len]}`, "");
+        }
+    } else {
+        sp.MessageBox('Error counting characters and words!', 'Error');
+    }
+
+    // Restore the previous clipboard content
+    previousClipboard ? clip.SetText(previousClipboard) : clip.Clear();
+} else {
+    // Restore the previous clipboard content before showing the message
+    previousClipboard ? clip.SetText(previousClipboard) : clip.Clear();
+    sp.MessageBox('The clipboard is empty or does not contain text!', 'Error');
+}
+
+// Function to count words and characters
+function countWordsAndCharacters(text) {
+    if (!text || text.trim() === "") return null; // Return null if the text is empty
+
+    // Remove line breaks, tabs, and normalize the text
+    text = text.replace(/\r/g, '').replace(/\n/g, ' ').replace(/\t/g, ' ').trim();
+
+    // Remove extra spaces
+    text = text.replace(/\s+/g, ' ');
+
+    // Count words
+    var words = text.split(' ').filter(word => word.length > 0);
+
+    // Count characters
+    var totalChars = text.length; // Including spaces
+    var charsWithoutSpaces = text.replace(/\s/g, '').length; // Excluding spaces
+
+    return {
+        totalChars: totalChars,
+        charsWithoutSpaces: charsWithoutSpaces,
+        wordCount: words.length
+    };
+}
+
+// Function to count unique words
+function countUniqueWords(text) {
+    var words = text.split(' ').filter(word => word.length > 0);
+    var uniqueWords = new Set(words);
+    return uniqueWords.size;
+}
+
+// Function to calculate word length distribution
+function wordLengthDistribution(text) {
+    var words = text.split(' ').filter(word => word.length > 0);
+    var distribution = {};
+    words.forEach(word => {
+        var len = word.length;
+        distribution[len] = (distribution[len] || 0) + 1;
+    });
+    return distribution;
+}
+
+// Function to calculate language statistics
+function calculateLanguageStats(text) {
+    var sentences = text.split(/[\.\?!]+/).filter(s => s.trim().length > 0);
+    var words = text.split(/\s+/).filter(word => word.length > 0);
+
+    return {
+        sentenceCount: sentences.length,
+        averageSentenceLength: words.length / (sentences.length || 1),
+        averageWordLength: text.replace(/\s+/g, '').length / words.length
+    };
+}
