@@ -1,0 +1,44 @@
+// Get screen dimensions
+var screenWidth = sp.GetSystemMetricsByIndex(78); // Screen width
+var screenHeight = sp.GetSystemMetricsByIndex(79); // Screen height
+
+// Display the message "Recording started"
+var info = new DisplayTextInfo();
+info.Title = ''; // No title
+info.Message = 'Recording started';
+info.MessageAlignment = 'Center'; // Center-align the text
+info.Duration = 2000; // Duration in milliseconds
+info.Opacity = 1.0; // Fully opaque
+info.Location = `${Math.floor(screenWidth / 2)},${Math.floor(screenHeight / 2)}`; // Center of the screen
+info.BackColor = 'red'; // Red background
+info.ForeColor = 'white'; // White text
+info.Padding = 15; // Padding
+info.FadeSteps = 10; // Fade steps
+sp.DisplayText(info);
+
+// Log the start time of the recording
+var startTime = new Date();
+sp.StoreNumber("recordStartTime", startTime.getTime());
+//sp.ConsoleLog(`Recording started: ${startTime.toLocaleTimeString()}`);
+
+// Set the recording status flag
+sp.StoreBool("isRecording", true);
+
+// Start recording the temporary macro
+sp.RecordTemporaryMacro();
+
+StrokesPlus.Configuration.Settings.CustomMacroStopKey = 0x71; // F2
+//https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+
+//VK_F1	0x70	F1 key
+//VK_F2	0x71	F2 key
+//VK_F3	0x72	F3 key
+//VK_F4	0x73	F4 key
+//VK_F5	0x74	F5 key
+//VK_F6	0x75	F6 key
+//VK_F7	0x76	F7 key
+//VK_F8	0x77	F8 key
+//VK_F9	0x78	F9 key
+//VK_F10 0x79	F10 key
+//VK_F11 0x7A	F11 key
+//VK_F12 0x7B	F12 key

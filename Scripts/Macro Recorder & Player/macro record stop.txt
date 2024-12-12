@@ -1,0 +1,30 @@
+// Check if recording is in progress
+if (sp.GetStoredBool("isRecording")) {
+    var recordStartTime = sp.GetStoredNumber("recordStartTime"); // Start time
+    var stopTime = new Date();
+    var elapsedTime = Math.floor((stopTime.getTime() - recordStartTime) / 1000); // Duration in seconds
+
+    // Log the stop time and recording duration
+    sp.StoreNumber("recordElapsedTime", elapsedTime); // Save recording duration
+    sp.StoreBool("isRecording", false);
+
+    //sp.ConsoleLog(`Recording stopped: ${stopTime.toLocaleTimeString()}`);
+    //sp.ConsoleLog(`Recording duration: ${elapsedTime} seconds.`);
+
+    // Display a message about stopping the recording
+    var info = new DisplayTextInfo();
+    info.Title = ''; // No title
+    info.Message = 'Recording stopped';
+    info.MessageAlignment = 'Center'; // Center-align the text
+    info.Duration = 2000; // Duration in milliseconds
+    info.Opacity = 1.0; // Fully opaque
+    info.Location = `${Math.floor(screenWidth / 2)},${Math.floor(screenHeight / 2)}`; // Center of the screen
+    info.BackColor = 'green'; // Green background
+    info.ForeColor = 'white'; // White text
+    info.Padding = 15; // Padding
+    info.FadeSteps = 10; // Fade steps
+    sp.DisplayText(info);
+
+} else {
+    sp.ConsoleLog("Attempted to stop recording, but no recording was in progress.");
+}
