@@ -27,6 +27,7 @@ sp.StoreBool("isRecording", true);
 // Start recording the temporary macro
 sp.RecordTemporaryMacro();
 
+//it should be the same button as the macros record stop button.
 StrokesPlus.Configuration.Settings.CustomMacroStopKey = 0x71; // F2
 //https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 
