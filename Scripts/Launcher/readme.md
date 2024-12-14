@@ -1,3 +1,12 @@
+### Launcher Hot key + timer
+
+By default, the form can be closed with Ctrl+Q (also by double-clicking or pressing Esc).  
+The program will be launched based on title: and short:.  
+By default, the search will be performed through Google, meaning it will search without needing g.  
+In the timer, you can use formats like 10s, 20m, 1h30s, etc.  
+
+### Launcher
+
 https://github.com/user-attachments/assets/b803a526-ff43-4ca0-8a62-1d1ee7fa5ae0
 
 
