@@ -1,0 +1,29 @@
+// Check if the variable was declared earlier
+if (typeof browserConfigs === 'undefined') {
+    var browserConfigs = { 
+        "chrome.exe": 100,  // Top Area Height (in pixels)
+        "msedge.exe": 80,    
+        "firefox.exe": 100   
+    };
+}
+
+function getAppPixelHeight(moduleName) {
+    return browserConfigs[moduleName] || 0; // Return pixels or 0 if the application is not in the list
+}
+
+var appHeight = getAppPixelHeight(wheel.Window.Process.MainModule.ModuleName); 
+
+if (appHeight > 0) { // Check if the height is specified for the application
+    if (parseInt(wheel.Y) <= (parseInt(wheel.Window.Rectangle.Top) + appHeight)) {
+        // If the mouse is in the upper area of the window
+        if (wheel.Delta > 0) {
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]); // Switching to the next tab
+        } else {
+            sp.SendModifiedVKeys([vk.LCONTROL, vk.LSHIFT], [vk.TAB]); // Switching to the previous tab
+        }
+    } else {
+        //wheel.Control.PostMessage(host.cast(uint, 0x020A), new IntPtr(wheel.WParam), new IntPtr(wheel.LParam));
+    }
+} else {
+    //wheel.Control.PostMessage(host.cast(uint, 0x020A), new IntPtr(wheel.WParam), new IntPtr(wheel.LParam));
+}
