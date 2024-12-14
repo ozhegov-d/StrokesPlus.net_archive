@@ -1,0 +1,874 @@
+var ht = sp.ForegroundWindow().Screen.Bounds.Height;
+var wd = sp.ForegroundWindow().Screen.Bounds.Width;
+
+// Settings on which key to close the form
+var hotkeyCtrl = true;
+var hotkeyShift = false;
+var hotkeyAlt = false;
+var hotkeyKey = System.Windows.Forms.Keys.Q; // Big letter
+
+var input = "";
+var Forms = forms.System.Windows.Forms;
+var form = new Forms.Form;
+var form2Visible = true; // Toggles whether form2 is visible.
+
+var separatorPanels = [];
+var normalHeight = 1; // Separator height
+var hoverHeight = 5; // Hover height for separators
+
+var separate = 1; 
+var separates = [110, 153, 46, 185, 215 ]; // Initial positions of separators
+
+var maxLastInputs = 7; // Number of recent inputs
+var showIcons = true; 
+var showText = true;
+
+var textModeSettings = {
+    iconSize: 20,
+// Programs
+    programColumnWidth: 135, // Width of a column
+    programRowHeight: 20, // Height of a row
+//   ↓ row
+//   1  2  3  4 ← columns
+//   2  
+//   3  
+//   4
+//   5
+    programRows: 5,
+    programColumns: 4,
+
+    iconToTitleSpacingPrograms: 0, // Spacing between icon and title for programs
+    programTextSize: 10, // text size
+// Horizontal offset
+    xOffset: 5,
+
+// Websites
+    websiteColumnWidth: 144,  // Width of a column
+    websiteRowHeight: 20, // Height of a row
+//   ↓ row
+//   1  2  3  4 ← columns
+//   2  
+//   3  
+//   4
+    websiteRows: 4,
+    websiteColumns: 4,
+
+    iconToTitleSpacingWebsites: 6,// Spacing between icon and title for Websites
+    websiteTextSize: 9
+};
+
+var gapBetweenProgramAndWeb = 5; // Spacing between programs and sites
+var formSpacing = -5; // Spacing between forms
+
+var settings = textModeSettings;
+
+var programs = [
+  {title:"c - calc", short:["c","с"], run:"calc", ico:"C:\\Windows\\System32\\calc.exe"},
+  {title:"n - notepad", short:"n", run:"notepad", ico:"C:\\Windows\\System32\\notepad.exe"},
+  {title:"p - paint", short:"p", run:"mspaint", ico:"C:\\Windows\\System32\\mspaint.exe"},
+  {title:"e - explorer", short:"e", run:"explorer", ico:"C:\\Windows\\explorer.exe"},
+  {title:"t - taskmgr", short:["t", "е"], run:"taskmgr", ico:"C:\\Windows\\System32\\Taskmgr.exe"},
+  {title:"m - msconfig", short:["m" ,"ь"], run:"msconfig", ico:"C:\\Windows\\System32\\msconfig.exe "},
+  {title:"re - regedit", short:"re", run:"regedit", ico:"C:\\Windows\\regedit.exe"},
+  {title:"de - devmgmt", short:"de", run:"devmgmt.msc", ico:"C:\\Windows\\System32\\devmgmt.msc"},
+  {title:"co - comp", short:"co", run:"devmgmt.msc", ico:"C:\\Windows\\System32\\compmgmt.msc"},
+  {title:"cm - cmd", short:"cm", run:"cmd", ico:"C:\\Windows\\System32\\cmd.exe"},
+  {title:"w - ncpa.cpl", short:"w", run:"ncpa.cpl"},
+];
+
+var websites = [
+  {title:"YouTube", short:["y", "н"], run:"https://www.youtube.com/results?search_query=", ico:"icons\\youtube.png"}, 
+  {title:"DuckDuckGo", short:["d", "в"], run:"https://duckduckgo.com/?q=", ico:"icons\\duckduckgo.png"},
+  {title:"Bing", short:["b", "и"], run:"https://www.bing.com/search?q=", ico:"icons\\bing.png"},
+  {title:"Google", short:["g", "п"], run:"https://www.google.com/search?q=", ico:"icons\\google.png"},
+  {title:"Wikipedia", short:["w", "ц"], run:"https://en.wikipedia.org/w/index.php?search=", ico:"icons\\wiki1.png"},
+  {title:"Reddit", short:["r", "к"], run:"https://www.reddit.com/search/?q=", ico:"icons\\reddit.png"},
+  {title:"GitHub", short:["gh", "пр"], run:"https://github.com/search?q=", ico:"icons\\github.png"},
+  {title:"StackOverflow", short:["so", "ыщ"], run:"https://stackoverflow.com/search?q=", ico:"icons\\stackoverflow.png"},
+  {title:"Quora", short:["q", "й"], run:"https://www.quora.com/search?q=", ico:"icons\\quora.png"},
+  {title:"Twitter", short:["t", "пр"], run:"https://twitter.com/search?q=", ico:"icons\\twitter.png"}
+];
+
+var programPath = System.Windows.Forms.Application.StartupPath;
+
+function loadFormSizes() {
+    var filePath = System.IO.Path.Combine(programPath, "form_sizes.json");
+
+    if (System.IO.File.Exists(filePath)) {
+        try {
+            var sizes = JSON.parse(System.IO.File.ReadAllText(filePath));
+
+            // Loading mold sizes
+            form.Size = new Size(sizes.form1.width, sizes.form1.height);
+            form2.Size = new Size(sizes.form2.width, sizes.form2.height);
+
+            // Loading an array of separates
+            if (Array.isArray(sizes.separates)) {
+                separates = sizes.separates.slice(0, separate);
+            } else {
+                //sp.ConsoleError("The 'separates' array is missing in the file. Default values are being used.");
+                separates = separates.slice(0, separate);
+            }
+
+            // Setting up separators
+            separatorPanels.forEach((panel, index) => {
+                if (index < separates.length) {
+                    panel.Location = new Point(0, separates[index]);
+                }
+            });
+
+        } catch (e) {
+            sp.ConsoleError("Error loading form sizes: " + e.message);
+        }
+    } else {
+        sp.ConsoleError("File form_sizes.json not found. Default values are being used.");
+
+        separates = separates.slice(0, separate);
+        separatorPanels.forEach((panel, index) => {
+            panel.Location = new Point(0, separates[index]);
+        });
+    }
+}
+
+function saveFormSizes() {
+    const filePath = System.IO.Path.Combine(programPath, "form_sizes.json");
+    let fileContent = {};
+
+    // Load an existing file, if there is one
+    if (System.IO.File.Exists(filePath)) {
+        try {
+            fileContent = JSON.parse(System.IO.File.ReadAllText(filePath));
+        } catch (e) {
+            sp.ConsoleError("Error reading the file form_sizes.json: " + e.message);
+        }
+    }
+
+    // Update only the sizes of forms and separators, keeping the rest of the data intact
+    fileContent.form1 = {
+        width: form.Width,
+        height: form.Height,
+    };
+    fileContent.form2 = {
+        width: form2.Width,
+        height: form2.Height,
+    };
+    fileContent.separates = separates;
+
+    // Save it back to the file
+    try {
+        System.IO.File.WriteAllText(filePath, JSON.stringify(fileContent));
+       // sp.ConsoleLog("Form sizes, separator positions, and other data successfully saved.");
+    } catch (e) {
+        sp.ConsoleError("Error saving form dimensions: " + e.message);
+    }
+}
+
+// form1
+function setupForm(form) {
+    form.StartPosition = Forms.FormStartPosition.Manual;
+    form.FormBorderStyle = Forms.FormBorderStyle.Sizable;
+    form.TopMost = true;
+    form.ControlBox = false;
+    form.ShowInTaskbar = false;
+    form.Margin = new Forms.Padding(0);
+    form.Padding = new Forms.Padding(0);
+    form.MinimumSize = new Size(300, 200);
+    form.Size = new Size(340, 280); 
+    form.AutoSize = false;
+    form.BackColor = Color.WhiteSmoke;
+    
+    form.Location = new Point(
+        Math.floor(wd / 2 - form.Width / 2),
+        Math.floor(ht / 2 - form.Height / 2)
+    );
+
+    form.Resize.connect(function() {
+        form.Location = new Point(
+            Math.floor(wd / 2 - form.Width / 2),
+            form.Location.Y
+        );
+        if(form2 && form2.Visible) {
+            form2.Location = new Point(
+                Math.floor(wd / 2 - form2.Width / 2),
+                Math.floor(form.Location.Y - form2.Height - formSpacing)
+            );
+        }
+    });
+    form.ResizeEnd.connect(function() {
+        saveFormSizes();
+    });
+
+    form.GetType().GetProperty("DoubleBuffered",
+        host.flags(clr.System.Reflection.BindingFlags.NonPublic,
+        clr.System.Reflection.BindingFlags.Instance))
+        .SetValue(form, true);
+
+    form2.GetType().GetProperty("DoubleBuffered",
+        host.flags(clr.System.Reflection.BindingFlags.NonPublic,
+        clr.System.Reflection.BindingFlags.Instance))
+        .SetValue(form2, true);
+
+    form.Shown.connect(function () {
+        form.TopMost = true;
+        form.Activate();
+        textBox.Focus(); 
+    });
+}
+
+var form2 = new Forms.Form(); 
+form2.StartPosition = Forms.FormStartPosition.Manual;
+form2.FormBorderStyle = Forms.FormBorderStyle.Sizable;
+form2.TopMost = true; 
+form2.ShowInTaskbar = false;
+form2.ControlBox = false;
+
+if (showText) {
+    form2.Size = new Size(form.Width * 2, 220); 
+    form2.Location = new Point(Math.round(wd / 2 - form2.Width / 2), Math.floor(ht / 2 - 310));
+} else {
+    form2.Size = new Size(form.Width * 1, 260);
+    form2.Location = new Point(Math.round(wd / 2 - form2.Width / 2), Math.floor(ht / 2 - 360));
+}
+
+for (let i = 0; i < separate; i++) {
+    let panelIndex = i;
+    let separatorPanel = new Forms.Panel();
+    separatorPanel.BackColor = Color.Gray;
+    separatorPanel.Width = form2.ClientSize.Width;
+    separatorPanel.Height = normalHeight;
+
+    // Setting the starting position
+    separatorPanel.Location = new Point(0, separates[i] || 0); 
+    //sp.ConsoleLog(`Separator ${i} created at Y=${separates[i] || 0}`);
+
+    form2.Controls.Add(separatorPanel);
+    separatorPanels.push(separatorPanel);
+
+    let isDraggingSeparator = false;
+    let dragOffsetY = 0;
+
+    separatorPanel.MouseEnter.connect(function () {
+        if (!isDraggingSeparator) separatorPanel.Height = hoverHeight;
+    });
+
+    separatorPanel.MouseLeave.connect(function () {
+        if (!isDraggingSeparator) separatorPanel.Height = normalHeight;
+    });
+
+    separatorPanel.MouseDown.connect(function (sender, e) {
+        if (e.Button === Forms.MouseButtons.Left) {
+            isDraggingSeparator = true;
+            dragOffsetY = e.Y;
+            separatorPanel.Capture = true;
+        }
+    });
+
+    separatorPanel.MouseMove.connect(function (sender, e) {
+        if (isDraggingSeparator) {
+            var newY = separatorPanel.Location.Y + (e.Y - dragOffsetY);
+            newY = Math.max(0, Math.min(newY, form2.ClientSize.Height - separatorPanel.Height));
+            separates[panelIndex] = newY; // Update the separates array
+            separatorPanel.Location = new Point(0, newY);
+        }
+    });
+
+    separatorPanel.MouseUp.connect(function (sender, e) {
+        if (e.Button === Forms.MouseButtons.Left) {
+            isDraggingSeparator = false;
+            separatorPanel.Capture = false;
+            saveFormSizes(); // Save changes
+            separatorPanel.Height = normalHeight;
+        }
+    });
+}
+
+form2.Resize.connect(function() {
+    for (let i = 0; i < separatorPanels.length; i++) {
+        let sp = separatorPanels[i];
+    }
+});
+
+
+
+form2.ResizeEnd.connect(function() {
+    saveFormSizes();
+});
+
+// Timer for measuring form loading time
+//var startTime = new Date().getTime();
+
+setupForm(form);
+loadFormSizes();
+
+// TextBox settings
+var textBox = new Forms.TextBox();
+function setupTextBox(textBox) {
+    textBox.Size = new Size(250, 20);
+    form.Resize.connect(function(sender, e) {
+        textBox.Width = Math.min(250, form.ClientSize.Width - 20);
+        textBox.Location = new Point(
+            Math.floor((form.ClientSize.Width - textBox.Width) / 2), 
+            5
+        );
+    });
+    textBox.Font = new System.Drawing.Font("Microsoft YaHei", 13, FontStyle.Regular);
+    textBox.Text = "";
+}
+setupTextBox(textBox);
+form.Controls.Add(textBox);
+
+// Program settings
+var programIndex = 0;
+for (var i = 0; i < settings.programColumns; i++) {
+  var xColumn = settings.xOffset + i * settings.programColumnWidth;
+  for (var j = 0; j < settings.programRows; j++) {
+    if (programIndex >= programs.length) break;
+    var program = programs[programIndex];
+    var label = new Forms.Label();
+    label.AutoSize = true;
+    label.Text = showText ? program.title : "";
+
+    if (showIcons) {
+        var iconPath = program.ico || program.run;
+        var hasIcon = iconPath && iconPath.indexOf('\\') !== -1;
+        if (hasIcon) {
+            try {
+                var icon = System.Drawing.Icon.ExtractAssociatedIcon(iconPath);
+                var originalBitmap = icon.ToBitmap();
+                var pictureBox = new Forms.PictureBox();
+                var resizedBitmap = new System.Drawing.Bitmap(originalBitmap, new Size(settings.iconSize, settings.iconSize));
+                pictureBox.Size = new Size(settings.iconSize, settings.iconSize);
+                pictureBox.Image = resizedBitmap;
+                pictureBox.SizeMode = Forms.PictureBoxSizeMode.StretchImage;
+                pictureBox.Location = new Point(Math.floor(xColumn), Math.floor(5 + j * settings.programRowHeight));
+                pictureBox.Click.connect(createClickHandler(program));
+                pictureBox.Name = "program_icon_" + programIndex; 
+                form2.Controls.Add(pictureBox);
+
+                label.Location = showText ? 
+                    new Point(xColumn + settings.iconSize + settings.iconToTitleSpacingPrograms, 5 + j * settings.programRowHeight) : 
+                    new Point(xColumn, 5 + j * settings.programRowHeight);
+
+                icon.Dispose();
+                originalBitmap.Dispose();
+                
+                form2.FormClosed.connect(function() {
+                    resizedBitmap.Dispose();
+                    pictureBox.Dispose();
+                    label.Dispose();
+                    label.Font.Dispose();
+                });
+            } catch (e) {
+                sp.ConsoleError("Error loading image: " + e.message);
+                label.Location = new Point(Math.floor(xColumn), Math.floor(5 + j * settings.programRowHeight));
+            }
+        } else {
+            label.Location = new Point(xColumn, 5 + j * settings.programRowHeight);
+        }
+    } else {
+        label.Location = new Point(xColumn, 5 + j * settings.programRowHeight);
+    }
+
+    if (showText) {
+        label.Font = new System.Drawing.Font("Segoe UI", settings.programTextSize, FontStyle.Regular);
+        label.Size = new Size(settings.programColumnWidth, settings.programRowHeight);
+        label.Click.connect(createClickHandler(program));
+        form2.Controls.Add(label);
+    }
+    programIndex++;
+  }
+}
+
+function createClickHandler(program) {
+    return function () {
+        var runPath = program.run;
+        var input = program.title; // Use the program header as input
+        saveLastInputs(input); // Saving the input
+        
+        if (runPath.indexOf('\\') !== -1) {
+            try {
+                System.Diagnostics.Process.Start(runPath);
+            } catch (e) {
+                try {
+                    sp.RunProgram(runPath, '', '', '', true, false, false);
+                } catch (e) {
+                    sp.Run(runPath);
+                }
+            }
+        } else {
+            try {
+                sp.RunProgram(runPath, '', '', '', true, false, false);
+            } catch (e) {}
+        }
+        closeForm();
+    };
+}
+
+var websiteY = settings.xOffset + settings.programRows * settings.programRowHeight + gapBetweenProgramAndWeb;
+
+// Websites settings
+var websiteIndex = 0;
+for (var i = 0; i < settings.websiteColumns; i++) {
+    var xColumn = settings.xOffset + i * settings.websiteColumnWidth;
+    for (var j = 0; j < settings.websiteRows; j++) {
+        if (websiteIndex >= websites.length) break;
+        var website = websites[websiteIndex];
+        var label = new Forms.Label();
+        label.AutoSize = true;
+        label.Text = showText ? website.short[0] + ' - ' + website.title : "";
+
+        var yRow = websiteY + 5 + j * settings.websiteRowHeight;
+
+        if (showIcons) {
+            var iconPath = website.ico ? website.ico.trim() : "";
+            if (iconPath && !System.IO.Path.IsPathRooted(iconPath)) {
+                iconPath = System.IO.Path.Combine(programPath, iconPath);
+            }
+            var hasIcon = iconPath && System.IO.File.Exists(iconPath);
+
+            if (!hasIcon) {
+                sp.ConsoleError("Icon file not found: " + iconPath);
+            }
+            if (hasIcon) {
+                try {
+                    var originalImage = System.Drawing.Image.FromFile(iconPath);
+                    var pictureBox = new Forms.PictureBox();
+                    var image = new System.Drawing.Bitmap(originalImage, new Size(settings.iconSize, settings.iconSize));
+                    pictureBox.Size = new Size(settings.iconSize, settings.iconSize);
+                    pictureBox.Image = image;
+                    pictureBox.SizeMode = Forms.PictureBoxSizeMode.StretchImage;
+                    pictureBox.Location = new Point(Math.floor(xColumn), Math.floor(yRow));
+                    pictureBox.Name = "websites_icon_" + websiteIndex;
+
+                    pictureBox.Click.connect(function () {
+                        if (website) {
+                            var url = website.run;
+                            if (!url.startsWith("http")) {
+                                url = "https://" + url;
+                            }
+                            try {
+                                System.Diagnostics.Process.Start(url);
+                                //sp.ConsoleError("Opening URL: " + url);
+                            } catch (ex) {
+                                sp.RunProgram(url, '', 'open', 'normal', true, false, false);
+                               // sp.ConsoleError("URL opened via sp.RunProgram: " + url);
+                            }
+                            closeForm();
+                        }
+                    });
+
+                    form2.Controls.Add(pictureBox);
+                    label.Location = new Point(
+    Math.floor(xColumn + (showIcons ? settings.iconSize + settings.iconToTitleSpacingWebsites : 0)),
+    Math.floor(yRow + (settings.iconSize - label.Height) / 2)
+);
+
+                    originalImage.Dispose();
+                    form2.FormClosed.connect(function () {
+                        image.Dispose();
+                        pictureBox.Dispose();
+                    });
+                } catch (e) {
+                    sp.ConsoleError("Error loading image: " + e.message);
+                }
+            }
+        }
+
+        if (!showIcons || !hasIcon) {
+            label.Location = new Point(
+    Math.floor(xColumn + (showIcons ? settings.iconSize + settings.iconToTitleSpacingWebsites : 0)),
+    Math.floor(yRow + (settings.iconSize - label.Height) / 2)
+);
+        }
+
+        if (showText) {
+            label.Font = new System.Drawing.Font("Segoe UI", settings.websiteTextSize, FontStyle.Regular);
+            label.Size = new Size(settings.websiteColumnWidth, settings.websiteRowHeight);
+            label.Click.connect(createWebsiteClickHandler(website));
+            form2.Controls.Add(label);
+
+            form2.FormClosed.connect(function () {
+                label.Dispose();
+                label.Font.Dispose();
+            });
+        }
+
+        websiteIndex++;
+    }
+}
+
+function createWebsiteClickHandler(website) {
+    return function () {
+        var url = website.run;
+        var input = website.title; // Using the website header as input
+        saveLastInputs(input); // Saving the input
+
+        var mainUrl = url.split('?')[0];
+        if (mainUrl.endsWith('/')) {
+            mainUrl = mainUrl.substring(0, mainUrl.length - 1);
+        }
+        if (mainUrl.endsWith('/search') || mainUrl.endsWith('/results')) {
+            mainUrl = mainUrl.substring(0, mainUrl.lastIndexOf('/'));
+        }
+        try {
+            System.Diagnostics.Process.Start(mainUrl);
+        } catch (e) {
+            try {
+                sp.RunProgram(mainUrl, '', 'open', 'normal', true, false, false);
+            } catch (e2) {}
+        }
+        closeForm();
+    };
+}
+
+//F1 Button
+var button = new Forms.Button();
+button.Text = "f1";
+button.Size = new Size(30, 20);
+button.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right;
+
+var buttonMarginRight = 0; 
+var buttonMarginTop = 0; 
+
+form.Resize.connect(function(sender, e) {
+    button.Location = new Point(
+        form.ClientSize.Width - button.Width - buttonMarginRight, 
+        buttonMarginTop
+    );
+});
+
+button.BringToFront(); 
+button.Click.connect(function (sender, e) {
+    form2Visible = !form2Visible;
+    if (form2Visible) {
+        form2.Location = new Point(
+            Math.floor(wd / 2 - form2.Width / 2),
+            Math.floor(form.Location.Y - form2.Height - formSpacing)
+        );
+        form2.Show();
+        textBox.Select();
+        form.Activate();
+    } else {
+        form2.Hide();
+    }
+});
+form.Controls.Add(button);
+
+function getLastInputs() {
+    try {
+        const filePath = System.IO.Path.Combine(programPath, "form_sizes.json");
+        if (System.IO.File.Exists(filePath)) {
+            const fileContent = JSON.parse(System.IO.File.ReadAllText(filePath));
+            if (Array.isArray(fileContent.lastInputs)) {
+                return fileContent.lastInputs.slice(0, maxLastInputs); // Trim to maxLastInputs
+            }
+        }
+        return []; // If lastInputs is missing
+    } catch (error) {
+        sp.ConsoleError("Error loading last inputs: " + error.message);
+        return [];
+    }
+}
+
+function saveLastInputs(input) {
+    try {
+        const filePath = System.IO.Path.Combine(programPath, "form_sizes.json");
+        let fileContent = {};
+        if (System.IO.File.Exists(filePath)) {
+            fileContent = JSON.parse(System.IO.File.ReadAllText(filePath));
+        }
+
+        // Saving recent inputs to an array
+        fileContent.lastInputs = [input, ...(fileContent.lastInputs || [])].slice(0, maxLastInputs);
+
+        // Writing to a file
+        System.IO.File.WriteAllText(filePath, JSON.stringify(fileContent));
+        //sp.ConsoleLog("The last entered values have been successfully saved.");
+        updateListBox(fileContent.lastInputs); 
+    } catch (error) {
+        sp.ConsoleError("Error saving last inputs: " + error.message);
+    }
+}
+
+var listBoxLastInputs = new Forms.ListBox();
+
+function updateListBox(lastInputs) {
+    listBoxLastInputs.Items.Clear();
+    lastInputs.forEach(function(item) {
+        listBoxLastInputs.Items.Add(item);
+    });
+    listBoxLastInputs.Size = new Size(280, Math.min(lastInputs.length, maxLastInputs) * 28 + 10);
+    listBoxLastInputs.Location = new Point(
+        Math.floor((form.ClientSize.Width - listBoxLastInputs.Width) / 2), 
+        40
+    );
+}
+
+function setupListBox(listBox) {
+    var lastInputs = getLastInputs();
+    listBox.Size = new Size(280, Math.min(lastInputs.length, maxLastInputs) * 28 + 10);
+    form.Resize.connect(function(sender, e) {
+        listBox.Location = new Point(
+            Math.floor((form.ClientSize.Width - listBox.Width) / 2), 
+            40
+        );
+    });
+    listBox.Font = new System.Drawing.Font("Microsoft YaHei", 12, FontStyle.Regular);
+    updateListBox(lastInputs);
+}
+setupListBox(listBoxLastInputs);
+form.Controls.Add(listBoxLastInputs);
+dragMoveBlind = ShowImageBindDragMove(form, form, form2, true);
+dragMoveBlind = ShowImageBindDragMove(form2, form2, form, false);
+dragMoveBlind = ShowImageBindDragMove(form, textBox, form2);
+
+function closeForm() {
+    form.Close();
+}
+
+function handleKeyDown(sender, e) {
+    const isHotkey = e.Control === hotkeyCtrl && e.Shift === hotkeyShift && e.Alt === hotkeyAlt && e.KeyCode === hotkeyKey;
+
+    if (e.KeyCode === Forms.Keys.Escape || isHotkey) {
+        closeForm();
+    } else if (e.KeyCode === Forms.Keys.F1) {
+        form2Visible = !form2Visible;
+        if (form2Visible) {
+            form2.Location = new Point(
+                Math.floor(wd / 2 - form2.Width / 2),
+                Math.floor(form.Location.Y - form2.Height - formSpacing)
+            );
+            form2.Show();
+            textBox.Select();
+            form.Activate();
+        } else {
+            form2.Hide();
+        }
+    } else if (e.KeyCode === Forms.Keys.Down) {
+        if (sender === textBox || listBoxLastInputs.SelectedIndex === -1) {
+            listBoxLastInputs.SelectedIndex = 0;
+            listBoxLastInputs.Focus();
+        } else if (listBoxLastInputs.SelectedIndex < listBoxLastInputs.Items.Count - 1) {
+            listBoxLastInputs.SelectedIndex++;
+        }
+        e.SuppressKeyPress = true;
+    } else if (e.KeyCode === Forms.Keys.Up) {
+        if (sender === listBoxLastInputs && listBoxLastInputs.SelectedIndex === 0) {
+            textBox.Focus();
+        } else if (listBoxLastInputs.SelectedIndex > 0) {
+            listBoxLastInputs.SelectedIndex--;
+        }
+        e.SuppressKeyPress = true;
+    } else if (sender === listBoxLastInputs) {
+        if (e.KeyCode === Forms.Keys.Enter && listBoxLastInputs.SelectedItem) {
+            input = listBoxLastInputs.SelectedItem.toString();
+            saveLastInputs(input);
+            closeForm();
+        } else if (e.KeyCode === Forms.Keys.Tab) {
+            listBoxLastInputs.SelectedIndex = (listBoxLastInputs.SelectedIndex + 1) % listBoxLastInputs.Items.Count;
+            e.SuppressKeyPress = true;
+        }
+    }
+}
+
+function handleTextBoxKeyPress(sender, e) {
+    if (e.KeyChar === 13) { 
+        input = textBox.Text;
+        saveLastInputs(input);
+        closeForm();
+    }
+}
+
+function handleListBoxDoubleClick() {
+    if (listBoxLastInputs.SelectedItem) {
+        input = listBoxLastInputs.SelectedItem.toString();
+        sp.ConsoleLog(`Selected from the list: ${input}`);
+        closeForm();
+    }
+}
+
+textBox.KeyPress.connect(handleTextBoxKeyPress);
+textBox.KeyDown.connect(handleKeyDown);
+listBoxLastInputs.KeyDown.connect(handleKeyDown);
+listBoxLastInputs.DoubleClick.connect(handleListBoxDoubleClick);
+form.KeyDown.connect(handleKeyDown);
+button.KeyDown.connect(handleKeyDown);
+form2.KeyDown.connect(handleKeyDown);
+
+if (form2Visible) {
+    form2.Show();
+}
+form.DoubleClick.connect(function() {
+    closeForm();
+});
+form2.DoubleClick.connect(function() {
+    closeForm();
+});
+
+// Timer for measuring form loading time
+//form.Shown.connect(function () {
+//    var endTime = new Date().getTime();
+//    var loadTime = endTime - startTime; 
+    // sp.ConsoleError("Form loaded in: " + loadTime + " ms");
+//});
+
+Forms.Application.Run(form);
+
+// Function for moving the mold
+function ShowImageBindDragMove(form, item, otherForm, isMainForm) {
+    var Cursors = forms.System.Windows.Forms.Cursors;
+    var ReleaseCapture = sp_config.GetType().Assembly.GetType("API").GetMethod("ReleaseCapture");
+
+    item.MouseMove.connect(function (sender, e) {
+        if (form === form2) {
+            form.Cursor = Cursors.Default;
+        }
+
+        if (sender.GetType().Name === "TextBox" || 
+            (sender.Parent && sender.Parent.GetType().Name === "TextBox")) {
+            return; 
+        }
+
+        var hitResize = form.Height + form.Width - (e.X + e.Y) < 30;
+        var cursor = hitResize ? Cursors.SizeNWSE : Cursors.IBeam;
+
+        if (form === form2) {
+            cursor = Cursors.Default;
+        }
+
+        if (item.Cursor !== cursor) item.Cursor = cursor;
+
+        if (e.Button == Forms.MouseButtons.Left) {
+            ReleaseCapture.Invoke(null, null);
+            sp.WindowFromHandle(form.Handle).SendMessageObj(
+                0x0112,
+                hitResize ? 0xF008 : 0xF012,
+                0
+            );
+
+            if (otherForm && form !== otherForm) {
+                var newX = Math.floor(form.Location.X + (form.Width - otherForm.Width) / 2);
+                var newY = Math.floor(isMainForm
+                    ? form.Location.Y - otherForm.Height - formSpacing
+                    : form.Location.Y + form.Height + formSpacing
+                );
+                otherForm.Location = new Point(newX, newY);
+            }
+        }
+    });
+
+    return [item.MouseMove];
+}
+
+function parseTimeInput(input) {
+    var totalSeconds = 0, regex = /(\d+)([hms])/g, match;
+    while ((match = regex.exec(input)) !== null) {
+        totalSeconds += parseInt(match[1]) * { h: 3600, m: 60, s: 1 }[match[2]];
+    }
+    return totalSeconds > 0 ? totalSeconds * 1000 : null;
+}
+
+function formatDate(date) {
+    var year = date.getFullYear();
+    var month = (date.getMonth() + 1).toString().padStart(2, '0');
+    var day = date.getDate().toString().padStart(2, '0');
+    var hour = date.getHours().toString().padStart(2, '0');
+    var minute = date.getMinutes().toString().padStart(2, '0');
+    var second = date.getSeconds().toString().padStart(2, '0');
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
+// Timers and commands
+if (input !== '') {
+  var commands = input.split(',').map(t => t.trim());
+  commands.forEach(command => {
+    var parsedTime = parseTimeInput(command);
+    if (parsedTime) {
+      var timerId = "CountdownTimer_" + Math.random().toString(36).substr(2, 9);
+      var startTime = new Date();
+      var startDateTime = formatDate(startTime);  
+      var endTime = new Date(startTime.getTime() + parsedTime);
+     
+      //sp.ConsoleLog("-------------------------Timer started: " + formatDate(startTime) + " for " + command, "Timer", System.Drawing.Color.Yellow);
+      sp.MessageBox("Timer started for " + command, "Countdown");   
+      var timerScript = `
+        function formatDate(date) {
+            var year = date.getFullYear();
+            var month = (date.getMonth() + 1).toString().padStart(2, '0');
+            var day = date.getDate().toString().padStart(2, '0');
+            var hour = date.getHours().toString().padStart(2, '0');
+            var minute = date.getMinutes().toString().padStart(2, '0');
+            var second = date.getSeconds().toString().padStart(2, '0');
+            return \`\${year}-\${month}-\${day} \${hour}:\${minute}:\${second}\`;
+        }
+        var finishTime = new Date();
+        //sp.ConsoleLog("Timer started: ${startDateTime} for ${command}", "Timer", System.Drawing.Color.Green);
+        //sp.ConsoleLog("Timer finished: " + formatDate(finishTime), "Timer", System.Drawing.Color.Red);
+        sp.DeleteTimer("${timerId}");
+        sp.MessageBox("Time is up! The timer was set for ${command}", "Countdown");
+      `;
+      sp.CreateTimer(timerId, parsedTime, -1, timerScript);
+    } else {
+      // Here's the logic for running programs or searching the internet, unless it's a timer
+      let fullCommand = command.toLowerCase();
+      let [prefix, ...rest] = fullCommand.split(' ');
+      let kwd = rest.join(' ').trim();
+      let str = '';
+      function runProgram(program) {
+       // sp.ConsoleError("Launching program: " + program);
+        try {
+          sp.RunProgram(program, '', '', '', true, false, false);
+        } catch (e) {
+          sp.ConsoleError("Error while launching: " + e);
+        }
+        return true;
+      }
+      let programLaunched = false;
+      //sp.ConsoleError("Received command: " + fullCommand);
+
+     for (let i = 0; i < programs.length; i++) {
+    let prog = programs[i];
+    let shorts = Array.isArray(prog.short) ? prog.short : [prog.short];
+
+    if (prog.title.toLowerCase() === fullCommand) {
+        programLaunched = runProgram(prog.run);
+        break;
+    }
+
+    if (shorts.includes(fullCommand)) {
+        programLaunched = runProgram(prog.run);
+        break;
+    }
+
+    if (rest.length === 0 && prefix && shorts.includes(prefix)) {
+        programLaunched = runProgram(prog.run);
+        break;
+    }
+}
+
+if (!programLaunched) {
+    // If the program is not found or there are extra words after the abbreviation
+    // (e.g. "test 123", "te 123"), go to search
+    let str = '';
+    for (let i = 0; i < websites.length; i++) {
+        if (websites[i].short.includes(prefix)) {
+            str = websites[i].run;
+            break;
+        }
+    }
+
+    let kwd = rest.join(' ');
+    if (str === '') {
+        // If no site matched the prefix, then....
+        str = 'https://www.google.com/search?q=';
+        kwd = fullCommand; 
+    }
+
+    if (str !== '') {
+        kwd = encodeURIComponent(kwd);
+        sp.RunProgram(str + kwd, '', 'open', 'normal', true, false, false);
+    }
+      }
+    }
+  });
+}
