@@ -1,5 +1,8 @@
+// Flag to enable or disable the menu
+var menu = true; // If the menu is set to false, it runs once.
+
 // Toggle for logging
-var enableLogs = false;
+var enableLogs = true;
 
 // Function to log messages if logging is enabled
 function log(message) {
@@ -25,107 +28,118 @@ if (sp.GetStoredBool("isRecording")) {
 if (shouldStopExecution) {
     log("Execution stopped.");
 } else {
-    // Input number of repetitions
-    var inputBoxInfo = new InputBoxInfo();
-    inputBoxInfo.Title = "Play Macro";
-    inputBoxInfo.Message = "0 - Play now once (for testing)\n" +
-                           "1 - Specify periodicity (e.g., every 10m or 1h25m)\n" +
-                           "2+ - Repeat a specific number of times sequentially (without breaks).";
-    inputBoxInfo.AllowDirectInput = true;
-    inputBoxInfo.ShowAtMouseCursor = false; // Disable cursor-based positioning
+    if (!menu) {
+        // Simple playback without menu
+        log("Playing the macro once without menu...");
+        try {
+            sp.PlayTemporaryMacro();
+        } catch (e) {
+            log(`Error during macro playback: ${e.message}`);
+        }
+        log("Macro playback completed.");
+    } else {
+        // Menu-based playback
+        var inputBoxInfo = new InputBoxInfo();
+        inputBoxInfo.Title = "Play Macro";
+        inputBoxInfo.Message = "0 - Play now once (for testing)\n" +
+                               "1 - Specify periodicity (e.g., every 10m or 1h25m)\n" +
+                               "2+ - Repeat a specific number of times sequentially (without breaks).";
+        inputBoxInfo.AllowDirectInput = true;
+        inputBoxInfo.ShowAtMouseCursor = false; // Disable cursor-based positioning
 
-    var repeatResult = sp.InputBox(inputBoxInfo);
+        var repeatResult = sp.InputBox(inputBoxInfo);
 
-    // Handle cancel or empty input
-    if (repeatResult === null || repeatResult.trim() === "") {
-        log("Input canceled. Macro playback will not proceed.");
-        shouldStopExecution = true;
-    }
-
-    if (!shouldStopExecution) {
-        var repeatCount = 1; // Default value
-
-        // Validate user input
-        if (!isNaN(repeatResult)) {
-            repeatCount = parseInt(repeatResult);
-        } else {
-            log("Invalid input. Default value of 1 will be used.");
+        // Handle cancel or empty input
+        if (repeatResult === null || repeatResult.trim() === "") {
+            log("Input canceled. Macro playback will not proceed.");
+            shouldStopExecution = true;
         }
 
-        // Handle playback based on repetition count
-        if (repeatCount === 0 || repeatCount === 1) {
-            if (repeatCount === 1) {
-                // Ask for interval if input is 1
-                var intervalInputBox = new InputBoxInfo();
-                intervalInputBox.Title = "Set Interval";
-                intervalInputBox.Message = "Enter the interval for repeated execution (e.g., 10s, 20m, 1h35s):";
-                intervalInputBox.AllowDirectInput = true;
-                intervalInputBox.ShowAtMouseCursor = false;
+        if (!shouldStopExecution) {
+            var repeatCount = 1; // Default value
 
-                var intervalResult = sp.InputBox(intervalInputBox);
+            // Validate user input
+            if (!isNaN(repeatResult)) {
+                repeatCount = parseInt(repeatResult);
+            } else {
+                log("Invalid input. Default value of 1 will be used.");
+            }
 
-                // Handle cancel or empty interval input
-                if (intervalResult === null || intervalResult.trim() === "") {
-                    log("Interval input canceled. Macro playback will not proceed.");
-                    shouldStopExecution = true;
-                } else if (!shouldStopExecution) {
-                    // Process interval
-                    var interval = parseInterval(intervalResult);
-                    if (interval === null) {
-                        log("Invalid interval format. Macro playback canceled.");
+            // Handle playback based on repetition count
+            if (repeatCount === 0 || repeatCount === 1) {
+                if (repeatCount === 1) {
+                    // Ask for interval if input is 1
+                    var intervalInputBox = new InputBoxInfo();
+                    intervalInputBox.Title = "Set Interval";
+                    intervalInputBox.Message = "Enter the interval for repeated execution (e.g., 10s, 20m, 1h35s):";
+                    intervalInputBox.AllowDirectInput = true;
+                    intervalInputBox.ShowAtMouseCursor = false;
+
+                    var intervalResult = sp.InputBox(intervalInputBox);
+
+                    // Handle cancel or empty interval input
+                    if (intervalResult === null || intervalResult.trim() === "") {
+                        log("Interval input canceled. Macro playback will not proceed.");
                         shouldStopExecution = true;
-                    } else {
-                        log(`Interval set to: ${interval / 1000} seconds.`);
+                    } else if (!shouldStopExecution) {
+                        // Process interval
+                        var interval = parseInterval(intervalResult);
+                        if (interval === null) {
+                            log("Invalid interval format. Macro playback canceled.");
+                            shouldStopExecution = true;
+                        } else {
+                            log(`Interval set to: ${interval / 1000} seconds.`);
 
-                        // Perform repeated playback with interval
-                        log("Starting macro playback with interval.");
-                        while (true) {
-                            var startTime = new Date();
-                            log(`Playback started: ${startTime.toLocaleTimeString()}`);
+                            // Perform repeated playback with interval
+                            log("Starting macro playback with interval.");
+                            while (true) {
+                                var startTime = new Date();
+                                log(`Playback started: ${startTime.toLocaleTimeString()}`);
 
-                            try {
-                                sp.PlayTemporaryMacro();
-                            } catch (e) {
-                                log(`Error during macro playback: ${e.message}`);
-                                break;
+                                try {
+                                    sp.PlayTemporaryMacro();
+                                } catch (e) {
+                                    log(`Error during macro playback: ${e.message}`);
+                                    break;
+                                }
+
+                                log("Playback finished. Waiting for the next iteration...");
+                                sp.Sleep(interval);
                             }
-
-                            log("Playback finished. Waiting for the next iteration...");
-                            sp.Sleep(interval);
                         }
                     }
+                } else {
+                    log("Playing the macro once...");
+                    try {
+                        sp.PlayTemporaryMacro();
+                    } catch (e) {
+                        log(`Error during macro playback: ${e.message}`);
+                    }
+                    log("Macro playback completed.");
                 }
-            } else {
-                log("Playing the macro once...");
-                try {
-                    sp.PlayTemporaryMacro();
-                } catch (e) {
-                    log(`Error during macro playback: ${e.message}`);
+            } else if (repeatCount > 1) {
+                // Sequential repetition
+                log(`Starting playback. Number of repetitions: ${repeatCount}.`);
+                for (var i = 0; i < repeatCount; i++) {
+                    var startTime = new Date();
+                    log(`Playback iteration ${i + 1} started: ${startTime.toLocaleTimeString()}`);
+
+                    try {
+                        sp.PlayTemporaryMacro();
+                    } catch (e) {
+                        log(`Error during macro playback: ${e.message}`);
+                        break;
+                    }
+
+                    sp.Sleep(elapsedTime * 1000); // Wait for macro duration
+
+                    var stopTime = new Date();
+                    log(`Playback iteration ${i + 1} ended: ${stopTime.toLocaleTimeString()}`);
                 }
                 log("Macro playback completed.");
+            } else {
+                log("Number of repetitions must be greater than 0.");
             }
-        } else if (repeatCount > 1) {
-            // Sequential repetition
-            log(`Starting playback. Number of repetitions: ${repeatCount}.`);
-            for (var i = 0; i < repeatCount; i++) {
-                var startTime = new Date();
-                log(`Playback iteration ${i + 1} started: ${startTime.toLocaleTimeString()}`);
-
-                try {
-                    sp.PlayTemporaryMacro();
-                } catch (e) {
-                    log(`Error during macro playback: ${e.message}`);
-                    break;
-                }
-
-                sp.Sleep(elapsedTime * 1000); // Wait for macro duration
-
-                var stopTime = new Date();
-                log(`Playback iteration ${i + 1} ended: ${stopTime.toLocaleTimeString()}`);
-            }
-            log("Macro playback completed.");
-        } else {
-            log("Number of repetitions must be greater than 0.");
         }
     }
 }
