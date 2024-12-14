@@ -1,0 +1,102 @@
+var imageConfigs = [   
+    { path: "C:\\Temp\\1.png", delayAfterClick: 200, mouseButton: MouseButtons.Left },
+    { path: "C:\\Temp\\1-1.png", delayAfterClick: 200, mouseButton: MouseButtons.Left }, 
+    { path: "C:\\Temp\\2.png", delayAfterClick: 0, mouseButton: MouseButtons.Left },
+];
+
+// Flag for enabling or disabling console logging
+var enableLogging = false;
+
+// Flag for saving screenshots of results (for debugging)
+var saveScreenshots = false;
+
+// Get the screen rectangle
+var screenBounds = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+
+// Helper function for logging
+function log(message) {
+    if (enableLogging) {
+        sp.ConsoleLog(message);
+    }
+}
+
+// Process images
+for (var i = 0; i < imageConfigs.length; i++) {
+    var config = imageConfigs[i];
+    log("-----");
+    
+    try {
+        // Check if the file exists
+        if (!System.IO.File.Exists(config.path)) {
+            log(`File does not exist: ${config.path}`);
+            continue;
+        }
+
+        // Load the image
+        var sourceImage = System.Drawing.Image.FromFile(config.path);
+        log(`Loaded image: ${config.path}`);
+
+        // Create a screenshot of the entire screen
+        var memoryImage = new System.Drawing.Bitmap(screenBounds.Width, screenBounds.Height);
+        var memoryGraphics = System.Drawing.Graphics.FromImage(memoryImage);
+        memoryGraphics.CopyFromScreen(screenBounds.X, screenBounds.Y, 0, 0, new System.Drawing.Size(screenBounds.Width, screenBounds.Height));
+
+        // Save the screenshot if enabled (saveScreenshots = true)
+        if (saveScreenshots) {
+            var screenshotPath = `${config.path}_screen.png`;
+            memoryImage.Save(screenshotPath, System.Drawing.Imaging.ImageFormat.Png);
+            log(`Saved screenshot: ${screenshotPath}`);
+        }
+
+        // Search for the image within the screen screenshot
+        var needlePoint = sp.FindImageWithinImage(sourceImage, memoryImage);
+
+        if (needlePoint) {
+            var adjustedX = Math.round(needlePoint.X + sourceImage.Width / 2);
+            var adjustedY = Math.round(needlePoint.Y + sourceImage.Height / 2);
+
+            // Highlight the found image area on the screenshot
+            var highlightRect = new System.Drawing.Rectangle(needlePoint.X, needlePoint.Y, sourceImage.Width, sourceImage.Height);
+            drawRectangle(memoryImage, highlightRect, 'red');
+
+            // Save the screenshot with highlighting if enabled
+            if (saveScreenshots) {
+                var highlightedPath = `${config.path}_highlighted.png`;
+                memoryImage.Save(highlightedPath, System.Drawing.Imaging.ImageFormat.Png);
+                log(`Saved highlighted screenshot: ${highlightedPath}`);
+            }
+
+            // Click the selected mouse button
+            sp.MouseClick(new Point(adjustedX, adjustedY), config.mouseButton, true, true);
+
+            // Wait delayAfterClick before updating the screen
+            sp.Sleep(config.delayAfterClick);
+
+            // Update the screenshot after the click
+            memoryGraphics.CopyFromScreen(screenBounds.X, screenBounds.Y, 0, 0, new System.Drawing.Size(screenBounds.Width, screenBounds.Height));
+
+            if (saveScreenshots) {
+                var postClickScreenshotPath = `${config.path}_after_click.png`;
+                memoryImage.Save(postClickScreenshotPath, System.Drawing.Imaging.ImageFormat.Png);
+                log(`Saved screenshot after click: ${postClickScreenshotPath}`);
+            }
+        } else {
+            log(`Image not found: ${config.path}`);
+        }
+
+        // Clear resources
+        memoryGraphics.Dispose();
+        memoryImage.Dispose();
+        sourceImage.Dispose();
+    } catch (e) {
+        log(`Error processing image ${config.path}: ${e.message}`);
+    }
+}
+
+// Function to draw a rectangle on the image
+function drawRectangle(image, rect, color) {
+    var graphics = System.Drawing.Graphics.FromImage(image);
+    var pen = new System.Drawing.Pen(System.Drawing.Color.FromName(color), 3);
+    graphics.DrawRectangle(pen, rect);
+    graphics.Dispose();
+}
