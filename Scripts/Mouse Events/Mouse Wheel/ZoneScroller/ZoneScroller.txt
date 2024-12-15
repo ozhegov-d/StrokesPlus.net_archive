@@ -1,0 +1,116 @@
+//keep in mind
+//If StrokePlus is not running as administrator, it won't work with applications running as administrator that are in focus.
+
+// Interaction zone height (if set to 0, this zone will stop functioning)
+var topZoneHeightDesktops = 1; // Height of the desktop switching zone (in pixels)
+var bottomZoneHeightVolume = 100; //  Height of the volume control zone (in pixels)
+var bottomZoneHeightAltTab = 100; // Height of the Alt+Tab zone (in pixels)
+
+// Width of zones
+var leftZonePercentage = 30; // Left zone: 30%
+var centerZonePercentage = 40; // Central zone: 40%
+var rightZonePercentage = 30; // Right zone: 30%
+
+// Flags and timer for Alt+Tab
+if (typeof isAltPressed === "undefined") {
+    var isAltPressed = false; // To manage Alt key state
+}
+if (typeof altReleaseTimer === "undefined") {
+    var altReleaseTimer = null; // Timer to track when to release Alt
+}
+
+// Hold Alt for Alt+Tab
+function holdAltTab(direction) {
+    if (!isAltPressed) {
+        sp.SendAltDown(); // Press and hold Alt
+        isAltPressed = true;
+    }
+
+    // Send Tab or Shift+Tab for switching
+    const key = vk.TAB;
+    const modifiers = direction > 0 ? [] : [vk.LSHIFT];
+    sp.SendModifiedVKeys(modifiers, [key]);
+
+    // Reset or create a timer to release Alt automatically
+    resetAltReleaseTimer();
+}
+
+// Reset and set a timer to release Alt
+function resetAltReleaseTimer() {
+    if (altReleaseTimer !== null) {
+        sp.DeleteTimer("altReleaseTimer"); // Delete an existing timer
+    }
+
+    altReleaseTimer = sp.CreateTimer("altReleaseTimer", 500, 1, ` //How many milliseconds until Alt is released
+        sp.SendAltUp(); // Release Alt
+        isAltPressed = false;
+        sp.DeleteTimer("altReleaseTimer"); // Delete timer after execution
+        altReleaseTimer = null;
+    `);
+}
+// Adjust volume
+function adjustVolume(direction) {
+    const key = direction > 0 ? vk.VOLUME_UP : vk.VOLUME_DOWN;
+    sp.SendVKey(key); // Change volume
+}
+
+// Switch desktops
+function switchDesktops(direction) {
+    const key = direction > 0 ? vk.RIGHT : vk.LEFT;
+    sp.SendModifiedVKeys([vk.LCONTROL, vk.LWIN], [key]); // Ctrl+Win+Left/Right
+}
+
+// Determine the mouse's current screen region
+function getMouseRegion(mouseX, mouseY) {
+    const screenWidth = wheel.Window.Screen.Bounds.Width; // Total screen width
+    const screenHeight = wheel.Window.Screen.Bounds.Height; // Full screen height
+
+    // Determine the width of the zones
+    const leftBoundary = screenWidth * (leftZonePercentage / 100);
+    const centerBoundary = screenWidth * ((leftZonePercentage + centerZonePercentage) / 100);
+
+    if (topZoneHeightDesktops > 0 && mouseY <= topZoneHeightDesktops) {
+       // sp.ConsoleLog("Top zone detected");
+        return "top";
+    }
+
+    // Checking the lower right area for volume control
+    if (bottomZoneHeightVolume > 0 && mouseY >= screenHeight - bottomZoneHeightVolume) {
+        if (mouseX >= centerBoundary) {
+           // sp.ConsoleLog("Right zone detected");
+            return "right"; // Right zone (volume)
+        }
+    }
+
+    // Checking the lower center zone for Alt+Tab
+    if (bottomZoneHeightAltTab > 0 && mouseY >= screenHeight - bottomZoneHeightAltTab) {
+        if (mouseX > leftBoundary && mouseX <= centerBoundary) {
+           // sp.ConsoleLog("Center zone detected");
+            return "center"; // Center zone (Alt+Tab)
+        }
+    }
+
+   // sp.ConsoleLog("No zone detected");
+    return null; // The mouse is out of all zones
+}
+
+// Scroll processing
+function handleScroll() {
+    const mouseX = parseInt(wheel.X);
+    const mouseY = parseInt(wheel.Y);
+
+    const region = getMouseRegion(mouseX, mouseY);
+
+    if (region === "center") {
+        holdAltTab(wheel.Delta); // Alt+Tab toggle
+    } else if (region === "right") {
+        adjustVolume(wheel.Delta); // Volume control
+    } else if (region === "top") {
+        switchDesktops(wheel.Delta); // ПVolume control
+    } else {
+        //sp.ConsoleLog("Default scroll action triggered");
+        //wheel.Control.PostMessage(host.cast(uint, 0x020A), new IntPtr(wheel.WParam), new IntPtr(wheel.LParam));
+    }
+}
+
+handleScroll();
