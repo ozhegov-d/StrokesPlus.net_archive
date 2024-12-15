@@ -1,0 +1,66 @@
+var opacityScriptEnabled = true; // Enable or disable the opacity script
+var notificationsEnabled = true; // Enable or disable opacity notifications
+
+if (opacityScriptEnabled) {
+    // Check the state of the keys: Alt
+    if ((sp.GetKeyState(vk.LMENU) & 0x8000)) { // Alt key pressed
+        var mouseWnd = sp.WindowFromPoint(sp.GetCurrentMousePoint(), true);
+
+        if (mouseWnd && mouseWnd.IsValid()) {
+            // Check if the window is not the taskbar
+            var className = mouseWnd.ClassName.toLowerCase();
+            if (className === "shell_traywnd" || className === "workerw") {
+                // If the window is the taskbar or related, do nothing
+            } else {
+                // Get current opacity
+                var currentOpacity = mouseWnd.Alpha || 255;
+
+                // Change opacity by 20 units based on scroll
+                var newOpacity = currentOpacity + (wheel.Delta > 0 ? 20 : -20);
+
+                // Limit values between 40 and 255 (to avoid complete disappearance)
+                newOpacity = Math.max(40, Math.min(255, newOpacity));
+
+                mouseWnd.Alpha = newOpacity;
+
+                // Set window to topmost only if opacity is less than 255
+                mouseWnd.TopMost = (newOpacity < 255);
+
+                // Update or delete the object depending on opacity
+                if (newOpacity < 255) {
+                    sp.StoreObject('WinTrans', mouseWnd);
+                } else {
+                    sp.DeleteStoredObject('WinTrans');
+                }
+
+                // Display the current opacity value if notifications are enabled
+                if (notificationsEnabled) {
+                    displayMessage('Opacity: ' + newOpacity); // Use the updated displayMessage function
+                }
+            }
+        }
+    }
+}
+
+// Function to display a notification message above the cursor
+function displayMessage(message) {
+    var info = new DisplayTextInfo();
+    info.Message = message;
+
+    // Get the current mouse position
+    var currentMousePosition = sp.GetCurrentMousePoint();
+    
+    // Set the location for the notification to be above the cursor
+    info.Location = `${currentMousePosition.X + 5},${currentMousePosition.Y - 55}`; // Adjust Y value to position above the cursor
+    info.TitleAlignment = 'Center'; 
+    info.Duration = 500; // Display duration in milliseconds
+    info.Opacity = 0.7; // Set the opacity of the notification
+    info.TitleFont = new Font('Segoe UI', 12, host.flags(FontStyle.Bold)); 
+    info.MessageFont = new Font('Segoe UI Semibold', 12); 
+    info.BackColor = 'black'; // Background color
+    info.ForeColor = 'white'; // Text color
+    info.Padding = 15; 
+
+    // Display the notification
+    sp.DisplayText(info);
+}
