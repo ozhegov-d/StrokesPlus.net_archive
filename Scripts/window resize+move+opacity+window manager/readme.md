@@ -1,4 +1,6 @@
-### window resize + move + opacity
+### window resize+move+always on top+remove window title
+
+https://github.com/user-attachments/assets/3a076e3a-e279-4084-974c-43f3ef48d699
 
 #### Global Actions > Mouse Events > Click 
 
@@ -16,9 +18,6 @@ If you want it to work with Ctrl, then you need to (Options > Generals > Ignore 
 if opacity is less than 255(maximum value) it becomes over all windows
 
 v2 it doesn't work on the taskbar
-
-https://github.com/user-attachments/assets/3a076e3a-e279-4084-974c-43f3ef48d699
-
 
 ### Window manager
 
