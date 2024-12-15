@@ -4,6 +4,8 @@
 
 + Ctrl + Click - Move the window
 + Alt + Click - Resize the window
++ Сtrl + Alt + Click - Remove window title
++ Ctrl + Shift + Click - Always on top
 
 If you want it to work with Ctrl, then you need to (Options > Generals > Ignore Key > uncheck(ctrl))
 
@@ -13,8 +15,10 @@ If you want it to work with Ctrl, then you need to (Options > Generals > Ignore 
   
 if opacity is less than 255(maximum value) it becomes over all windows
 
+v2 it doesn't work on the taskbar
 
-https://github.com/user-attachments/assets/e039a6f6-1061-4227-85e2-cbd9fd5ce0f0
+https://github.com/user-attachments/assets/3a076e3a-e279-4084-974c-43f3ef48d699
+
 
 ### Window manager
 
