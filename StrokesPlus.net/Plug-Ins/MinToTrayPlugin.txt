@@ -1,0 +1,7 @@
+//This plug-in will enable minimizing a window to the tray. Clicking the tray icon will restore the window.
+//Code:
+//From an action
+MinToTray.SendToTray(action.Window.HWnd);
+
+//From a hotkey, etc. just uses the active window
+//MinToTray.SendToTray(sp.ForegroundWindow().HWnd);
