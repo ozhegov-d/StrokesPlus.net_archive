@@ -1,0 +1,155 @@
+// Enable or disable logging for MultiClickAppCloser
+var enableLogging_MultiClickAppCloser = false; // Set to false to disable logging
+
+// List of processes with the number of clicks required to close and timer interval (in ms)
+var appClickRequirements = {
+     "notepad": { clicks: 4, timer: 500 }, 
+    // "deepl": { clicks: 2, timer: 200 },    
+};
+
+// List of window titles with the number of clicks required to close and timer interval (in ms) - (case-insensitive)
+var windowClickRequirements = {
+   // "deepl": { clicks: 3, timer: 300 },          
+   // "123": { clicks: 3, timer: 300 },       
+    "calc": { clicks: 3, timer: 300 },    
+    // "adobe": { clicks: 2, timer: 200 },       
+};
+
+// List of browsers
+var browsers = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"];
+//var browsers = []; // if you don't need browsers
+
+// Number of clicks required to close a browser tab
+var browserClickRequirement = 4; 
+
+// If the mouse is released (click completed)
+if (!click.Down) {
+    // Get the current foreground window and its application
+    var currentWindow = sp.ForegroundWindow();
+    if (currentWindow && currentWindow.IsValid()) {
+        var exeName = currentWindow.Process.MainModule.ModuleName.toLowerCase();
+        
+        // Get the window title similarly to your example
+        var windowTitleObj = currentWindow.Title;
+        var windowTitle = windowTitleObj != null ? windowTitleObj.toString().toLowerCase() : "";
+    
+        // Check if the application is one of the specified ones
+        var isOurProgram = Object.keys(appClickRequirements).some(app => exeName.includes(app));
+        // Check if the window title is one of the specified ones
+        var isOurWindow = Object.keys(windowClickRequirements).some(title => windowTitle.includes(title.toLowerCase()));
+        // Check if the application is a browser
+        var isBrowser = browsers.some(browser => exeName.includes(browser));
+    
+        let requiredClicksForThisApp = null;
+        let timerInterval = 500; // Default timer interval
+        let closureBasis = null; // 'process', 'window', or 'browser'
+        let identifier = null;    // Unique identifier for the target
+    
+        if (isOurProgram) {
+            // If it's a known application, get the required number of clicks and timer
+            for (var app in appClickRequirements) {
+                if (exeName.includes(app)) {
+                    requiredClicksForThisApp = appClickRequirements[app].clicks;
+                    timerInterval = appClickRequirements[app].timer;
+                    closureBasis = 'process';
+                    identifier = 'process_' + app;
+                    break;
+                }
+            }
+        } else if (isOurWindow) {
+            // If it's a known window, get the required number of clicks and timer
+            for (var title in windowClickRequirements) {
+                if (windowTitle.includes(title.toLowerCase())) {
+                    requiredClicksForThisApp = windowClickRequirements[title].clicks;
+                    timerInterval = windowClickRequirements[title].timer;
+                    closureBasis = 'window';
+                    identifier = 'window_' + title;
+                    break;
+                }
+            }
+        } else if (isBrowser) {
+            // If it's a browser, use the general number of clicks for browsers
+            requiredClicksForThisApp = browserClickRequirement;
+            timerInterval = 500; // Default for browsers
+            closureBasis = 'browser';
+            identifier = 'browser_' + exeName;
+        }
+    
+        if (requiredClicksForThisApp !== null && identifier !== null) {
+            // This is a target application, window, or browser
+    
+            // Increment the click counter for this identifier
+            let clickCount = sp.GetStoredNumber("MultiClickCount_" + identifier) || 0;
+            clickCount++;
+            sp.StoreNumber("MultiClickCount_" + identifier, clickCount);
+            
+            // Log the current number of clicks and window title if logging is enabled
+            if (enableLogging_MultiClickAppCloser) {
+                sp.ConsoleLog(`App: "${currentWindow.Title}", Current click count: ${clickCount}`, "Info");
+            }
+
+            if (clickCount === requiredClicksForThisApp) {
+                // Reached the required number of clicks, reset the counter
+                sp.StoreNumber("MultiClickCount_" + identifier, 0);
+    
+                if (closureBasis === 'process' || closureBasis === 'window') {
+                    // Close the application or window
+                    closeWindow(currentWindow, currentWindow.Title, exeName, closureBasis, identifier);
+                } else if (closureBasis === 'browser') {
+                    // Send Ctrl+W to the browser to close the tab
+                    if (enableLogging_MultiClickAppCloser) {
+                        sp.ConsoleLog(`Sending Ctrl+W to browser: ${exeName} (Window: "${currentWindow.Title}")`, "Info");
+                    }
+                    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_W]);
+                    if (enableLogging_MultiClickAppCloser) {
+                        sp.ConsoleLog(`Closed tab in browser: "${currentWindow.Title}" after ${clickCount} clicks`, "Info");
+                    }
+                }
+            } else {
+                // Did not reach the required number of clicks, start or ensure the timer is running
+                ensureTimerIsRunning(identifier, timerInterval);
+            }
+        }
+        // If the application is not in the list and not a browser — do nothing
+    } else {
+        if (enableLogging_MultiClickAppCloser) {
+            sp.ConsoleLog('Invalid window.', 'Error');
+        }
+        // Do not process invalid windows
+    }
+}
+
+// Function to close a window or application
+function closeWindow(window, windowTitle, exeName, basis, identifier) {
+    try {
+        // Close the window using SendClose()
+        window.SendClose();
+        if (enableLogging_MultiClickAppCloser) {
+            sp.ConsoleLog(`Closed application: "${exeName}" (Window: "${windowTitle}") via ${basis}`, "Info");
+        }
+        return true;
+    } catch (e) {
+        if (enableLogging_MultiClickAppCloser) {
+            sp.ConsoleLog(`Error closing window: "${windowTitle}" - ${e.message}`, 'Error');
+        }
+        return false;
+    }
+}
+
+// Function to set up a timer if it's not already running for the given identifier
+function ensureTimerIsRunning(identifier, interval) {
+    if (!sp.GetStoredBool("MultiClickTimer_" + identifier)) {
+        sp.StoreBool("MultiClickTimer_" + identifier, true);
+        sp.CreateTimer(
+            "MultiClickResetTimer_" + identifier, 
+            interval, // Interval between clicks in ms
+            0, 
+            `sp.StoreNumber("MultiClickCount_${identifier}", 0);
+             sp.StoreBool("MultiClickTimer_${identifier}", false);
+             sp.DeleteTimer("MultiClickResetTimer_${identifier}");`
+        );
+        if (enableLogging_MultiClickAppCloser) {
+            sp.ConsoleLog(`Timer started with interval: ${interval} ms for identifier: ${identifier}`, "Info");
+        }
+    }
+}
