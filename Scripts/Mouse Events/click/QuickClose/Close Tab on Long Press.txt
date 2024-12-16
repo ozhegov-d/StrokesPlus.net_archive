@@ -1,0 +1,53 @@
+// Configuration: Set the delay before closing the tab (in milliseconds)
+var CLOSE_TAB_DELAY_MS = 500; // Delay in milliseconds (e.g., 1000 = 1 second)
+
+// List of supported browsers
+var SUPPORTED_BROWSERS = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"];
+
+// Get the executable name of the active application
+var exeName = sp.ForegroundWindow().ExecutableName.toLowerCase();
+
+// Check if the application is a supported browser
+if (SUPPORTED_BROWSERS.some(browser => exeName.includes(browser))) {
+    // If the mouse button is released, delete the timer for closing the tab
+    if (!click.Down) {
+        sp.DeleteTimer("CloseTabTimer");
+    }
+
+    // If the mouse button is pressed
+    if (click.Down) {
+        try {
+            // Store the initial click position
+            sp.StorePoint("ClickStart", click.Point);
+
+            // Create a timer for closing the tab
+            sp.CreateTimer("CloseTabTimer", CLOSE_TAB_DELAY_MS, 0, `
+                try {
+                    // Get the stored initial click position and the current mouse position
+                    var startPoint = sp.GetStoredPoint("ClickStart");
+                    var currPoint = sp.GetCurrentMousePoint();
+
+                    // Calculate the squared distance between the points
+                    var distanceSquared = Math.pow(currPoint.X - startPoint.X, 2) + Math.pow(currPoint.Y - startPoint.Y, 2);
+
+                    // Movement threshold: 25 pixels (without taking the square root)
+                    if (distanceSquared <= 25 * 25) {
+                        // Send a mouse release event
+                        sp.MouseClick(currPoint, MouseButtons.Left, false, true);
+
+                        // Send the Ctrl + W key combination to close the tab
+                        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_W]);
+                    }
+                } catch (ex) {
+                    sp.ConsoleError('Error in CloseTabTimer: ' + ex.message);
+                } finally {
+                    sp.DeleteTimer("CloseTabTimer");
+                }
+            `);
+        } catch (ex) {
+            sp.ConsoleError('Error creating CloseTabTimer: ' + ex.message);
+        }
+    }
+} else {
+    //sp.ConsoleLog(`The application "${exeName}" is not supported, action not performed.`);
+}
