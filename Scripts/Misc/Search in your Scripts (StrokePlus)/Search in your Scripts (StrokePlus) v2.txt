@@ -1,0 +1,198 @@
+//Searches only in Global actions - action list and Applications
+
+// Copy the selected text to the clipboard
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(50);
+var selectedText = clip.GetText();
+if (selectedText && selectedText.trim() !== "") {
+    // sp.ConsoleLog(`Copied to clipboard: "${selectedText}"`);
+} else {
+    // sp.ConsoleLog("No text selected or clipboard is empty.");
+}
+
+var inputBoxInfo = new InputBoxInfo(), res, cMsg = [];
+
+// Customize input window
+inputBoxInfo.Title = 'Search';
+inputBoxInfo.Message = '';
+inputBoxInfo.AllowDirectInput = true;
+res = sp.InputBox(inputBoxInfo);
+
+// Trim input
+if (res) res = res.trim();
+
+// Check for empty input
+if (!res || res === "") {
+    sp.MessageBox("Please enter a valid search query.", "Invalid Input");
+} else {
+    function escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    let searchRegex = new RegExp(escapeRegExp(res).replace(/\s+/g, '\\s*'), 'gi');
+
+    function processLine(line, searchRegex) {
+        if (!searchRegex.test(line)) return null;
+
+        return line.replace(/(<[^>]*>)|([^<>]+)/g, (match, tag, text) =>
+            tag || text
+                .replace(/[<>]/g, m => ({ '<': '&lt;', '>': '&gt;' }[m]))
+                .replace(searchRegex, match => `<span style="background-color: yellow;">${match}</span>`)
+        );
+    }
+
+    function searchIn(lAct, oApp, contextLinesCount = 1) {
+        for (let i = lAct.Count; i--;) {
+            if (!lAct[i]?.Script) continue;
+
+            let scriptLines = lAct[i].Script.split('\n');
+            let totalLines = scriptLines.length;
+
+            let matchCount = 0;
+            let firstContext = '';
+
+            for (let lineIdx = 0; lineIdx < totalLines; lineIdx++) {
+                let line = scriptLines[lineIdx].trimLeft();
+                if (!line.match(searchRegex)) continue;
+
+                matchCount++;
+
+                if (matchCount === 1) {
+                    let context = [];
+
+                    for (let j = contextLinesCount; j > 0; j--) {
+                        let prevIdx = lineIdx - j;
+                        if (prevIdx >= 0) {
+                            let prevLine = scriptLines[prevIdx].trimLeft();
+                            if (prevLine) context.push(`${prevIdx + 1}: ${prevLine}`);
+                        }
+                    }
+
+                    let highlightedLine = processLine(scriptLines[lineIdx], searchRegex);
+                    context.push(`${lineIdx + 1}: ${highlightedLine || scriptLines[lineIdx]}`);
+
+                    for (let j = 1; j <= contextLinesCount; j++) {
+                        let nextIdx = lineIdx + j;
+                        if (nextIdx < totalLines) {
+                            let nextLine = scriptLines[nextIdx].trimLeft();
+                            if (nextLine) context.push(`${nextIdx + 1}: ${nextLine}`);
+                        }
+                    }
+
+                    firstContext = context.join('\n');
+                }
+            }
+
+            if (matchCount > 0) {
+                cMsg.push({
+                    mainPart: oApp ? `Applications - ${oApp.Description}` : 'Global Actions',
+                    category: lAct[i].Category,
+                    action: `${lAct[i].Description} (${matchCount} match${matchCount > 1 ? 'es' : ''})`,
+                    context: firstContext
+                });
+            }
+        }
+    }
+
+    // Performs a search in scripts and displays lines with matches.
+// The parameter "1" specifies the number of context lines above and below the match.
+// For example: if set to "2", it will display 2 lines above and 2 lines below the match.
+searchIn(sp_config.GlobalApplication.Actions, null, 1);
+
+
+    for (let i = sp_config.Applications.Count; i--;)
+    searchIn(sp_config.Applications[i].Actions, sp_config.Applications[i]);
+
+//sp.ConsoleLog(`Total items in cMsg: ${cMsg.length}`);
+cMsg.forEach((item, index) => {
+   // sp.ConsoleLog(`Item ${index + 1}: ${item.action}`);
+});
+
+let totalMatches = cMsg.reduce((sum, item) => {
+    let matches = item.action.match(/\((\d+)\s*match/);
+    if (!matches || !matches[1]) {
+        sp.ConsoleLog(`Failed to parse matches for: "${item.action}"`);
+        return sum; // 
+    }
+    return sum + parseInt(matches[1]);
+}, 0);
+//sp.ConsoleLog(`Total Matches Calculated: ${totalMatches}`);
+
+if (cMsg.length === 0) {
+    sp.MessageBox('No matches found.', 'Search Results');
+} else {
+        var listItems = cMsg.map((item, index) => `
+            <li>
+                <div class="result-header" onclick="toggleVisibility(${index})">
+                    <strong style="font-weight: 700;">${item.mainPart}</strong> - 
+                    <span style="font-weight: 600;">${item.category}</span> - 
+                    <span style="font-weight: normal;">${item.action}</span>
+                </div>
+                <div id="context-${index}" style="display: none; margin-top: 5px; background-color: #f9f9f9; padding: 10px; border: 1px solid #ddd;">
+                    <pre>${item.context}</pre>
+                </div>
+            </li>
+        `).join('');
+
+        var htmlContent = `
+            <html>
+            <head>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        padding: 10px;
+                        margin: 0;
+                    }
+                    ul {
+                        list-style: none;
+                        padding: 0;
+                        margin: 0;
+                    }
+                    li {
+                        margin-bottom: 10px;
+                    }
+                    pre {
+                        font-family: monospace;
+                        white-space: pre-wrap;
+                        word-wrap: break-word;
+                        margin: 0;
+                    }
+                    .result-header {
+                        cursor: pointer;
+                        padding: 5px;
+                    }
+                    .result-header:hover {
+                        background-color: #f0f0f0;
+                    }
+                    hr {
+                        border: 0;
+                        height: 1px;
+                        background-color: #ccc;
+                        margin: 10px 0;
+                    }
+                </style>
+                <script>
+                    function toggleVisibility(index) {
+                        var element = document.getElementById('context-' + index);
+                        element.style.display = element.style.display === 'none' ? 'block' : 'none';
+                    }
+                </script>
+            </head>
+            <body>              
+                <ul>${listItems}</ul>
+            </body>
+            </html>
+        `;
+
+        sp.HTMLWindow(
+    `Search Results - ${totalMatches} match${totalMatches > 1 ? 'es' : ''}`, // Total number of matches
+    htmlContent,
+    "",
+    "",
+    "searchResultsWindow",
+    true
+);
+
+
+    }
+}
