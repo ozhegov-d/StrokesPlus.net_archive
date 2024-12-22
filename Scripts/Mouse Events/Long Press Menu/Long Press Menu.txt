@@ -1,0 +1,159 @@
+// Variables and functions for long press
+var isLongPress = false;
+var originalClipboard = "";
+var selectedText = "";
+var startPoint = null;
+var MOVEMENT_THRESHOLD = 5; // Mouse movement threshold in pixels
+var longPressDelay = 620; // Time after which the menu will appear
+var mouseButton = "Right"; // | Left | Right | Middle | XButton1 | XButton2 | Note: Case-sensitive
+
+// Menu settings
+var menuFont = new Font(new FontFamily("Tahoma"), 15, FontStyle.Regular, GraphicsUnit.Point);
+//FontStyle.Bold 
+//FontStyle.Italic 
+//FontStyle.Underline 
+//FontStyle.Strikeout
+
+var menuBackgroundColor = Color.FromName("White");
+var menuHighlightColor = Color.FromArgb(200, 160, 180, 255); // Color of the selected item
+var menuTextColor = Color.FromArgb(255, 0, 50, 110); // Text color
+
+// Function to handle long press
+function onLongPress() {
+    var currentMouseLocation = sp.GetCurrentMousePoint();
+
+    // Check if the mouse has not moved since the start of the press
+    if (startPoint && Math.abs(currentMouseLocation.X - startPoint.X) <= MOVEMENT_THRESHOLD &&
+        Math.abs(currentMouseLocation.Y - startPoint.Y) <= MOVEMENT_THRESHOLD) {
+
+        isLongPress = true;
+        originalClipboard = clip.GetText(); // Save the current clipboard content
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]); // Copy selected text
+        sp.Sleep(10); // Small delay for proper copying
+        selectedText = clip.GetText();
+
+        // Check if the text was actually selected and copied
+        if (selectedText !== originalClipboard && selectedText.trim() !== "") {
+            showPopupMenu(currentMouseLocation);
+        }
+    }
+}
+
+function showPopupMenu(currentMouseLocation) {
+    var items = getMenuItems();
+
+    // Determine screen dimensions
+    var screenWidth = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Width;
+    var screenHeight = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Height;
+
+    // Determine menu position
+    var menuX = currentMouseLocation.X;
+    var menuY = currentMouseLocation.Y;
+
+    // Check where to place the menu
+    if (screenHeight - menuY < 200) {
+        // If the menu doesn't fit below, place it above the cursor
+        menuY = Math.max(0, currentMouseLocation.Y - 200);
+        
+        // Move the cursor slightly above but keep it close to the original position
+        var newMouseY = Math.max(currentMouseLocation.Y - 5, 0);
+        sp.MouseMove(new Point(currentMouseLocation.X, newMouseY));
+    }
+
+    // Limit menu within the screen width
+    menuX = Math.min(Math.max(menuX, 0), screenWidth - 200);
+
+    // Show the popup menu
+    sp.PopupList(
+        items,
+        new Point(menuX, menuY),
+        menuFont,
+        menuBackgroundColor,
+        menuHighlightColor,
+        menuTextColor
+    );
+
+    restoreClipboard(); // Restore the original clipboard content
+}
+
+// Function to restore the clipboard content
+function restoreClipboard() {
+    if (originalClipboard !== "") {
+        try {
+            clip.SetText(originalClipboard);
+            originalClipboard = "";
+        } catch (error) {
+            sp.ConsoleError("Error restoring clipboard: " + error.message);
+        }
+    }
+}
+
+// Function to get menu items
+function openURL(baseURL, query) {
+    var encodedText = encodeURIComponent(query).replace(/'/g, "%27").replace(/"/g, "%22");
+    return `sp.RunProgram("${baseURL}${encodedText}", "", "open", "normal", true, false, false);`;
+}
+
+function getMenuItems() {
+    return [
+        ["Google", openURL("https://www.google.com/search?q=", selectedText)],
+        ["Google Photos", openURL("https://www.google.com/search?tbm=isch&q=", selectedText)],
+        ["YouTube", openURL("https://www.youtube.com/results?search_query=", selectedText)],
+        ["DuckDuckGo", openURL("https://duckduckgo.com/?q=", selectedText)],
+        ["Wikipedia", openURL("https://en.wikipedia.org/wiki/", selectedText)],
+        ["Bing", openURL("https://www.bing.com/search?q=", selectedText)],
+        ["StackOverflow", openURL("https://stackoverflow.com/search?q=", selectedText)],
+        ["Reddit", openURL("https://www.reddit.com/search/?q=", selectedText)],
+        ["More Options >", "", false, [
+            ["Option 1", openURL("https://example1.com/search?q=", selectedText)],
+            ["Option 2", openURL("https://example2.com/search?q=", selectedText)],
+            ["Sub Menu >", "", false, [
+                ["Sub Option A", openURL("https://sub-example-a.com/search?q=", selectedText)],
+                ["Sub Option B", openURL("https://sub-example-b.com/search?q=", selectedText)]
+            ]]
+        ]]
+    ];
+}
+
+if (click.Down) {
+    isLongPress = false;
+    startPoint = click.Point; // Remember the initial press coordinates
+
+    // Save the function for long press
+    sp.StoreObject('onLongPress', onLongPress);
+
+    // Create a timer for long press
+    if (!sp.GetTimer("LongPressTimer")) { // Check if the timer exists
+        sp.CreateTimer('LongPressTimer', longPressDelay, -1, String.raw`
+            if (sp.IsButtonDown(MouseButtons.${mouseButton})) {
+                var onLongPress = sp.GetStoredObject('onLongPress');
+                onLongPress();
+            }
+            sp.DeleteTimer('LongPressTimer');
+            //sp.ConsoleLog("Timer LongPressTimer deleted after execution.");
+        `);
+        //sp.ConsoleLog("Timer LongPressTimer created.");
+    }
+} else if (!click.Down) {
+    // Delete the timer for long press since the button was released
+    if (sp.GetTimer("LongPressTimer")) {
+        sp.DeleteTimer("LongPressTimer");
+       // sp.ConsoleLog("Timer LongPressTimer deleted after button release.");
+    }
+
+    var endPoint = click.Point;
+    var movedDistance = 0;
+
+    // Calculate the distance the mouse moved since the start of the press
+    if (startPoint !== null) {
+        movedDistance = Math.sqrt(
+            Math.pow(endPoint.X - startPoint.X, 2) + 
+            Math.pow(endPoint.Y - startPoint.Y, 2)
+        );
+    }
+
+    // Reset variables for the next press
+    isLongPress = false;
+    selectedText = "";
+    startPoint = null;
+}
