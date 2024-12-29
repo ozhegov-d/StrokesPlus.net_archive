@@ -1,0 +1,166 @@
+// Paths and settings
+var programPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+var filePath = System.IO.Path.Combine(programPath, "windows.json");
+
+// Slot selection (change the value here)
+var slot = 1;
+
+function loadSettings() {
+    if (System.IO.File.Exists(filePath)) {
+        var fileContent = System.IO.File.ReadAllText(filePath);
+        if (fileContent.trim().length > 0) {
+            return JSON.parse(fileContent);
+        }
+    }
+    return {};
+}
+
+// UWP Application Dictionary
+var uwpApps = {
+    "CalculatorApp": "Microsoft.WindowsCalculator",
+    "SoundRec": "Microsoft.WindowsSoundRecorder",  
+    "Time": "Microsoft.WindowsAlarms",  
+    "WinStore.App": "Microsoft.WindowsStore",           
+    "XboxApp": "Microsoft.GamingApp",      
+    "XboxPcApp": "Microsoft.XboxApp",                 
+    "PhotosApp": "Microsoft.Windows.Photos",
+    "MapsApp": "Microsoft.WindowsMaps",
+    "AlarmsAndClockApp": "Microsoft.WindowsAlarms",
+    "StickyNotes": "Microsoft.MicrosoftStickyNotes",
+    "VoiceRecorder": "Microsoft.WindowsSoundRecorder",
+    "WeatherApp": "Microsoft.BingWeather",
+    "CalendarApp": "Microsoft.WindowsCalendar",
+    "MailApp": "Microsoft.WindowsMail",
+    "GrooveMusic": "Microsoft.ZuneMusic",
+    "MoviesAndTV": "Microsoft.ZuneVideo",
+    "PeopleApp": "Microsoft.People",
+    "CameraApp": "Microsoft.WindowsCamera",
+};
+
+function RunOrActivate(filePath, exePath, processName, args) {
+    filePath = (filePath || "").trim();
+    exePath = (exePath || "").trim();
+    args = (args || "").trim();
+
+    if (!exePath || exePath === "N/A" || !System.IO.File.Exists(exePath)) {
+        return null;
+    }
+
+    if (processName && uwpApps.hasOwnProperty(processName)) {
+        var appId = uwpApps[processName];
+        sp.RunStoreApp(appId);
+        sp.Sleep(1000);
+        var uwpWindow = sp.WindowFromHandle(sp.ForegroundWindow().HWnd);
+        return uwpWindow || null;
+    }
+
+    let command = `"${exePath}"`;
+    if (filePath && filePath !== "N/A") {
+        command += ` "${filePath}"`;
+    }
+    if (args) {
+        command += ` ${args}`;
+    }
+
+    sp.Run(command);
+    sp.Sleep(1000);
+
+    return sp.WindowFromHandle(sp.ForegroundWindow().HWnd);
+}
+
+// Load saved positions
+var windowPositions = loadSettings();
+
+
+//Restores windows from the slot with their position and state.
+if (!windowPositions.hasOwnProperty(slot)) {
+    sp.ConsoleLog(`No positions saved in slot ${slot}`);
+} else {
+    var savedData = windowPositions[slot];
+    var focusedTitle = savedData.focusedTitle;
+
+    sp.ConsoleLog(`Restoring windows from slot ${slot}:`);
+
+    savedData.windows.forEach(function (sw) {
+        var existingWindow = Array.from(sp.AllApplications()).find(function (app) {
+            var wnd = sp.WindowFromHandle(app.HWnd);
+            if (!wnd || !wnd.Process) return false;
+
+            var wndProcName = (wnd.Process.ProcessName || "").toLowerCase();
+            var savedProcName = (sw.ProcessName || "").toLowerCase();
+
+            if (sw.Arguments && sw.Arguments !== "N/A" && sw.Arguments.trim() !== "") {
+                return wndProcName === savedProcName;
+            }
+
+            var titleMatch = sw.Title && wnd.Text === sw.Title;
+
+            var processMatch = false;
+            if (!sw.Title && (sw.FilePath === "" || sw.FilePath === "N/A")) {
+                processMatch = wndProcName === savedProcName;
+            }
+
+            return (titleMatch ||  processMatch);
+        });
+
+        if (existingWindow) {
+    var targetWin = sp.WindowFromHandle(existingWindow.HWnd);
+    if (targetWin) {
+        if (sw.ScreenIndex !== undefined && sw.ScreenIndex >= 0) {
+            var screens = System.Windows.Forms.Screen.AllScreens;
+            var targetScreen = screens[sw.ScreenIndex];
+            if (targetScreen) {
+                targetWin.MoveToScreen(targetScreen);
+                sp.ConsoleLog(`Moved existing window "${sw.Title}" to screen index ${sw.ScreenIndex}.`);
+            }
+        }
+
+        if (targetWin.Minimized) {
+            targetWin.Restore();
+        }
+
+        if (sw.Maximized) {
+            targetWin.Maximize();
+        } else {
+            targetWin.Location = new Point(sw.X, sw.Y);
+            targetWin.Size = new Size(sw.Width, sw.Height);
+        }
+        targetWin.BringToFront();
+    }
+} else {
+    var targetWin = RunOrActivate(sw.FilePath, sw.ExePath, sw.ProcessName, sw.Arguments);
+    if (targetWin) {
+        if (sw.ScreenIndex !== undefined && sw.ScreenIndex >= 0) {
+            var screens = System.Windows.Forms.Screen.AllScreens;
+            var targetScreen = screens[sw.ScreenIndex];
+            if (targetScreen) {
+                targetWin.MoveToScreen(targetScreen);
+                sp.ConsoleLog(`Moved launched window "${sw.Title}" to screen index ${sw.ScreenIndex}.`);
+            }
+        }
+
+        if (targetWin.Minimized) {
+            targetWin.Restore();
+        }
+
+        if (sw.Maximized) {
+            targetWin.Maximize();
+        } else {
+            targetWin.Location = new Point(sw.X, sw.Y);
+            targetWin.Size = new Size(sw.Width, sw.Height);
+        }
+        targetWin.BringToFront();
+    }
+}
+
+    });
+
+    if (focusedTitle) {
+        var focusedWin = Array.from(sp.AllApplications()).find(function(w) {
+            return sp.WindowFromHandle(w.HWnd).Text === focusedTitle;
+        });
+        if (focusedWin) {
+            sp.WindowFromHandle(focusedWin.HWnd).Activate();
+        }
+    }
+}

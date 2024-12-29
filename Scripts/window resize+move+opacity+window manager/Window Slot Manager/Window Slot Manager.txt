@@ -1,0 +1,459 @@
+var programPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+var filePath = System.IO.Path.Combine(programPath, "windows.json");
+
+// Slot names
+var slotNames = {
+    "1": "Work        ",
+    "2": "Games    ",
+    "3": "Browsing ",
+    "4": "Coding ",
+    "5": "Media   ",
+    "6": "Other  ",
+    "7": "123       "
+};
+function loadSettings() {
+    if (System.IO.File.Exists(filePath)) {
+        var fileContent = System.IO.File.ReadAllText(filePath);
+        if (fileContent.trim().length > 0) {
+            return JSON.parse(fileContent);
+        }
+    }
+    return {};
+}
+function saveSettings(data) {
+    var jsonStr = JSON.stringify(data, null, 2);
+    System.IO.File.WriteAllText(filePath, jsonStr);
+}
+// Load previously saved window positions
+var windowPositions = loadSettings();
+
+// Formatting slot names
+function formatSlotNames() {
+    return Object.keys(slotNames).map(slot => `${slot} - ${slotNames[slot]}`).join("\n");
+}
+// get the file path
+function getFilePathFromWnd(wnd) {
+    var filePath    = "";
+    var processName = wnd.Process?.ProcessName?.toLowerCase() || "";
+    var windowTitle = wnd.Text || "";
+    var cmdLine     = wnd.CommandLine || "";
+
+    // 1. Universal method: we try to pull the path from the window title bar.
+    // For example, "C:\path\file.txt - Notepad++" => "C:\path\file.txt"
+    var titleMatch = windowTitle.match(/^(.*?(?:\.[\w]+)?)(?:\s*[-–]\s*|\s+\[|\s+\(|$)/);
+    if (titleMatch) {
+        filePath = titleMatch[1].trim();
+    }
+    //  2. If still "invalid", try extracting from the command line.
+    if (!filePath.includes(":\\") && !filePath.startsWith("\\\\")) {
+
+        if (processName === "notepad") {
+            // Specific processing for Notepad
+            var cmdParts = cmdLine.split('"');
+            for (var i = 0; i < cmdParts.length; i++) {
+                // Look for the first line containing a period (.), backslash (\) and not ending with notepad.exe
+                if (cmdParts[i].includes(".") && cmdParts[i].includes("\\") && 
+                    !cmdParts[i].toLowerCase().endsWith("notepad.exe")) {
+                    filePath = cmdParts[i];
+                    break;
+                }
+            }
+        } else {
+            // For other applications
+            var cmdMatch = cmdLine.match(/"([^"]+)"|(\S+)/g);
+            if (cmdMatch && cmdMatch.length > 1) {
+                // cmdMatch[0] — exe, cmdMatch[1] — proposed file
+                filePath = cmdMatch[1].replace(/"/g, '');
+            }
+        }
+    }
+    // 3. processing UWP applications.
+    // If the application is ApplicationFrameHost (or in filePath while "N/A"),
+    // try to find the path among child processes.
+    if (processName.includes("applicationframehost") || filePath === "N/A") {
+        try {
+            var childProcesses = Array
+                .from(sp.AllApplications())
+                .filter(p =>
+                    p.Process?.Parent?.ProcessName?.toLowerCase() === "applicationframehost" &&
+                    p.Window?.Text === wnd.Text
+                );
+
+            if (childProcesses.length > 0) {
+                var uwpProcess = childProcesses[0].Process;
+                var mainModulePath = uwpProcess?.MainModule?.FileName || "";
+                if (mainModulePath.toLowerCase().includes("windowsapps")) {
+                    filePath = mainModulePath;
+                }
+            }
+        } catch (e) {
+            sp.ConsoleLog("Error extracting UWP path: " + e.message);
+        }
+    }
+    // 4. Check that the file really exists.
+    // If not, return "N/A".
+    if (!System.IO.File.Exists(filePath)) {
+        filePath = "N/A";
+    }
+
+    return filePath;
+}
+function getExePath(wnd) {
+    try {
+        // Check if the application is associated with ApplicationFrameHost
+        if (wnd.Process?.ProcessName.toLowerCase() === "applicationframehost") {
+            // Looking for a child process
+            var childProcesses = Array.from(sp.AllApplications()).filter(p =>
+                p.Process?.Parent?.ProcessName.toLowerCase() === "applicationframehost" &&
+                p.Text === wnd.Text
+            );
+
+            // If a child process is found, return the path to its executable file
+            if (childProcesses.length > 0) {
+                return childProcesses[0].Process?.MainModule?.FileName || "N/A";
+            }
+        }
+
+        // For regular windows return the path from MainModule
+        return wnd.Process?.MainModule?.FileName || "N/A";
+    } catch (e) {
+        sp.ConsoleLog("Error in getExePath: " + e.message);
+        return "N/A";
+    }
+}
+// Function for displaying the list of slots
+function formatSlotNames() {
+    var keys = Object.keys(slotNames);
+    var groupSize = 3; // Number of columns
+
+    var formatted = [];
+    var rows = Math.ceil(keys.length / groupSize); // Number of lines
+
+    for (var i = 0; i < rows; i++) {
+        var row = [];
+        for (var j = 0; j < groupSize; j++) {
+            var keyIndex = i + j * rows;
+            if (keyIndex < keys.length) {
+                var text = `${keys[keyIndex]} - ${slotNames[keys[keyIndex]]}`;
+                row.push(text); // Add text from `slotNames`.
+            }
+        }
+        formatted.push(row.join("   ")); // Connect the columns with fixed spacing
+    }
+    return formatted.join("\n"); // Merge the strings into a common text
+}
+// Saving windows manually on click
+function saveWindowsToSlot() {
+    // Step 1: Requesting a slot for saving
+    var slotInput = new InputBoxInfo();
+    slotInput.Title = "Save Windows Positions";
+    slotInput.Message = `Enter a slot number to save to:\n${formatSlotNames()}`;
+    slotInput.AllowDirectInput = true;
+    var slot = sp.InputBox(slotInput);
+
+    if (!slotNames.hasOwnProperty(slot)) {
+        sp.MessageBox("Invalid slot number!", "Error");
+        return;
+    }
+    // Step 2: Request the number of windows
+    var numberBoxInfo = new InputBoxInfo();
+    numberBoxInfo.Title = "Number of Windows";
+    numberBoxInfo.Message = "Enter the number of windows you want to save:";
+    numberBoxInfo.AllowDirectInput = true;
+    var numStr = sp.InputBox(numberBoxInfo);
+    var numWindows = parseInt(numStr, 10);
+
+    if (isNaN(numWindows) || numWindows < 1) {
+        sp.MessageBox("Invalid number of windows!", "Error");
+        return;
+    }
+    // Step 3: Saving windows
+    var windowsToSave = [];
+    for (var i = 0; i < numWindows; i++) {
+        sp.MessageBox(`Close this dialog, then click on the desired window (${i + 1}/${numWindows}).`, "Select Window");
+
+        //sp.ConsoleLog(`Waiting for the user to click window ${i + 1} of ${numWindows}...`);
+        while (!sp.IsButtonDown(MouseButtons.Left)) {
+            sp.Sleep(50);
+        }
+
+        var currPt = sp.GetCurrentMousePoint();
+        while (sp.IsButtonDown(MouseButtons.Left)) {
+            sp.Sleep(50);
+        }
+
+        var clickedWindowTrue = sp.WindowFromPoint(currPt, true);
+        var clickedWindowFalse = sp.WindowFromPoint(currPt, false);
+
+        if (!clickedWindowTrue || clickedWindowTrue.HWnd === 0) {
+            sp.MessageBox("No window found at the click position. Try again.", "Error");
+            i--;
+            continue;
+        }
+        var wndTitle = clickedWindowTrue.Text || "No Title";
+        var filePath = getFilePathFromWnd(clickedWindowFalse);
+        var procName = clickedWindowFalse.Process?.ProcessName || "Unknown";
+        var exeFullPath = getExePath(clickedWindowFalse);
+        var cmdLine = clickedWindowFalse.CommandLine || "";
+
+var screens = System.Windows.Forms.Screen.AllScreens;
+
+    var wndInfo = {
+    Title: wndTitle,
+    ProcessName: procName,
+    FilePath: filePath,
+    ExePath: exeFullPath,
+    Arguments: "",
+    X: clickedWindowTrue.Location.X,
+    Y: clickedWindowTrue.Location.Y,
+    Width: clickedWindowTrue.Size.Width,
+    Height: clickedWindowTrue.Size.Height,
+    Maximized: clickedWindowTrue.Maximized, 
+    ScreenIndex: Array.from(screens).findIndex(screen => 
+        screen.DeviceName === clickedWindowTrue.Screen.DeviceName // Searching the screen index
+    )   
+};
+        windowsToSave.push(wndInfo);
+       //sp.ConsoleLog(`Window added: ${wndTitle}`);
+       //sp.MessageBox(`Window "${wndTitle}" saved (${i + 1}/${numWindows}).`, "Window Saved");
+    }
+    // Step 4: Save to file
+    var focusedWindow = sp.ForegroundWindow();
+    var focusedTitle = focusedWindow ? focusedWindow.Text : "Unknown";
+
+    windowPositions[slot] = {
+        count: windowsToSave.length,
+        focusedTitle: focusedTitle,
+        windows: windowsToSave
+    };
+    saveSettings(windowPositions);
+    sp.MessageBox(`Positions of ${windowsToSave.length} windows saved in slot ${slot} (${slotNames[slot]}).`, "Success");
+}
+// Dictionary of Windows Standard Applications
+var uwpApps = {
+    "CalculatorApp": "Microsoft.WindowsCalculator",         
+    "SoundRec": "Microsoft.WindowsSoundRecorder",  
+    "Time": "Microsoft.WindowsAlarms",  
+    "WinStore.App": "Microsoft.WindowsStore",           
+    "XboxApp": "Microsoft.GamingApp",      
+    "XboxPcApp": "Microsoft.XboxApp",                 
+    "PhotosApp": "Microsoft.Windows.Photos",                
+    "MapsApp": "Microsoft.WindowsMaps",                     
+    "AlarmsAndClockApp": "Microsoft.WindowsAlarms",         
+    "StickyNotes": "Microsoft.MicrosoftStickyNotes",        
+    "VoiceRecorder": "Microsoft.WindowsSoundRecorder",     
+    "WeatherApp": "Microsoft.BingWeather",                  
+    "CalendarApp": "Microsoft.WindowsCalendar",             
+    "MailApp": "Microsoft.WindowsMail",                    
+    "GrooveMusic": "Microsoft.ZuneMusic",                  
+    "MoviesAndTV": "Microsoft.ZuneVideo",                  
+    "PeopleApp": "Microsoft.People",                      
+    "CameraApp": "Microsoft.WindowsCamera",             
+};
+function RunOrActivate(filePath, exePath, processName, args) {
+    //sp.ConsoleLog(`=== RunOrActivate START ===`);
+    //sp.ConsoleLog(`ProcessName: ${processName || "undefined"}, ExePath: ${exePath}, FilePath: ${filePath}, Arguments: ${args || "N/A"}`);
+
+    filePath = (filePath || "").trim();
+    exePath  = (exePath  || "").trim();
+    args     = (args     || "").trim();
+
+    // Check that the exe file really exists
+    if (!exePath || exePath === "N/A" || !System.IO.File.Exists(exePath)) {
+        sp.ConsoleError(`Executable file does not exist: ${exePath}`);
+        return null;
+    }
+        //  If it's a UWP application
+        if (processName && uwpApps.hasOwnProperty(processName)) {
+            var appId = uwpApps[processName];
+            //sp.ConsoleLog(`UWP application discovered: ${processName}, AppID: ${appId}`);
+            sp.RunStoreApp(appId);
+            sp.Sleep(1000); // Waiting for the launch
+            var uwpWindow = sp.WindowFromHandle(sp.ForegroundWindow().HWnd);
+            if (uwpWindow) {
+               // sp.ConsoleLog(`UWP application ${processName} has been successfully launched. Title: ${uwpWindow.Text}`);
+                return uwpWindow;
+            } else {
+                sp.ConsoleLog(`UWP application ${processName} failed to open`);
+            }
+            return null;
+        }
+    let command = `"${exePath}"`;
+    // Add file (if not N/A and not empty)
+    if (filePath && filePath !== "N/A") {
+        command += ` "${filePath}"`;
+    }
+    // Add manually defined arguments
+    if (args) {
+        command += ` ${args}`;
+    }
+    //sp.ConsoleLog(`Attempting to start the application with the command: ${command}`);
+    sp.Run(command);
+    sp.Sleep(1000);
+
+    // Checking to see if it's up and running
+    var launchedWindow = sp.WindowFromHandle(sp.ForegroundWindow().HWnd);
+    if (launchedWindow) {
+        //sp.ConsoleLog(`Application successfully launched and found Title: ${launchedWindow.Text}`);
+        return launchedWindow;
+    } else {
+        sp.ConsoleLog(`The application did not start or was not found. Command: ${command}`);
+    }
+
+    //sp.ConsoleLog(`=== RunOrActivate END ===`);
+    return null;
+}
+// Window restore function
+function restoreWindowsFromSlot() {
+    var slotInput = new InputBoxInfo();
+    slotInput.Title = "Restore Windows Positions";
+    slotInput.Message = `Enter a slot number to restore from:\n${formatSlotNames()}`;
+    slotInput.AllowDirectInput = true;
+    var slot = sp.InputBox(slotInput);
+
+    if (!windowPositions.hasOwnProperty(slot)) {
+        sp.MessageBox(`No positions saved in slot ${slot}.`, "Error");
+        return;
+    }
+    var savedData = windowPositions[slot];
+    var focusedTitle = savedData.focusedTitle;
+
+    //sp.ConsoleLog(`Restoring windows from slot ${slot}:`);
+
+    savedData.windows.forEach(function (sw) {
+        // --------------------------------------------------
+        // 1) Looking for an already open window
+        // --------------------------------------------------
+        // Find an existing window with a matching title/path and/or process
+var existingWindow = Array.from(sp.AllApplications()).find(function (app) {
+    var wnd = sp.WindowFromHandle(app.HWnd);
+    if (!wnd || !wnd.Process) return false;
+
+    var wndProcName = (wnd.Process.ProcessName || "").toLowerCase();
+    var savedProcName = (sw.ProcessName || "").toLowerCase();
+
+    // If there are arguments, ignore Title
+    if (sw.Arguments && sw.Arguments !== "N/A" && sw.Arguments.trim() !== "") {
+        return wndProcName === savedProcName; // We're only comparing the process
+    }
+
+    // Comparison of titles
+    var titleMatch = sw.Title && wnd.Text === sw.Title;
+
+    // Path Comparison
+    var filePathMatch = false;
+    if (sw.FilePath && sw.FilePath !== "N/A") {
+        var actualPath = getFilePathFromWnd(wnd) || "";
+        if (actualPath === sw.FilePath) {
+            filePathMatch = true;
+        }
+    }
+
+    // If Title and FilePath are empty, compare the process
+    var processMatch = false;
+    if (!sw.Title && (sw.FilePath === "" || sw.FilePath === "N/A")) {
+        processMatch = wndProcName === savedProcName;
+    }
+
+    return (titleMatch || filePathMatch || processMatch);
+});
+        // --------------------------------------------------
+        // 2) If a window / process is found - update position
+        // --------------------------------------------------
+        var screens = System.Windows.Forms.Screen.AllScreens;
+if (existingWindow) {
+   // sp.ConsoleLog(`Window already open: "${sw.Title}", checking position and size.`);
+
+    var targetWin = sp.WindowFromHandle(existingWindow.HWnd);
+    if (targetWin) {
+        // Move the window to the desired screen
+        if (sw.ScreenIndex !== undefined && sw.ScreenIndex >= 0) {
+            var targetScreen = screens[sw.ScreenIndex];
+            if (targetScreen) {
+                targetWin.MoveToScreen(targetScreen);
+               // sp.ConsoleLog(`Moved window "${sw.Title}" to screen index ${sw.ScreenIndex}.`);
+            }
+        }
+        if (targetWin.Minimized) {
+            targetWin.Restore();
+            //sp.ConsoleLog(`Restored minimized window: "${sw.Title}"`);
+        }
+        if (sw.Maximized) {
+            targetWin.Maximize();
+            //sp.ConsoleLog(`Maximized window: "${sw.Title}"`);
+        } else {
+            targetWin.Location = new Point(sw.X, sw.Y);
+            targetWin.Size = new Size(sw.Width, sw.Height);
+            //sp.ConsoleLog(`Updated position and size for window: "${sw.Title}"`);
+        }
+        targetWin.BringToFront();
+    }
+} else {
+    //sp.ConsoleLog(`Launching window: "${sw.Title}", File Path: "${sw.FilePath || 'N/A'}", Exe Path: "${sw.ExePath || 'N/A'}"`);
+
+    var targetWin = RunOrActivate(sw.FilePath, sw.ExePath, sw.ProcessName, sw.Arguments);
+    if (targetWin) {
+        // Move the window to the desired screen
+        if (sw.ScreenIndex !== undefined && sw.ScreenIndex >= 0) {
+            var targetScreen = screens[sw.ScreenIndex];
+            if (targetScreen) {
+                targetWin.MoveToScreen(targetScreen);
+               // sp.ConsoleLog(`Moved window "${sw.Title}" to screen index ${sw.ScreenIndex}.`);
+            }
+        }
+
+        if (targetWin.Minimized) {
+            targetWin.Restore();
+           // sp.ConsoleLog(`Restored minimized window: "${sw.Title}"`);
+        }
+
+        if (sw.Maximized) {
+            targetWin.Maximize();
+            //sp.ConsoleLog(`Maximized window: "${sw.Title}"`);
+        } else {
+            targetWin.Location = new Point(sw.X, sw.Y);
+            targetWin.Size = new Size(sw.Width, sw.Height);
+        }
+        targetWin.BringToFront();
+    } else {
+       // sp.ConsoleLog(`Failed to find or open window: "${sw.Title}"`);
+    }
+}
+    });
+    // --------------------------------------------------
+    // 4) Restore focus, if necessary
+    // --------------------------------------------------
+    if (focusedTitle) {
+        var focusedWin = Array.from(sp.AllApplications()).find(function (w) {
+            return sp.WindowFromHandle(w.HWnd).Text === focusedTitle;
+        });
+        if (focusedWin) {
+            sp.WindowFromHandle(focusedWin.HWnd).Activate();
+          //  sp.ConsoleLog(`Focused window restored: "${focusedTitle}"`);
+        } else {
+            //sp.ConsoleLog(`Focused window not found: "${focusedTitle}"`);
+        }
+    }
+    //sp.MessageBox(`Window positions restored from slot ${slot} (${slotNames[slot]}).`, "Success");
+}
+
+// Main menu
+var menuBox = new InputBoxInfo();
+menuBox.Title = "Window Manager";
+menuBox.Message = "Choose an action:\n1 - Save windows to slot\n2 - Restore windows from slot\n3 - Open windows.json";
+menuBox.AllowDirectInput = true;
+
+var choice = sp.InputBox(menuBox);
+if (choice === "1") {
+    saveWindowsToSlot();
+}
+else if (choice === "2") {
+    restoreWindowsFromSlot();
+}
+else if (choice === "3") {
+    // Open the windows.json file in Notepad
+    sp.Run(`notepad "${filePath}"`);
+}
+else {
+   // sp.MessageBox("Invalid choice!", "Error");
+}
