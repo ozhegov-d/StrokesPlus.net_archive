@@ -19,6 +19,28 @@ if opacity is less than 255(maximum value) it becomes over all windows
 
 v2 it doesn't work on the taskbar
 
+### Window Slot Manager  
+#### A script for saving and restoring window positions.
+
+https://github.com/user-attachments/assets/c3670e79-d5fe-4840-a743-62b93f1e3525
+
+
+To find uwpApps  
+In PowerShell, you can use the following command to list all installed UWP applications with names containing "Microsoft.":  
+Get-AppxPackage | Where-Object { $_.Name -like "Microsoft.*" } | Select-Object Name, PackageFullName  
+
+If JSON has empty title and FilePath:  
+"Title": "",  
+"ProcessName": "mpc-hc64",  
+"FilePath": "",  
+and MPC is already running, it won't launch again. The script will find the first available instance of the mpc-hc64 process and will activate it.  
+
+If JSON includes an argument:  
+"Title": "windows.json - Everything (1.5a)",  
+"ProcessName": "Everything64",  
+"Arguments": "-help",  
+then the title will be ignored, and the script will find the first available instance of the Everything64 process and will activate it.  
+
 ### GridSnapWindow
 
 
