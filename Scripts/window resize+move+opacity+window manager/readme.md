@@ -19,7 +19,7 @@ if opacity is less than 255(maximum value) it becomes over all windows
 
 v2 it doesn't work on the taskbar
 
-### Window manager
+### WindowSplitter
 
 
 https://github.com/user-attachments/assets/ebba4d73-0182-416b-b7b8-81719e420e6b
