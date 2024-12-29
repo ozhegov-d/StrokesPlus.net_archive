@@ -1,0 +1,7 @@
+//If the click event is not the Down event (so on left button up) and the grid snap is active
+if(!click.Down && sp.GetStoredBool("GridSnapActive")) {
+    //Stop/delete the timer script and the other variables used for these scripts
+    sp.DeleteTimer("GridSnap");
+    sp.DeleteStoredHandle("GridSnapWindow");
+    sp.DeleteStoredBool("GridSnapActive");
+}

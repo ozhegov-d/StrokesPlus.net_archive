@@ -19,6 +19,18 @@ if opacity is less than 255(maximum value) it becomes over all windows
 
 v2 it doesn't work on the taskbar
 
+### GridSnapWindow
+
+#### Global Actions > Mouse Events > Left Click:
+
+//If the click event is not the Down event (so on left button up) and the grid snap is active  
+if(!click.Down && sp.GetStoredBool("GridSnapActive")) {  
+// Disables GridSnapWindow: removes the timer and related variables  
+    sp.DeleteTimer("GridSnap");  
+    sp.DeleteStoredHandle("GridSnapWindow");  
+    sp.DeleteStoredBool("GridSnapActive");  
+}  
+
 ### WindowSplitter
 
 

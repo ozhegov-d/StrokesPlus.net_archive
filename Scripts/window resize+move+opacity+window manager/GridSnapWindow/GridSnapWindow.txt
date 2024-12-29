@@ -1,0 +1,138 @@
+if (!sp.GetStoredBool("GridSnapActive")) {
+    sp.StoreBool("GridSnapActive", true);
+    sp.StoreHandle("GridSnapWindow", action.Window.HWnd);
+
+    if (action.Window.Maximized) {
+        action.Window.Restore();
+    }
+
+    sp.CreateTimer("GridSnap", 0, 100, `
+        var mousePt = sp.GetCurrentMousePoint();
+        var screenArea = Screen.FromPoint(mousePt).WorkingArea;
+        var window = sp.WindowFromHandle(sp.GetStoredHandle("GridSnapWindow"));
+
+        var totalWidth = screenArea.Width;
+        var totalHeight = screenArea.Height;
+
+        var quarterWidth = parseInt(totalWidth / 4);
+        var quarterHeight = parseInt(totalHeight / 4);
+
+        var left = screenArea.Left;
+        var top = screenArea.Top;
+
+        // Lines for 4x4
+        var lineX1 = left + quarterWidth;
+        var lineX2 = left + quarterWidth * 2;
+        var lineX3 = left + quarterWidth * 3;
+
+        var lineY1 = top + quarterHeight;
+        var lineY2 = top + quarterHeight * 2;
+        var lineY3 = top + quarterHeight * 3;
+
+        var subBoundaryZone = 100;  // crossing area
+        var edgeZone = 100;   // edge -1 sector
+        var innerEdgeZone = 30; // edge
+
+        function nearLine(value, linePos) {
+            return (value >= (linePos - subBoundaryZone) && value <= (linePos + subBoundaryZone));
+        }
+
+        function setWindow(l, t, w, h) {
+            window.Location = new Point(l, t);
+            window.Size = new Size(w, h);
+        }
+
+        // Define the sector
+        var col = 0;
+        if (mousePt.X >= lineX3) col = 3;
+        else if (mousePt.X >= lineX2) col = 2;
+        else if (mousePt.X >= lineX1) col = 1;
+
+        var row = 0;
+        if (mousePt.Y >= lineY3) row = 3;
+        else if (mousePt.Y >= lineY2) row = 2;
+        else if (mousePt.Y >= lineY1) row = 1;
+
+        var baseLeft = left + col * quarterWidth;
+        var baseTop = top + row * quarterHeight;
+        var baseWidth = quarterWidth;
+        var baseHeight = quarterHeight;
+
+        // Basic logic of 4x4 line crossings
+        if (nearLine(mousePt.X, lineX1)) {
+            baseLeft = left;
+            baseWidth = quarterWidth * 2;
+        }
+        if (nearLine(mousePt.X, lineX2)) {
+            baseLeft = left + quarterWidth;
+            baseWidth = quarterWidth * 2;
+        }
+        if (nearLine(mousePt.X, lineX3)) {
+            baseLeft = left + quarterWidth * 2;
+            baseWidth = quarterWidth * 2;
+        }
+
+        if (nearLine(mousePt.Y, lineY1)) {
+            baseTop = top;
+            baseHeight = quarterHeight * 2;
+        }
+        if (nearLine(mousePt.Y, lineY2)) {
+            baseTop = top + quarterHeight;
+            baseHeight = quarterHeight * 2;
+        }
+        if (nearLine(mousePt.Y, lineY3)) {
+            baseTop = top + quarterHeight * 2;
+            baseHeight = quarterHeight * 2;
+        }
+
+        if (nearLine(mousePt.X, lineX1) && nearLine(mousePt.Y, lineY1)) {
+            baseLeft = left;
+            baseTop = top;
+            baseWidth = quarterWidth * 2;
+            baseHeight = quarterHeight * 2;
+        }
+        if (nearLine(mousePt.X, lineX2) && nearLine(mousePt.Y, lineY2)) {
+            baseLeft = left + quarterWidth;
+            baseTop = top + quarterHeight;
+            baseWidth = quarterWidth * 2;
+            baseHeight = quarterHeight * 2;
+        }
+
+        if (mousePt.Y < (top + innerEdgeZone)) {
+            baseTop = top;
+            baseHeight = totalHeight;
+        } else if (mousePt.Y < (top + edgeZone)) {
+            baseTop = top;
+            baseHeight = lineY3 - top;
+        }
+
+        // Bottom Line:
+        if (mousePt.Y > (top + totalHeight - innerEdgeZone)) {
+            baseTop = top;
+            baseHeight = totalHeight;
+        } else if (mousePt.Y > (top + totalHeight - edgeZone)) {
+            baseTop = lineY1;
+            baseHeight = (top + totalHeight) - lineY1;
+        }
+
+        // Left edge:
+        if (mousePt.X < (left + innerEdgeZone)) {
+            baseLeft = left;
+            baseWidth = totalWidth;
+        } else if (mousePt.X < (left + edgeZone)) {
+            baseLeft = left;
+            baseWidth = lineX3 - left;
+        }
+
+        // Right edge:
+        if (mousePt.X > (left + totalWidth - innerEdgeZone)) {
+            baseLeft = left;
+            baseWidth = totalWidth;
+        } else if (mousePt.X > (left + totalWidth - edgeZone)) {
+            baseLeft = lineX1;
+            baseWidth = (left + totalWidth) - lineX1;
+        }
+
+        setWindow(baseLeft, baseTop, baseWidth, baseHeight);
+    `);
+}
