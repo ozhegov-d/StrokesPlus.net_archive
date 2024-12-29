@@ -1,4 +1,4 @@
-### window resize+move+always on top+remove window title
+### window resize+move+opacity+always on top+remove window title
 
 https://github.com/user-attachments/assets/3a076e3a-e279-4084-974c-43f3ef48d699
 
