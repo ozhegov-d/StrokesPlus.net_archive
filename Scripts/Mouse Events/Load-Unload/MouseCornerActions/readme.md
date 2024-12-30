@@ -6,5 +6,8 @@ The script performs specified actions when the mouse pointer moves into one of t
 **lowerLeft** - Win (Start Menu)  
 **lowerRight** - Win+D (minimizes all open windows)  
 
+**With a timer, it consumes significantly less RAM.**
+
+**Hook**  
 To make the script work, you need to:  
 **Options - Advanced - Enable Mouse Hook Event Subscription**
