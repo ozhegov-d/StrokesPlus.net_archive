@@ -1,0 +1,87 @@
+// Enable/disable all corner actions
+var enableCornerActions = true;
+
+// Corner settings
+var enableUpperLeft = true;   // Upper left corner
+var enableUpperRight = true;  // Upper right corner
+var enableLowerLeft = true;   // Lower left corner
+var enableLowerRight = true;  // Lower right corner
+
+// Size of the active corner zone
+var cornerZoneSize = 10;
+
+// Current active corner
+var lastActiveCorner = null;
+
+// Actions for each corner
+var cornerActions = {
+    upperRight: () => sp.SendModifiedVKeys([vk.LMENU], [vk.F4]),   // Alt+F4
+    lowerRight: () => sp.SendModifiedVKeys([vk.LWIN], [vk.VK_D]), // Win+D
+    upperLeft: () => {
+        var info = new DisplayTextInfo();
+        info.Message = "Upper Left Corner Action";
+        info.Duration = 1000;
+        info.Location = "center";
+        sp.DisplayText(info);
+    },
+    lowerLeft: () => sp.SendVKey(vk.LWIN) // Win (Start Menu)
+};
+
+// Check if the cursor is in the corner
+function isInCorner(mousePos, screenBounds, corner) {
+    var zone = cornerZoneSize;
+    switch (corner) {
+        case 'upperRight': return mousePos.X >= screenBounds.Right - zone && mousePos.Y <= screenBounds.Top + zone;
+        case 'lowerRight': return mousePos.X >= screenBounds.Right - zone && mousePos.Y >= screenBounds.Bottom - zone;
+        case 'upperLeft': return mousePos.X <= screenBounds.Left + zone && mousePos.Y <= screenBounds.Top + zone;
+        case 'lowerLeft': return mousePos.X <= screenBounds.Left + zone && mousePos.Y >= screenBounds.Bottom - zone;
+    }
+    return false;
+}
+
+// Subscribe to mouse move event
+var mouseMoveEventObj = sp.GetStoredObject("mouseMoveEvent");
+if (mouseMoveEventObj && mouseMoveEventObj.GetType().FullName.includes('EventConnection')) {
+    mouseMoveEventObj.disconnect();
+    sp.DeleteStoredObject("mouseMoveEvent");
+}
+
+var mouseMoveEvent = MouseHook.OnMouseHookMoveEventAsync.connect(
+    function (sender, mouseHookEvent) {
+        try {
+            if (!enableCornerActions || !mouseHookEvent.Location) return;
+
+            var mousePos = mouseHookEvent.Location;
+            var screenBounds = Screen.FromPoint(mousePos).Bounds;
+
+            if (enableUpperRight && isInCorner(mousePos, screenBounds, 'upperRight')) {
+                if (lastActiveCorner !== 'upperRight') {
+                    cornerActions.upperRight();
+                    lastActiveCorner = 'upperRight';
+                }
+            } else if (enableLowerRight && isInCorner(mousePos, screenBounds, 'lowerRight')) {
+                if (lastActiveCorner !== 'lowerRight') {
+                    cornerActions.lowerRight();
+                    lastActiveCorner = 'lowerRight';
+                }
+            } else if (enableUpperLeft && isInCorner(mousePos, screenBounds, 'upperLeft')) {
+                if (lastActiveCorner !== 'upperLeft') {
+                    cornerActions.upperLeft();
+                    lastActiveCorner = 'upperLeft';
+                }
+            } else if (enableLowerLeft && isInCorner(mousePos, screenBounds, 'lowerLeft')) {
+                if (lastActiveCorner !== 'lowerLeft') {
+                    cornerActions.lowerLeft();
+                    lastActiveCorner = 'lowerLeft';
+                }
+            } else {
+                lastActiveCorner = null; // Cursor exited the zone
+            }
+        } catch (ex) {
+            sp.ConsoleLog("Error in mouse move event: " + ex.message);
+        }
+    }
+);
+
+// Store the connection for disabling later if necessary
+sp.StoreObject("mouseMoveEvent", mouseMoveEvent);
