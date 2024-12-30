@@ -1,0 +1,82 @@
+// Enable/disable all corner actions
+var enableCornerActions = true;
+// Enable/disable actions for each corner
+var enableUpperLeft = true;  // Upper left corner
+var enableUpperRight = true;  // Upper right corner
+var enableLowerLeft = true;   // Lower left corner
+var enableLowerRight = true;  // Lower right corner
+
+// Active zone size for corners (in pixels)
+var cornerZoneSize = 10;
+
+// Timer and activity flag
+var cornerCheckActive = false;
+
+// Actions for each corner
+var cornerActions = {
+    upperRight: () => sp.SendModifiedVKeys([vk.LMENU], [vk.F4]),   // Alt+F4
+    lowerRight: () => sp.SendModifiedVKeys([vk.LWIN], [vk.VK_D]), // Win+D
+    upperLeft: () => {
+        var info = new DisplayTextInfo();
+        info.Message = "Upper Left Corner Action";
+        info.Duration = 1000;
+        info.Location = "center";
+        sp.DisplayText(info);
+//(Task View).
+//sp.SendModifiedVKeys([vk.LWIN], [vk.TAB]);
+//Minimizes all windows except the active one.
+//sp.SendModifiedVKeys([vk.LWIN], [vk.HOME]);
+    },
+    lowerLeft: () => sp.SendVKey(vk.LWIN) // Win (Start Menu)
+};
+
+// Check if the mouse is in a specific corner zone
+function isInCorner(mousePos, bounds, corner) {
+    var zone = cornerZoneSize;
+    switch (corner) {
+        case 'upperRight': return mousePos.X >= bounds.Right - zone && mousePos.Y <= bounds.Top + zone;
+        case 'lowerRight': return mousePos.X >= bounds.Right - zone && mousePos.Y >= bounds.Bottom - zone;
+        case 'upperLeft': return mousePos.X <= bounds.Left + zone && mousePos.Y <= bounds.Top + zone;
+        case 'lowerLeft': return mousePos.X <= bounds.Left + zone && mousePos.Y >= bounds.Bottom - zone;
+    }
+    return false;
+}
+
+// Mouse position monitoring timer
+sp.CreateTimer("CornerMonitor", 0, 200, `
+    if (!enableCornerActions) {
+        cornerCheckActive = false; // Reset activity if actions are disabled
+    } else {
+        var mousePos = sp.GetCurrentMousePoint();
+        var screen = Screen.FromPoint(mousePos);
+        var bounds = screen.Bounds;
+
+        // Check corners according to the settings
+        if (enableUpperRight && isInCorner(mousePos, bounds, 'upperRight')) {
+            if (!cornerCheckActive) {
+                cornerActions.upperRight();
+                cornerCheckActive = true;
+            }
+        } else if (enableLowerRight && isInCorner(mousePos, bounds, 'lowerRight')) {
+            if (!cornerCheckActive) {
+                cornerActions.lowerRight();
+                cornerCheckActive = true;
+            }
+        } else if (enableUpperLeft && isInCorner(mousePos, bounds, 'upperLeft')) {
+            if (!cornerCheckActive) {
+                cornerActions.upperLeft();
+                cornerCheckActive = true;
+            }
+        } else if (enableLowerLeft && isInCorner(mousePos, bounds, 'lowerLeft')) {
+            if (!cornerCheckActive) {
+                cornerActions.lowerLeft();
+                cornerCheckActive = true;
+            }
+        } else {
+            // Reset state if the mouse is not in a corner
+            if (cornerCheckActive) {              
+                cornerCheckActive = false;
+            }
+        }
+    }
+`);
