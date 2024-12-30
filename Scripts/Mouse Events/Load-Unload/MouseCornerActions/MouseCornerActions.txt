@@ -23,6 +23,10 @@ var cornerActions = {
         info.Duration = 1000;
         info.Location = "center";
         sp.DisplayText(info);
+//(Task View).
+//sp.SendModifiedVKeys([vk.LWIN], [vk.TAB]);
+//Minimizes all windows except the active one.
+//sp.SendModifiedVKeys([vk.LWIN], [vk.HOME]);
     },
     lowerLeft: () => sp.SendVKey(vk.LWIN) // Win (Start Menu)
 };
