@@ -8,6 +8,6 @@ The script performs specified actions when the mouse pointer moves into one of t
 
 **With a timer, it consumes significantly less RAM.**
 
-**Hook**  
+**for Hook**  
 To make the script work, you need to:  
 **Options - Advanced - Enable Mouse Hook Event Subscription**
