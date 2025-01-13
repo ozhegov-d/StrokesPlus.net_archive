@@ -1,0 +1,303 @@
+// Variables and functions for long press
+var isLongPress = false;
+var originalClipboard = "";
+var selectedText = "";
+var startPoint = null;
+var MOVEMENT_THRESHOLD = 5; // Mouse movement threshold in pixels
+var longPressDelay = 620; // Time after which the menu will appear
+var mouseButton = "Right"; // | Left | Right | Middle | XButton1 | XButton2 | Note: Case-sensitive
+
+// Menu settings
+var menuFont = new Font(new FontFamily("Tahoma"), 15, FontStyle.Regular, GraphicsUnit.Point);
+//FontStyle.Bold 
+//FontStyle.Italic 
+//FontStyle.Underline 
+//FontStyle.Strikeout
+
+var menuBackgroundColor = Color.FromName("White");
+var menuHighlightColor = Color.FromArgb(200, 160, 180, 255); // Color of the selected item
+var menuTextColor = Color.FromArgb(255, 0, 50, 110); // Text color
+
+// Site configuration
+var websites = {
+    "Google+DuckDuckGo": "https://www.google.com/search?q= ; https://duckduckgo.com/?q=",
+    "Google": "https://www.google.com/search?q=",
+    "Google Photos": "https://www.google.com/search?tbm=isch&q=",
+    "YouTube": "https://www.youtube.com/results?search_query=",
+    "DuckDuckGo": "https://duckduckgo.com/?q=",
+    "Wikipedia": "https://en.wikipedia.org/wiki/",
+    "Bing": "https://www.bing.com/search?q=",
+    "StackOverflow": "https://stackoverflow.com/search?q=",
+    "Reddit": "https://www.reddit.com/search/?q=",
+    "123": {
+        "1": "1",
+        "2": "2",
+        "3": "3",
+        "4": "4",
+        "all": "1 ; 2 ; 3 ; 4"
+    },
+    "More Options": {
+        "Option 1": "https://example1.com/search?q=",
+        "Option 2": "https://example2.com/search?q=",
+        "Sub Menu": {
+            "Sub Option A": "https://sub-example-a.com/search?q=",
+            "Sub Option B": "https://sub-example-b.com/search?q="
+        }
+    }
+};
+
+// Program Configuration
+//singleFile: true  //  Open each file in a separate instance
+//singleFile: false  // Open all files in a single instance
+var programs = {
+    "Adobe Audition": {
+        paths: [
+           // "C:\\Program Files (x86)\\Adobe\\Adobe Audition\\Audition.exe", // don't forget the two slashes
+        ],
+        singleFile: true  
+    },
+    "Notepad": {
+        paths: [
+            "C:\\Windows\\System32\\notepad.exe",
+        ],
+        singleFile: true
+    },
+    "notepad++": {
+        paths: [
+           // "C:\\test\\test\\Notepad++\\notepad++.exe",
+        ],
+        singleFile: false
+    },
+    "123": {
+        paths: [
+            //"C:\\123\\456\\123\\123.exe",
+        ],
+        singleFile: false
+    },
+    "word": {
+        paths: [
+            //"C:\\Program Files (x86)\\Microsoft Office\\Office\\WINWORD.EXE",
+        ],
+        singleFile: false
+    },
+};
+
+// Function to find existing program path
+function findExistingProgramPath(programPaths) {
+    for (var i = 0; i < programPaths.length; i++) {
+        if (System.IO.File.Exists(programPaths[i])) {
+            return programPaths[i];
+        }
+    }
+    return null;
+}
+
+// Function to open URLs
+function openURL(baseURLs, query) {
+    var urls = baseURLs.split(';').map(url => url.trim());
+    var encodedText = encodeURIComponent(query).replace(/'/g, "%27").replace(/"/g, "%22");
+    
+    var commands = urls.map(baseURL => 
+        `sp.RunProgram("${baseURL}${encodedText}", "", "open", "normal", true, false, false);`
+    ).join('\n');
+    
+    return commands;
+}
+
+// Function to handle long press
+function onLongPress() {
+    var currentMouseLocation = sp.GetCurrentMousePoint();
+
+    // Check if the mouse has not moved since the start of the press
+    if (startPoint && Math.abs(currentMouseLocation.X - startPoint.X) <= MOVEMENT_THRESHOLD &&
+        Math.abs(currentMouseLocation.Y - startPoint.Y) <= MOVEMENT_THRESHOLD) {
+
+        isLongPress = true;
+
+        // First, we check the highlighted text
+        originalClipboard = clip.GetText() || ""; // Add an empty string as a default value
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+        sp.Sleep(10);
+        selectedText = clip.GetText() || ""; // Add an empty string as a default value
+
+        // If there is selected text and it is different from the contents of the clipboard
+        if (selectedText !== originalClipboard && selectedText.trim() !== "") {
+            showPopupMenu(currentMouseLocation);
+            // Restore the original contents of the clipboard
+            restoreClipboard();
+            return;
+        }
+
+        // If the text is not selected, check the files
+        var foregroundWindow = sp.ForegroundWindow();
+        var selectedFiles = null;
+
+        if (foregroundWindow.ExecutableName.toLowerCase() === "xyplorer.exe") {
+            var originalClip = clip.GetText() || ""; // Add an empty string as a default value
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_P]); // copy the file path
+            sp.Sleep(50);
+            var paths = clip.GetText();
+            if (paths) {
+                selectedFiles = paths.split('\n').map(p => p.trim()).filter(p => p);
+            }
+        originalClipboard = originalClip;
+        restoreClipboard();
+
+        } else {
+            selectedFiles = sp.GetSelectedFilesInExplorer(foregroundWindow.HWnd);
+            if (!selectedFiles || selectedFiles.Length === 0) {
+                selectedFiles = sp.GetSelectedFilesOnDesktop();
+            }
+        }
+
+        if (selectedFiles && (selectedFiles.length > 0 || selectedFiles.Length > 0)) {
+            showPopupMenu(currentMouseLocation, selectedFiles);
+        }
+    }
+}
+function showPopupMenu(currentMouseLocation, selectedFiles) {
+    var items = getMenuItems(selectedFiles);
+
+    // Determine screen dimensions
+    var screenWidth = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Width;
+    var screenHeight = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Height;
+
+    // Determine menu position
+    var menuX = currentMouseLocation.X;
+    var menuY = currentMouseLocation.Y;
+
+    // Check where to place the menu
+    if (screenHeight - menuY < 200) {
+        // If the menu doesn't fit below, place it above the cursor
+        menuY = Math.max(0, currentMouseLocation.Y - 200);
+        
+        // Move the cursor slightly above but keep it close to the original position
+        var newMouseY = Math.max(currentMouseLocation.Y - 0, 0);
+        sp.MouseMove(new Point(currentMouseLocation.X, newMouseY));
+    }
+
+    // Limit menu within the screen width
+    menuX = Math.min(Math.max(menuX, 0), screenWidth - 200);
+
+    // Show the popup menu
+    sp.PopupList(
+        items,
+        new Point(menuX, menuY),
+        menuFont,
+        menuBackgroundColor,
+        menuHighlightColor,
+        menuTextColor
+    );
+
+    restoreClipboard(); // Restore the original clipboard content
+}
+
+// Function to restore the clipboard content
+function restoreClipboard() {
+    if (originalClipboard !== "") {
+        try {
+            clip.SetText(originalClipboard);
+            originalClipboard = "";
+        } catch (error) {
+            sp.ConsoleError("Error restoring clipboard: " + error.message);
+        }
+    }
+}
+
+// Function to generate menu items
+function generateMenuItems(items, selectedText) {
+    var menuItems = [];
+    for (var key in items) {
+        if (typeof items[key] === "string") {
+            menuItems.push([key, openURL(items[key], selectedText)]);
+        } else if (typeof items[key] === "object") {
+            menuItems.push([key + " >", "", false, generateMenuItems(items[key], selectedText)]);
+        }
+    }
+    return menuItems;
+}
+
+// Function to get menu items
+function getMenuItems(selectedFiles) {
+    if (selectedFiles) {
+        var menuItems = [];
+        var filesArray = selectedFiles.Length ? Array.from(selectedFiles) : selectedFiles;
+
+        for (var programName in programs) {
+            var programPath = findExistingProgramPath(programs[programName].paths);
+            if (programPath) {
+                menuItems.push([
+                    programName,
+                    `
+                    try {
+                        var program = ${JSON.stringify(programPath)};
+                        var files = ${JSON.stringify(filesArray)};
+                        
+                        ${programs[programName].singleFile ? `
+                            // Open each file in a separate instance
+                            files.forEach(function(file) {
+                                sp.RunProgram(program, '"' + file + '"', "open", "normal", true, false, false);
+                                sp.Sleep(100); //  Slight delay between launches
+                            });
+                        ` : `
+                            // Open all files in one instance
+                            var fileArgs = files.map(file => '"' + file + '"').join(' ');
+                            sp.RunProgram(program, fileArgs, "open", "normal", true, false, false);
+                        `}
+                    } catch(e) {
+                        sp.ConsoleError("Error opening with " + ${JSON.stringify(programName)} + ": " + e.message);
+                    }
+                    `
+                ]);
+            }
+        }
+
+        return menuItems;
+    }
+
+    // Menu for text
+    return generateMenuItems(websites, selectedText);
+}
+
+if (click.Down) {
+    isLongPress = false;
+    startPoint = click.Point; // Remember the initial press coordinates
+
+    // Save the function for long press
+    sp.StoreObject('onLongPress', onLongPress);
+
+    // Create a timer for long press
+    if (!sp.GetTimer("LongPressTimer")) { // Check if the timer exists
+        sp.CreateTimer('LongPressTimer', longPressDelay, -1, String.raw`
+            if (sp.IsButtonDown(MouseButtons.${mouseButton})) {
+                var onLongPress = sp.GetStoredObject('onLongPress');
+                onLongPress();
+            }
+            sp.DeleteTimer('LongPressTimer');
+            //sp.ConsoleLog("Timer LongPressTimer deleted after execution.");
+        `);
+        //sp.ConsoleLog("Timer LongPressTimer created.");
+    }
+} else if (!click.Down) {
+    // Delete the timer for long press since the button was released
+    if (sp.GetTimer("LongPressTimer")) {
+        sp.DeleteTimer("LongPressTimer");
+       // sp.ConsoleLog("Timer LongPressTimer deleted after button release.");
+    }
+
+    var endPoint = click.Point;
+    var movedDistance = 0;
+
+    // Calculate the distance the mouse moved since the start of the press
+    if (startPoint !== null) {
+        movedDistance = Math.sqrt(
+            Math.pow(endPoint.X - startPoint.X, 2) + 
+            Math.pow(endPoint.Y - startPoint.Y, 2)
+        );
+    }
+
+    // Reset variables for the next press
+    isLongPress = false;
+    selectedText = "";
+    startPoint = null;
+}
