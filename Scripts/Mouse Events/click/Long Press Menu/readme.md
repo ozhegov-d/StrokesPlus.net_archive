@@ -1,5 +1,8 @@
 #### Long Press Menu
 
+v2 added  
++several sites in one menu item  
++in exlorer/XYplorer selected files can be opened in programs  
 
 https://github.com/user-attachments/assets/c9980d2c-6522-462e-a692-4e3c0a1b7728
 
