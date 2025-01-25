@@ -1,0 +1,90 @@
+try {
+// Open the console at the start
+    sp.ConsoleShow();
+    // Retrieve public IP address using external API
+    var httpHandler = new clr.System.Net.Http.HttpClientHandler();
+    var client = new clr.System.Net.Http.HttpClient(httpHandler);
+    client.BaseAddress = new clr.System.Uri("https://api64.ipify.org");
+
+    var publicIpResponse = client.GetStringAsync("?format=text").Result;
+    if (publicIpResponse) {
+       sp.ConsoleLog("-----------------", "Info");
+        sp.ConsoleLog("Public IP Address: " + publicIpResponse.trim(), "Info");
+    } else {
+        sp.ConsoleError("Error: Failed to retrieve public IP address", "Error");
+    }
+
+    httpHandler.Dispose();
+    client.Dispose();
+
+    // Retrieve local IPv4 and IPv6 addresses
+    var hostName = System.Net.Dns.GetHostName();
+    var ipAddresses = System.Net.Dns.GetHostAddresses(hostName);
+    var ipv4Addresses = Array.from(ipAddresses).filter(ip => ip.AddressFamily === System.Net.Sockets.AddressFamily.InterNetwork);
+    var ipv6Addresses = Array.from(ipAddresses).filter(ip => ip.AddressFamily === System.Net.Sockets.AddressFamily.InterNetworkV6);
+
+    if (ipv4Addresses.length > 0) {
+        var localIp = ipv4Addresses[0].ToString();
+        var localIPv6 = ipv6Addresses.length > 0 ? ipv6Addresses[0].ToString() : "None";
+        sp.SendString(localIp);
+        sp.ConsoleLog(`IPv4 Address: ${localIp}`, "Info");
+        sp.ConsoleLog(`IPv6 Address: ${localIPv6}`, "Info");
+    } else {
+        sp.ConsoleLog('No IPv4 address found.', "Warning");
+    }
+
+
+    sp.ConsoleLog("-----------------", "Info");
+
+    // Retrieve DNS servers
+    var networkInterfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
+    networkInterfaces.forEach(nic => {
+        var dnsAddresses = nic.GetIPProperties().DnsAddresses;
+        var ipv4DnsAddresses = Array.from(dnsAddresses).filter(ip => ip.AddressFamily === System.Net.Sockets.AddressFamily.InterNetwork);
+
+        if (ipv4DnsAddresses.length > 0) {
+            ipv4DnsAddresses.forEach(dns => {
+                sp.ConsoleLog(`DNS Server: ${dns.ToString()}`, "Info");
+            });
+        }
+    });
+
+    sp.ConsoleLog("---------------------", "Info");
+
+    // Retrieve network interfaces
+    if (!networkInterfaces || networkInterfaces.Length === 0) {
+        sp.ConsoleLog("No network interfaces found.", "Warning");
+    } else {
+        networkInterfaces.forEach(nic => {
+            // Wi-Fi information
+            if (nic.NetworkInterfaceType === System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211) {
+                var ssid = nic.Description; // Used for adapter name only
+                // var signalStrength = nic.GetIPProperties().SignalStrength; // Example
+                sp.ConsoleLog(`Wi-Fi SSID: ${ssid}`, "Info");
+            }
+
+            // Interface speed
+            if (nic.OperationalStatus === System.Net.NetworkInformation.OperationalStatus.Up && 
+                nic.NetworkInterfaceType !== System.Net.NetworkInformation.NetworkInterfaceType.Tunnel &&
+                nic.NetworkInterfaceType !== System.Net.NetworkInformation.NetworkInterfaceType.Loopback &&
+                !nic.Description.toLowerCase().includes("tunnel")) {
+                sp.ConsoleLog(`Interface: ${nic.Description} - Speed: ${(nic.Speed / 1e6).toFixed(2)} Mbps`, "Info");
+            }
+        });
+    }
+
+    sp.ConsoleLog("---------------", "Info");
+
+    // Retrieve and display MAC addresses
+    for (var i = 0; i < networkInterfaces.Length; i++) {
+        var adapter = networkInterfaces[i];
+        var macAddress = adapter.GetPhysicalAddress().ToString();
+        if (macAddress) {
+            var formattedMac = macAddress.match(/.{1,2}/g).join("-");
+            sp.ConsoleLog(`Adapter: ${adapter.Description} - MAC Address: ${formattedMac}`, "Info");
+        }
+    }
+
+} catch (e) {
+    sp.ConsoleError("An error occurred: " + e.message, "Error");
+}
