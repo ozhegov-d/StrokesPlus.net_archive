@@ -1,0 +1,107 @@
+var folderPath = "C:\\Wallpapers"; // Path to the wallpapers folder
+var Directory = clr.System.IO.Directory; 
+var Path = clr.System.IO.Path; 
+var File = clr.System.IO.File; 
+
+// Check if the type for wallpaper operations exists
+var StringT = host.typeOf(clr.System.String);
+var UIntT = host.typeOf(clr.System.UInt32);
+var Native = sp.NativeModule();
+
+if (!NativeModules.WallpaperAPI) {
+    var typeTB = Native.DefineType("WallpaperAPI", "Class,Public,SequentialLayout,Serializable");
+
+    typeTB.DefinePInvokeMethod(
+        "SystemParametersInfoW",
+        "user32.dll",
+        [UIntT, UIntT, StringT, UIntT],
+        UIntT,
+        "PreserveSig"
+    );
+
+    typeTB.Create();
+}
+
+function setWallpaper(wallpaperPath) {
+    try {
+        const SPI_SETDESKWALLPAPER = 0x0014;
+        const SPIF_UPDATEINIFILE = 0x01;
+        const SPIF_SENDCHANGE = 0x02;
+
+        const result = NativeModules.WallpaperAPI.SystemParametersInfoW(
+            SPI_SETDESKWALLPAPER,
+            0,
+            wallpaperPath,
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE
+        );
+
+        if (result) {
+          //  sp.ConsoleLog(`Wallpaper successfully set to: ${wallpaperPath}`, "Info");
+        } else {
+            sp.ConsoleLog("Failed to set wallpaper.", "Error");
+        }
+    } catch (e) {
+        sp.ConsoleLog(`Error: ${e.message}`, "Error");
+    }
+}
+
+// Store history of selected files
+var usedWallpapersKey = "UsedWallpapers";
+var lastWallpaperKey = "LastWallpaper";
+var usedWallpapers = sp.GetStoredString(usedWallpapersKey);
+var lastWallpaper = sp.GetStoredString(lastWallpaperKey);
+usedWallpapers = usedWallpapers ? JSON.parse(usedWallpapers) : [];
+
+try {
+    // Check if the folder exists
+    if (!Directory.Exists(folderPath)) {
+        sp.ConsoleLog(`Folder does not exist: ${folderPath}`, "Error");
+    } else {
+       // sp.ConsoleLog(`Folder exists: ${folderPath}`, "Info");
+
+        // Get the list of image files
+        var supportedFormats = ["*.jpg", "*.png", "*.bmp"];
+        var files = [];
+        supportedFormats.forEach(format => {
+            files = files.concat(Array.from(Directory.GetFiles(folderPath, format)));
+        });
+
+        if (files.length === 0) {
+           // sp.ConsoleLog("No supported image files found in the folder.", "Warning");
+        } else {
+            // Remove already used files
+            files = files.filter(file => !usedWallpapers.includes(file));
+
+            // Reset history if all files are used
+            if (files.length === 0) {
+               // sp.ConsoleLog("All wallpapers used. Resetting history.", "Info");
+                usedWallpapers = [];
+                supportedFormats.forEach(format => {
+                    files = files.concat(Array.from(Directory.GetFiles(folderPath, format)));
+                });
+            }
+
+            // Exclude the last file on the first pick after reset
+            if (files.length > 1 && usedWallpapers.length === 0) {
+                files = files.filter(file => file !== lastWallpaper);
+            }
+
+            // Pick a random file
+            var randomIndex = Math.floor(Math.random() * files.length);
+            var selectedWallpaper = files[randomIndex];
+
+            // Set the wallpaper using WinAPI
+            //sp.ConsoleLog(`Setting wallpaper: ${selectedWallpaper}`, "Info");
+            setWallpaper(selectedWallpaper);
+
+            // Add the current file to history and save it
+            usedWallpapers.push(selectedWallpaper);
+            sp.StoreString(usedWallpapersKey, JSON.stringify(usedWallpapers));
+
+            // Update the last file
+            sp.StoreString(lastWallpaperKey, selectedWallpaper);
+        }
+    }
+} catch (e) {
+    sp.ConsoleLog(`Error: ${e.message}`, "Error");
+}
