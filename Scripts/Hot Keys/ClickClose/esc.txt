@@ -1,0 +1,57 @@
+// How many consecutive clicks are required? (3 = triple click)
+var neededClicks = 3;
+// Maximum interval (in seconds) between clicks
+// to consider them "consecutive" 
+var intervalSec = 0.2;
+
+// List of applications to close via Ctrl+W
+var browserList = ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"];
+
+// List of applications that should not be closed
+var excludedList = [
+    "explorer.exe",   
+    "taskmgr.exe",          
+];
+
+var now = Date.now();
+var lastTime = sp.GetStoredNumber("multiClick_LastTime") || 0;
+var deltaSec = lastTime ? (now - lastTime) / 1000 : 0;
+var clickCount = sp.GetStoredNumber("multiClick_Count") || 0;
+
+if (deltaSec <= intervalSec) {
+    clickCount++;
+} else {
+    clickCount = 1;
+}
+
+sp.StoreNumber("multiClick_LastTime", now);
+sp.StoreNumber("multiClick_Count", clickCount);
+
+//sp.ConsoleLog(`Needed: ${neededClicks}, ClickCount: ${clickCount}, deltaSec=${deltaSec.toFixed(3)}`);
+
+if (clickCount >= neededClicks) {
+    sp.DeleteStoredNumber("multiClick_LastTime");
+    sp.DeleteStoredNumber("multiClick_Count");
+    
+    var wnd = sp.ForegroundWindow();
+    
+    if (wnd) {
+        var exeName = wnd?.Process?.MainModule?.ModuleName.toLowerCase() || "";
+        
+        // Exception check
+        if (excludedList.includes(exeName)) {
+            //sp.ConsoleLog(`Closing ${exeName} is not allowed`);
+            clickCount = 1; // Resetting the click counter
+        } else {
+            var isBrowser = browserList.includes(exeName);
+            
+            if (isBrowser) {
+                sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_W]);
+            } else {
+                wnd.SendClose();
+            }
+        }
+    } else {
+        sp.ConsoleLog("Failed to find the active window");
+    }
+}
