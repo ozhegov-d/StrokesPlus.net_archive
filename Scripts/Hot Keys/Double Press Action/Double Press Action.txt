@@ -1,0 +1,113 @@
+var duration = 200;
+
+//SendKeys format:
+//^ = Ctrl
+//+ = Shift
+//% = Alt
+//{TAB}, {F4}, etc. for special keys
+
+//SendModifiedVKeys формат:
+//vk.LCONTROL = Left Ctrl
+//vk.LSHIFT = Left Shift
+//vk.LMENU = Left Alt
+//vk.VK_TAB, vk.VK_F4, etc. for special keys
+
+// Actions for different applications
+var appActions = {
+  "notepad": [ // process
+    {
+      windowTitle: "123", // window title (match)
+      type: "keys",    //SendKeys
+      action: "^{a}" // Ctrl+A via SendKeys
+    }
+  ],
+  "notepad++": [
+    {
+      type: "keys",   
+      action: "{f5}"   
+    }
+  ],
+  "chrome": [ // in one application, 2 different window titles (will work only there)
+    {
+      windowTitle: "123",  //window title (match)
+      type: "modified", //SendModifiedVKeys with modifier
+      modifiers: [vk.LCONTROL], 
+      keys: [vk.VK_L]
+    },
+    {
+      windowTitle: "456",
+      type: "modified", 
+      modifiers: [vk.LCONTROL],
+      keys: [vk.VK_L]
+    }
+  ],
+  "code": [ // process
+    {
+      windowTitle: "script.js",
+      type: "keys",
+      action: "^{s}"
+    },
+    {
+      windowTitle: "index.html",
+      type: "keys",
+      action: "^{r}"
+    }
+  ]
+};
+
+// Get active window and process name
+var activeWindow = sp.ForegroundWindow();
+var processName = activeWindow?.Process?.ProcessName?.toLowerCase();
+var windowTitle = activeWindow?.Title?.toLowerCase();
+
+// Log based on whether window title exists
+if (windowTitle && matchedConfig?.windowTitle) {
+  //sp.ConsoleLog(`Active application: ${processName}, Title: ${windowTitle}`, "App");
+} else {
+ // sp.ConsoleLog(`Active application: ${processName}`, "App");
+}
+
+// Check if app exists in appActions
+if (appActions.hasOwnProperty(processName)) {
+  var actionConfigs = appActions[processName];
+  
+  // Find matching configuration based on window title
+  var matchedConfig = actionConfigs.find(config =>
+    !config.windowTitle || (windowTitle && windowTitle.includes(config.windowTitle))
+  );
+
+  if (matchedConfig) {
+    var alreadyPressed = sp.GetStoredBool("pressed");
+    //sp.ConsoleLog(`Flag alreadyPressed = ${alreadyPressed}`, "Status");
+
+    if (alreadyPressed) {
+      // Handle second press
+     // sp.ConsoleLog("Second press detected", "Double Press");
+      sp.DeleteTimer("Double Press Action");
+      sp.StoreBool("pressed", false);
+      
+      // Execute action based on type
+      if (matchedConfig.type === "keys") {
+        sp.SendKeys(matchedConfig.action);
+      } else if (matchedConfig.type === "modified") {
+        sp.SendModifiedVKeys(matchedConfig.modifiers, matchedConfig.keys);
+      }
+    } else {
+      // Handle first press
+      sp.DeleteTimer("Double Press Action");
+      sp.CreateTimer("Double Press Action", duration, 1, String.raw`
+        if (sp.GetStoredBool("pressed")) {
+         // sp.ConsoleLog("Timer triggered - skipping", "Timer");
+          sp.StoreBool("pressed", false);
+         // sp.ConsoleLog("Reset pressed flag", "Status");
+        }
+      `);
+      sp.StoreBool("pressed", true);
+     // sp.ConsoleLog("Set pressed flag = true", "Status");
+    }
+  } else {
+    //sp.ConsoleLog("Window title does not match - skipping", "App");
+  }
+} else {
+  sp.ConsoleLog("Application not supported - skipping", "App");
+}
