@@ -1,3 +1,19 @@
+### Quick Close/Re-Open
+
+**Close**  
+var maxStoredWindows = 6; // maximum number of recently closed windows that can be restored/reopened
+
+short gesture - closes (tab/program)  
+long gesture - closes all windows of the same process  
+
+**Re-Open**  
+short gesture - restores the last closed tab in browser  
+Long gesture - menu for restoring programs  
+
+
+https://github.com/user-attachments/assets/7593ad56-a9f4-4001-9963-6eab5fb22b95
+
+
 ### Copy-Paste
 **Copy**
 
