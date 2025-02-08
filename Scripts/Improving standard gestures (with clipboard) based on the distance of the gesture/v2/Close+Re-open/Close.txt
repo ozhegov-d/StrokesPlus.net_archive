@@ -1,0 +1,233 @@
+var DEBUG_MODE = false; // Set true to enable console messages
+
+function debugLog(message, label = 'Debug', color = System.Drawing.Color.Red) {
+    if (DEBUG_MODE) {
+        sp.ConsoleLog(message, label, color);
+    }
+}
+var BROWSERS = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"];
+
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'left';
+info.Duration = 500;
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+info.Padding = 0;
+info.FadeSteps = 18;
+
+var longGestureThreshold = 200; // long Gesture
+var maxStoredWindows = 6; // maximum number of recently closed windows that can be restored/reopened
+
+function displayMessage(message) {
+   info.Message = message;
+   if (typeof action !== 'undefined' && action.End) {
+       info.Location = `${action.End.X + 10},${action.End.Y - 30}`;
+   } else {
+       info.Location = '100,100';
+   }
+   sp.DisplayText(info);
+}
+
+function getFilePathFromWnd(wnd) {
+    var processName = wnd.Process?.ProcessName?.toLowerCase() || "";
+    if (BROWSERS.some(browser => processName.includes(browser))) {
+        return "N/A";
+    }
+    var filePath = "";
+    var windowTitle = wnd.Text || "";
+    var cmdLine = wnd.CommandLine || "";
+
+    var titleMatch = windowTitle.match(/^(.*?(?:\.[\w]+)?)(?:\s*[-–]\s*|\s+\[|\s+\(|$)/);
+    if (titleMatch) {
+        filePath = titleMatch[1].trim();
+    }
+
+    if (!filePath.includes(":\\") && !filePath.startsWith("\\\\")) {
+        if (processName === "notepad") {
+            var cmdParts = cmdLine.split('"');
+            for (var i = 0; i < cmdParts.length; i++) {
+                var part = cmdParts[i].trim();
+                if (part && part.includes(".") && part.includes("\\") && 
+                    !part.toLowerCase().endsWith("notepad.exe")) {
+                    filePath = part;
+                    break;
+                }
+            }
+        } else {
+            var cmdMatch = cmdLine.match(/"([^"]+)"|(\S+)/g);
+            if (cmdMatch && cmdMatch.length > 1) {
+                filePath = cmdMatch[1].replace(/"/g, '').trim();
+            }
+        }
+    }
+
+    return System.IO.File.Exists(filePath) ? filePath : "N/A";
+}
+
+function getExePath(wnd) {
+    try {
+        return wnd.Process?.MainModule?.FileName || "N/A";
+    } catch (e) {
+        debugLog('Error getting exe path: ' + e.message, 'Error', System.Drawing.Color.Red);
+        return "N/A";
+    }
+}
+
+var currentWindow = sp.ForegroundWindow();
+if (currentWindow && currentWindow.IsValid()) {
+    var distance = Math.round(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2) + Math.pow((action.End.Y - action.Start.Y), 2)));
+    var isLongGesture = distance > longGestureThreshold;
+    var closedWindows = [];
+    
+    debugLog(`-------------- (${isLongGesture ? 'long' : 'short'} gesture ${isLongGesture ? '>' : '<'}${longGestureThreshold})`, 'Info', System.Drawing.Color.Yellow);
+    debugLog(`Distance: ${distance} (${isLongGesture ? 'Long' : 'Short'} gesture detected)`, 'Info', System.Drawing.Color.Green);
+    
+    // Get the existing stack
+    var stackJSON = sp.GetStoredString("ClosedWindowsStackJSON");
+    var stack = stackJSON ? JSON.parse(stackJSON) : [];
+
+    // Duplicate check function
+    function isDuplicate(window) {
+        return stack.some(w => 
+            w.processName === window.processName && 
+            w.filePath === window.filePath && 
+            w.title === window.title
+        );
+    }
+
+  // LongGesture
+    if (isLongGesture) {
+        var allWindows = sp.AllApplications();
+        var currentProcessName = currentWindow.Process.ProcessName;
+        var processWindows = [];
+
+        for (var i = 0; i < allWindows.Length; i++) {
+            var w = allWindows[i];
+            if (w.Process.ProcessName === currentProcessName && w.Visible) {
+                processWindows.push({
+                    title: w.Title || "Untitled",
+                    processName: w.Process.ProcessName,
+                    filePath: getFilePathFromWnd(w),
+                    exePath: getExePath(w),
+                    timestamp: Date.now(),
+                    isLongGesture: true,
+                    position: {
+                        x: w.Location.X,
+                        y: w.Location.Y,
+                        width: w.Size.Width,
+                        height: w.Size.Height,
+                        screen: w.Screen.DeviceName,
+                        isMaximized: w.Maximized
+                    }
+                });
+                debugLog(`Added window to close: ${w.Title}`, 'Info', System.Drawing.Color.Green);
+            }
+        }
+
+        if (processWindows.length > 0) {
+        displayMessage('Windows closed'); 
+        processWindows.forEach(windowInfo => {
+            var window = Array.from(allWindows).find(w => 
+                w.Process.ProcessName === windowInfo.processName && 
+                w.Title === windowInfo.title
+            );
+            if (window) {
+                window.SendClose(); //Sends the WM_CLOSE message to the window.
+                debugLog(`Closed window: ${windowInfo.title}`, 'Info', System.Drawing.Color.Green);
+
+                // window closing delay
+                sp.Sleep(100);
+            }
+        });
+    }
+
+        if (processWindows.length > 0) {
+            // Check each window in the stack and remove duplicates
+            for (var i = stack.length - 1; i >= 0; i--) {
+                if (stack[i].windows) {
+                    var hasDuplicate = stack[i].windows.some(existingWin => 
+                        processWindows.some(newWin => 
+                            existingWin.processName === newWin.processName && 
+                            existingWin.title === newWin.title
+                        )
+                    );
+                    if (hasDuplicate) {
+                        stack.splice(i, 1);
+                    }
+                }
+            }
+            
+            stack.unshift({
+                windows: processWindows,
+                timestamp: processWindows[0].timestamp
+            });
+            debugLog("Updated stack:", "Debug", System.Drawing.Color.Red);
+            debugLog(JSON.stringify(stack, null, 2), "Debug", System.Drawing.Color.Red);
+        }
+    } else {
+        var processName = currentWindow.Process.ProcessName.toLowerCase();
+        var isBrowser = BROWSERS.some(browser => processName.includes(browser));
+        var isExplorer = processName === "explorer"; // for QTTabBar
+            
+        if (isBrowser) {
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_W]);
+            displayMessage('⛌');
+            debugLog("Tab closed", "Debug", System.Drawing.Color.Green);
+
+    } else if (isExplorer) { // for QTTabBar
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_W]);
+    displayMessage('⛌');
+    debugLog("Tab closed", "Debug", System.Drawing.Color.Green);
+
+        } else {
+            var windowInfo = {
+                title: currentWindow.Title || "Untitled",
+                processName: currentWindow.Process.ProcessName,
+                filePath: getFilePathFromWnd(currentWindow),
+                exePath: getExePath(currentWindow),
+                timestamp: Date.now(),
+                isLongGesture: false,
+                position: {
+                    x: currentWindow.Location.X,
+                    y: currentWindow.Location.Y,
+                    width: currentWindow.Size.Width,
+                    height: currentWindow.Size.Height,
+                    screen: currentWindow.Screen.DeviceName,
+                    isMaximized: currentWindow.Maximized
+                }
+            };
+            
+            // Remove duplicates before adding a new window
+            stack = stack.filter(item => 
+                !(item.title === windowInfo.title && 
+                  item.processName === windowInfo.processName && 
+                  item.filePath === windowInfo.filePath)
+            );
+            
+            stack.unshift(windowInfo);
+            
+            debugLog("Closed window (short gesture):", "Debug", System.Drawing.Color.Green);
+            debugLog(JSON.stringify(windowInfo, null, 2), "Debug", System.Drawing.Color.Green);
+            debugLog("Updated stack:", "Debug", System.Drawing.Color.Green);
+            debugLog(JSON.stringify(stack, null, 2), "Debug", System.Drawing.Color.Green);
+            
+            currentWindow.SendClose(); //Sends the WM_CLOSE message to the window.
+            //currentWindow.SendMessageObj(0x0010, 0, 0); //Synchronous, blocks until message is processed, window must respond
+            //currentWindow.PostMessageObj(0x0010, 0, 0); //Asynchronous, puts message in queue and continues, non-blocking
+            //currentWindow.Process.CloseMainWindow(); //Simulates clicking window's close button, lets app handle closing normally
+            //currentWindow.Process.Kill(); //Force terminates process immediately, no cleanup/saving (like Task Manager's "End Task")
+
+            displayMessage('Window closed');
+        }
+    }
+
+    if (stack.length > maxStoredWindows) {
+        stack = stack.slice(0, maxStoredWindows);
+        debugLog(`Trimmed stack to ${maxStoredWindows} items`, 'Info', System.Drawing.Color.Green);
+    }
+    
+    sp.StoreString("ClosedWindowsStackJSON", JSON.stringify(stack));
+} else {
+    debugLog('Invalid window', 'Error', System.Drawing.Color.Red);
+}

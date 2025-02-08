@@ -1,0 +1,216 @@
+var DEBUG_MODE = false; // Set false to disable all console messages
+
+function debugLog(message, label = 'Debug', color = System.Drawing.Color.Green) {
+    if (DEBUG_MODE) {
+        sp.ConsoleLog(message, label, color);
+    }
+}
+//Re-open 
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'left';
+info.Duration = 500;
+info.MessageFont = new Font('Segoe UI Semibold', 20);
+info.BackColor = 'black';
+info.ForeColor = 'white';
+info.Padding = 15;
+info.FadeSteps = 18;
+
+var longGestureThreshold = 220; // long Gesture
+
+var distance = Math.round(Math.sqrt(Math.pow((action.End.X - action.Start.X), 2) + Math.pow((action.End.Y - action.Start.Y), 2)));
+if (distance > longGestureThreshold) {
+    var closedWindowsStackJSON = sp.GetStoredString("ClosedWindowsStackJSON");
+    var stack = closedWindowsStackJSON ? JSON.parse(closedWindowsStackJSON) : [];
+    if (stack.length > 0) {
+        var items = [];
+        // Sort the entire stack by time
+        stack.sort((a, b) => b.timestamp - a.timestamp);
+        stack.forEach(item => {
+            if (Array.isArray(item.windows)) {
+                // Long gesture window group
+                  if (item.windows.length > 1) {
+                    var processWindows = item.windows;
+                    
+                    items.push([
+                        `(${processWindows.length} windows, ${processWindows[0].processName}) ${processWindows[0].title}...`,
+                        // First we open all the files
+                        'debugLog("Starting to restore windows...", "Debug");\n' +
+                        processWindows.map(w => 
+                            `debugLog("Running: ${w.exePath.replace(/\\/g, '\\\\')} ${w.filePath.replace(/\\/g, '\\\\')}", "Debug");\n` +
+                            `sp.Run(${JSON.stringify(`"${w.exePath}" "${w.filePath}"`)});`
+                        ).join('\n') + 
+                        // Waiting for the opening
+                        '\ndebugLog("Waiting for windows to open...", "Debug");\n' +
+                        '\nsp.Sleep(1500);\n' + 
+                        // Put them in their places
+                        processWindows.map(w => 
+                            `debugLog("Searching for window: ${w.title}", "Debug");\n` +
+                            `var allWindows = sp.AllApplications();
+                             var targetWindow = Array.from(allWindows).find(win => {
+                                 var matchesProcess = win.Process.ProcessName === ${JSON.stringify(w.processName)};
+                                 var matchesTitle = win.Title === ${JSON.stringify(w.title)};
+                                 return matchesProcess && matchesTitle;
+                             });
+                             if (targetWindow) {
+                                 // First move it to the desired monitor, if necessary
+                                 if (targetWindow.Screen.DeviceName !== ${JSON.stringify(w.position.screen)}) {
+                                     var allScreens = System.Windows.Forms.Screen.AllScreens;
+                                     var targetScreen = Array.from(allScreens).find(s => s.DeviceName === ${JSON.stringify(w.position.screen)});
+                                     if (targetScreen) {
+                                         targetWindow.Location = new Point(targetScreen.Bounds.X + 50, targetScreen.Bounds.Y + 50);
+                                         sp.Sleep(200);
+                                     }
+                                 }
+                                 // Apply the final state
+                                 if (${w.position.isMaximized}) {
+                                     targetWindow.Maximize();
+                                 } else {
+                                     if (targetWindow.Maximized) targetWindow.Restore();
+                                     targetWindow.Location = new Point(${w.position.x}, ${w.position.y});
+                                     targetWindow.Size = new Size(${w.position.width}, ${w.position.height});
+                                 }
+                             }`
+                        ).join('\n')
+                    ]);
+                   
+                } else {
+                    items.push([
+                        `${item.windows[0].title} (${item.windows[0].processName})`,
+                        `RunOrActivate(
+                            ${JSON.stringify(item.windows[0].filePath)}, 
+                            ${JSON.stringify(item.windows[0].exePath)}, 
+                            ${JSON.stringify(item.windows[0].processName)}, 
+                            ${JSON.stringify(item.windows[0].position)},
+                            ${JSON.stringify(item.windows[0].title)}
+                        );`
+                    ]);
+                }
+            } else {
+                items.push([
+                    `${item.title} (${item.processName})`,
+                    `RunOrActivate(
+                        ${JSON.stringify(item.filePath)}, 
+                        ${JSON.stringify(item.exePath)}, 
+                        ${JSON.stringify(item.processName)}, 
+                        ${JSON.stringify(item.position)},
+                        ${JSON.stringify(item.title)}
+                    );`
+                ]);
+            }
+        });
+       
+       // items.push(["Clear history", "sp.StoreString('ClosedWindowsStackJSON', '[]');"]); // Сlear history button
+        sp.PopupList(items, action.End);
+    } else {
+        debugLog("No windows to restore", 'Info', System.Drawing.Color.Red);
+    }
+} else {
+    var currentWindow = sp.ForegroundWindow();
+    var currentExeName = currentWindow.Process.MainModule.ModuleName.toLowerCase();
+    var isBrowser = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"].some(browser => currentExeName.includes(browser));
+    var isExplorer = currentExeName.includes("explorer.exe"); // for QTTabBar
+    if (isBrowser) {
+        sp.SendModifiedVKeys([vk.LCONTROL, vk.LSHIFT], [vk.VK_T]);
+    } else if (isExplorer) { // for QTTabBar 
+        sp.SendModifiedVKeys([vk.LCONTROL, vk.LSHIFT], [vk.VK_Z]); // change to your combination of tab restore
+    } else {
+    }
+}
+
+function RunOrActivate(filePath, exePath, processName, position, title) {
+    try {
+        debugLog("RunOrActivate called with:", "Debug");
+        debugLog(JSON.stringify({filePath, exePath, processName, position, title}, null, 2), "Debug");
+
+        filePath = filePath ? filePath.trim() : "N/A";
+        exePath = exePath ? exePath.trim() : "N/A";
+
+        if (!exePath || exePath === "N/A") {
+            debugLog("Invalid exePath", "Debug", System.Drawing.Color.Red);
+            return null;
+        }
+
+        var command = "";
+        if (!filePath || filePath === "N/A") {
+            command = `"${exePath}"`;
+        } else if (System.IO.File.Exists(filePath)) {
+            command = `"${exePath}" "${filePath.trim()}"`;
+        } else {
+            command = `"${exePath}"`;
+        }
+
+        debugLog("Running command: " + command, "Debug");
+        sp.Run(command);
+        sp.Sleep(1000);
+
+        var allWindows = sp.AllApplications();
+        debugLog("All windows in RunOrActivate:", "Debug");
+        Array.from(allWindows).forEach(win => {
+            debugLog(`Process: ${win.Process.ProcessName}, Title: ${win.Title}`, "Debug");
+        });
+
+        for (var i = 0; i < allWindows.Length; i++) {
+            var w = allWindows[i];
+            var matchesProcess = w.Process.ProcessName === processName;
+var matchesTitle = w.Title === title;
+debugLog(`Checking window - Process match: ${matchesProcess}, Title match: ${matchesTitle}`, "Debug");
+debugLog(`Comparing: '${w.Title}' with '${title}'`, "Debug");
+debugLog(`Title lengths: ${w.Title.length} vs ${title.length}`, "Debug");
+            if (matchesProcess && matchesTitle) {
+                debugLog("Found window to restore:", "Debug");
+                debugLog(JSON.stringify({
+                    foundTitle: w.Title,
+                    foundProcess: w.Process.ProcessName,
+                    currentPosition: {
+                        x: w.Location.X,
+                        y: w.Location.Y,
+                        width: w.Size.Width,
+                        height: w.Size.Height,
+                        screen: w.Screen.DeviceName,
+                        isMaximized: w.Maximized
+                    }
+                }, null, 2), "Debug");
+
+                if (position) {
+    debugLog(`Target screen: ${position.screen}, Current screen: ${w.Screen.DeviceName}`, "Debug");
+    
+    // If the window is on the wrong monitor
+    if (position.screen !== w.Screen.DeviceName) {
+        debugLog("Moving to correct monitor first", "Debug");
+        if (w.Maximized) {
+            w.Restore();
+            sp.Sleep(100);
+        }
+        var allScreens = System.Windows.Forms.Screen.AllScreens;
+        var targetScreen = Array.from(allScreens).find(s => s.DeviceName === position.screen);
+        if (targetScreen) {
+            w.Location = new Point(targetScreen.Bounds.X + 50, targetScreen.Bounds.Y + 50);
+            sp.Sleep(200);
+            // Maximize after the move
+            if (position.isMaximized) {
+                w.Maximize();
+            }
+        }
+    } else {
+        // The window is already on the right monitor
+        if (position.isMaximized) {
+            w.Maximize();
+        } else {
+            debugLog("Restoring window position", "Debug");
+            if (w.Maximized) {
+                w.Restore();
+            }
+            w.Location = new Point(position.x, position.y);
+            w.Size = new Size(position.width, position.height);
+        }
+    }
+}
+return true;
+         }
+    }
+    debugLog("Window not found after launch", "Debug", System.Drawing.Color.Red);
+    return true;
+} catch (e) {
+    debugLog("Error in RunOrActivate: " + e.toString(), "Debug", System.Drawing.Color.Red);
+    return null;
+}}
