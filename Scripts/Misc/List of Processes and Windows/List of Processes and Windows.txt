@@ -1,0 +1,139 @@
+var logUniqueVisibleWindowProcesses = true; //sp.AllApplications
+var logAllProcesses = false; //sp.AllWindows 
+var logFoundProcesses = false; // to search for a specific process in sp.AllWindows
+
+function listProcesses(visibleOnly, logUniqueVisibleWindowProcesses, logAllProcesses, logFoundProcesses, search) {
+    var allApps = logUniqueVisibleWindowProcesses ? sp.AllApplications() : sp.AllWindows();
+    var uniqueVisibleProcesses = new Map();
+    var lowerSearch = search.toLowerCase();
+
+    if (logUniqueVisibleWindowProcesses) {
+        for (var i = 0; i < allApps.Length; i++) {
+            if (!allApps[i].Visible) continue;
+
+            var procName = allApps[i].Process.ProcessName;
+            if (!uniqueVisibleProcesses.has(procName)) {
+                uniqueVisibleProcesses.set(procName, new Set());
+            }
+            uniqueVisibleProcesses.get(procName).add(allApps[i].Title);
+        }
+
+        logProcesses(uniqueVisibleProcesses, "sp.AllApplications (Unique processes with visible windows)", lowerSearch);
+        sp.ConsoleLog(`Total unique processes with visible windows: ${uniqueVisibleProcesses.size} (total windows ${allApps.Length})`, "Count", System.Drawing.Color.LightGreen);
+        sp.ConsoleLog("------------------------------------------------------------", "");
+    }
+
+    if (logAllProcesses) {
+        var allWindows = sp.AllWindows();
+        var allProcessMap = new Map();
+
+        for (var i = 0; i < allWindows.Length; i++) {
+            var procName = allWindows[i].Process.ProcessName;
+            if (!allProcessMap.has(procName)) {
+                allProcessMap.set(procName, new Set());
+            }
+            allProcessMap.get(procName).add(allWindows[i].Title);
+        }
+
+        sp.ConsoleLog("=== All windows ===", "Header", System.Drawing.Color.Cyan);
+        logProcesses(allProcessMap, "", "");
+        sp.ConsoleLog(`Total windows: ${allWindows.Length}`, "Count", System.Drawing.Color.LightGreen);
+        sp.ConsoleLog("------------------------------------------------------------", "Separator");
+    }
+
+    if (lowerSearch && logFoundProcesses) {
+        var appsToSearch = sp.AllWindows();
+        sp.ConsoleLog(`sp.AllWindows (Processes containing "${search}")`, "Header", System.Drawing.Color.Red);
+        var foundProcesses = new Map();
+        var totalWindows = 0;
+        var visibleWindows = new Set();
+        var hiddenWindows = new Set();
+
+        for (var i = 0; i < appsToSearch.Length; i++) {
+            var procName = appsToSearch[i].Process.ProcessName;
+            var title = appsToSearch[i].Title;
+            if (procName.toLowerCase().includes(lowerSearch) ||
+                title.toLowerCase().includes(lowerSearch)) {
+
+                if (!foundProcesses.has(procName)) {
+                    foundProcesses.set(procName, new Set());
+                }
+                foundProcesses.get(procName).add(appsToSearch[i]);
+                totalWindows++;
+
+                if (appsToSearch[i].Visible) {
+                    visibleWindows.add(appsToSearch[i]);
+                } else {
+                    hiddenWindows.add(appsToSearch[i]);
+                }
+            }
+        }
+
+        sp.ConsoleLog("╔════════════════════════════════════════════════════════════════════════════════╗", "", System.Drawing.Color.LightBlue);
+        sp.ConsoleLog(`║ Total visible windows: ${visibleWindows.size}`, "Count", System.Drawing.Color.LightGreen);
+        visibleWindows.forEach(window => {
+            sp.ConsoleLog(`${window.Process.ProcessName} (${window.Title})`, "Process", System.Drawing.Color.LightGreen);
+        });
+        sp.ConsoleLog("╚════════════════════════════════════════════════════════════════════════════════╝", "", System.Drawing.Color.LightBlue);
+
+        sp.ConsoleLog(`Total hidden windows: ${hiddenWindows.size}`, "Count", System.Drawing.Color.Orange);
+        logProcessesWithWindowsNoIndicator(hiddenWindows, lowerSearch, false);
+
+        sp.ConsoleLog(`Total windows found: ${totalWindows}`, "Count", System.Drawing.Color.LightGreen);
+        sp.ConsoleLog("------------------------------------------------------------", "");
+    }
+}
+
+function logProcesses(processes, header, lowerSearch) {
+    if (header) sp.ConsoleLog(header, "Header", System.Drawing.Color.Red);
+
+    var sortedProcesses = new Map([...processes.entries()].sort());
+
+    sortedProcesses.forEach((titles, procName) => {
+        var color = System.Drawing.Color.LightBlue;
+        if (lowerSearch &&
+            (procName.toLowerCase().includes(lowerSearch) ||
+                [...titles].some(title => title.toLowerCase().includes(lowerSearch)))) {
+            color = System.Drawing.Color.Yellow;
+        }
+
+        titles.forEach(title => {
+            if (title.trim()) {
+                sp.ConsoleLog(`${procName} (${title})`, "Process", color);
+            }
+        });
+    });
+}
+
+function logProcessesWithWindowsNoIndicator(windows, lowerSearch, isVisible) {
+    windows.forEach(window => {
+        var color = isVisible ? System.Drawing.Color.LightGreen : System.Drawing.Color.Orange;
+        if (lowerSearch && !(window.Process.ProcessName.toLowerCase().includes(lowerSearch) ||
+            window.Title.toLowerCase().includes(lowerSearch))) {
+            color = isVisible ? System.Drawing.Color.LightGreen : System.Drawing.Color.Orange;
+        }
+        sp.ConsoleLog(`${window.Process.ProcessName} (${window.Title})`, "Process", color);
+    });
+}
+
+if (logUniqueVisibleWindowProcesses && !logAllProcesses && !logFoundProcesses) {
+    var search = ""; // Initialize search with an empty string
+    sp.ConsoleShow();
+    listProcesses(true, logUniqueVisibleWindowProcesses, logAllProcesses, logFoundProcesses, search);
+} else {
+    var inputBoxInfo = new InputBoxInfo();
+    inputBoxInfo.Title = 'Search processes';
+    inputBoxInfo.Message = 'Enter search text:';
+    inputBoxInfo.AllowDirectInput = true;
+    inputBoxInfo.ShowAtMouseCursor = true;
+
+    var search = sp.InputBox(inputBoxInfo);
+
+    if (search !== null && search !== "") {
+        sp.ConsoleShow();
+        listProcesses(true, logUniqueVisibleWindowProcesses, logAllProcesses, logFoundProcesses, search);
+    } else {
+        sp.ConsoleShow();
+        sp.ConsoleLog("Search canceled or no search text entered", "Info", System.Drawing.Color.Red);
+    }
+}
