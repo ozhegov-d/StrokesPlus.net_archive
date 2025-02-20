@@ -1,0 +1,340 @@
+function sendText() {
+    var inputFile = `
+[Roman Numerals]
+1                        | roman1                       | Ⅰ  
+2                        | roman2                       | Ⅱ
+3                        | roman3                       | Ⅲ
+4                        | roman4                       | Ⅳ
+5                        | roman5                       | Ⅴ
+6                        | roman6                       | Ⅵ
+7                        | roman7                       | Ⅶ  
+8                        | roman8                       | Ⅷ
+9                        | roman9                       | Ⅸ
+10                       | roman10                      | Ⅹ
+11                       | roman11                      | Ⅺ
+12                       | roman12                      | Ⅻ
+50                       | roman50                      | Ⅼ  
+100                      | roman100                     | Ⅽ
+500                      | roman500                     | Ⅾ
+1000                     | roman1000                    | Ⅿ
+
+[Brackets]
+parentheses              | parent                       | ( )  
+brackets square          | squarebracket                | [ ]
+bracket curly            | curlybracket                 | { }
+super script parentheses | ^, superscr                  | X⁽²⁾
+sub script parentheses   | !^, subscr                   | X₍₂₎
+tortoise shell bracket   | tortoise, shell              | 〔...〕
+boxed text               | boxed                        | ⎸...⎹
+bracket angle            | anglebracket                 | ⟨ ⟩  
+bracket ceiling          | ceilingbracket               | ⌈ ⌉
+bracket floor            | floorbracket                 | ⌊ ⌋
+quasi-quotation          | quine, topbracket, quasi     | ⌜⌝
+editorial notation       | botbracket, editorial        | ⌞⌟
+curly bracket extension  | curlyextension, extension    | ⎪  
+
+[ASCII texts]
+coffee                   | coffee                       | c[_]
+bored                    | bored                        | (-_-)
+bearhug                  | bearhug                      | ʕっ•ᴥ•ʔっ
+creep                    | creep                        | ƪ(ړײ)ƪ  
+endure                   | endure                       | (҂^.^)ᕤ
+fancyme                  | fancyme                      | вєωαяє, ι αм ƒαη¢у!  
+fancyyou                 | fancyyou                     | вєωαяє, you αяє ƒαη¢у! 
+flower                   | flower                       | (✿◠‿◠)
+greetings                | greetings                    | O╯[Greetings{!}]
+internet                 | internet                     | ଘ(੭*ˊᵕˋ)੭* ̀ˋ ɪɴᴛᴇʀɴᴇᴛ{!}
+bearlove                 | bearlove                     | ʕ♥ᴥ♥ʔ
+meh                      | meh                          | ಠ_ಠ  
+look_disapproval_inten   | look_disapproval_inten       | ಠ__ಠ
+look_disapproval_asian   | look_disapproval_asian       | ಠ益ಠ
+rolleyes                 | rolleyes                     | _<oO>_
+wut                      | wut                          | OωO
+uwu                      | uwu                          | UωU
+hmm                      | hmm                          | ¯\_(ツ)_/¯
+
+dollar1                  | dollar1                      | [̲̅$̲̅(̲̅1̲̅)̲̅$̲̅]
+dollar5                  | dollar5                      | [̲̅$̲̅(̲̅5̲̅)̲̅$̲̅]
+dollar10                 | dollar10                     | [̲̅$̲̅(̲̅1̲̅0̲̅)̲̅$̲̅]
+dollar100                | dollar100                    | [̲̅$̲̅(̲̅ιοο̲̅)̲̅$̲̅]
+lennyface                | lennyface                    | ( ͡° ͜ʖ ͡°)
+raiseyourdongers         | raiseyourdongers             | ヽ༼ຈل͜ຈ༽ﾉ
+
+bat                      | bat                          | ⎛⎝(•ⱅ•)⎠⎞
+flowergirl               | flowergirl                   | (◕‿◕✿)
+crying                   | crying                       | ( ༎ຶ ۝ ༎ຶ )
+cat                      | cat                          | (=ʘᆽʘ=)∫
+catpaws                  | catpaws                      | ฅ(^•ﻌ•^ฅ)
+bear                     | bear                         | ʕ •ᴥ•ʔ
+bearpaw                  | bearpaw                      | ʕ ·(エ)· ʔ
+bearcute                 | bearcute                     | ʕ – ㉨ – ʔ
+bearhug                  | bearhug2                     | ⊂(￣(ｴ)￣)⊃
+
+[ASCII symbols]  
+EUR                      | EUR                          | €
+summa                    | sum, total                   | ∑
+delta                    | delta, diff                  | Δ
+approximately            | cirka, appr                  | ∼
+tiny square              | square, tinysq               | ▪
+normal square            | normalsq, normalsquare       | ■  
+big square               | bigsq, fatsq                 | ⏹
+dotted rectangle         | dottedre, dotrect            | ⊡
+dotted ring              | dottedri, dotring            | ⊙
+single left arrow        | arrow1L                      | ‹
+single right arrow       | arrow1R                      | ›
+double left arrow        | leftarrow, arrowleft         | ‹‹
+double right arrow       | rightarrow, arrowright       | ››
+left arrows              | leftarrow, arrowleft         | ⟪
+right arrows             | rightarrow, arrowright       | ⟫
+fat arrow left           | fatarrowL                    | ⇐  
+fat arrow right          | fatarrowT                    | ⇒
+fat arrow top            | fatarrowtop, arrowtop        | ⇑
+fat arrow bot            | fatarrowbot, arrowbot        | ⇓
+fat arrows horizontal    | arrowH, fatarrowH            | ⇔
+fat arrow vertical       | arrowV, fatarrowV            | ⇕
+small triangle left      | triangleL                    | ⏴  
+small triangle right     | triangleR                    | ⏵
+small triangle top       | triangleT                    | ⏶
+small triangle bot       | triangleB                    | ⏷
+triangle upper left      | triangleUL                   | ◤
+triangle upper right     | triangleUR                   | ◥
+triangle bot left        | triangleBL                   | ◣
+triangle bot right       | triangleBR                   | ◢
+triangle top             | triangletop, toptriang       | ∆ 
+triangle bot             | trianglebot, bottriang       | ∇
+
+[Emoji symbols]
+checked norm             | checkednorm                  | ✔ 
+checked thin             | checkedthin                  | ✓
+crossed 1                | crossed1                     | ❌
+crossed 2                | crossed2                     | ❎
+crossed 3                | crossed3                     | ✕
+crossed 4                | crossed4                     | ✖  
+crossed 5                | crossed5                     | ✗
+crossed 6                | crossed6                     | ✘
+question red             | questionred                  | ❓
+question white           | questionwhite                | ❔
+exclamation white        | exclamationwhite             | ❕
+exclamation red          | exclamationred               | ❗
+alarm clock              | alarmclock                   | ⏰
+wall clock               | wallclock                    | ⌚
+hourglass full           | hourglassfull                | ⌛
+hourglass half           | hourglasshalf                | ⏳
+small heart              | smallhearth                  | ♡
+electricity              | electricity                  | ⚡
+snowman                  | snowman                      | ⛄
+cloudy day               | cloud                        | ⛅
+white big ring           | whitebigring                 | ⚪
+black big ring           | blackbigring                 | ⚫  
+white ring               | whitering                    | ⏺ 
+small ring               | smallring                    | ⚬
+stop sign                | stop, dont                   | ⛔
+pause                    | pause                        | ⏸
+radioactive              | radioactive                  | ☢
+biohazard                | biohazard                    | ☣
+peace                    | peace                        | ☮
+yin yang                 | yinyang                      | ☯
+wheel of dharma          | wheelofdharma                | ☸
+frowning face            | frowningface                 | ☹
+black smiling face       | blacksmilingface             | ☻
+white smiling face       | whitesmilingface             | ☺
+black star               | blackstar                    | ★
+white star               | whitestar                    | ☆
+
+[Emoji faces]
+angry                    |                              | 😠
+angry red                |                              | 😡
+evil                     |                              | 😈
+eyes                     | eyes, rolleyes, check        | 👀
+smile                    | smile, grin                  | 😁
+crying out loud          | cryingoutloud, col           | 😂  
+smiling eyes             | smilingeyes                  | 😄
+open mouth               | openmouth                    | 😃
+joy                      | joy, tears                   | 😂
+rolling on the floor     | rofl                         | 🤣
+laughing hand            | laughing                     | 🤭
+embarassed               | embarassed                   | 😊
+halo                     | halo, saint                  | 😇
+upside down              | upsidedown                   | 🙃
+winking                  | wink                         | 😉
+relived                  | relived                      | 😌
+love eyes                | love                         | 😍
+delicous                 | delicious, toungue, yummi    | 😋  
+sunglasses               | sunglass, cool               | 😎
+hearths                  | hearth                       | 🥰
+thinking                 | think                        | 🤔
+
+[Emoji hands]  
+perfect                  | ok, perfect                  | 👌
+victory                  | victory, win                 | ✌
+fingers crossed          | fingerscrossed               | 🤞
+love you                 | lovey, rockit                | 🤟
+call me                  | callme                       | 🤙  
+thumbs up                | thumbsup                     | 👍
+thumbs down              | thumbsdown                   | 👎
+fist                     | fist                         | 👊 
+left fist                | leftfist                     | 🤛
+right fist               | rightfist                    | 🤜
+handshake                | handshake                    | 🤝
+praying                  | pray                         | 🙏
+clapping                 | clap                         | 👏  
+raising hand             | raisin                       | 🙌
+palm up together         | handspalms                   | 🤲
+hand                     | hand                         | ✋
+listen                   | listen, important            | ☝
+
+[Emoji transport]
+automobile               | automobile                   | 🚗
+delivery truck           | deliverytruck                | 🚚
+bus                      | bus                          | 🚌
+trolleybus               | trolleybus                   | 🚎
+racing car               | racingcar                    | 🏎
+police car               | policecar                    | 🚓
+ambulance                | ambulance                    | 🚑
+fire engine              | fireengine                   | 🚒
+helicopter               | helicopter                   | 🚁
+steam locomotive         | steamlocomotive              | 🚂
+train                    | train                        | 🚋
+light rail               | lightrail                    | 🚈
+tram                     | tram                         | 🚊
+monorail                 | monorail                     | 🚝
+mountain railway         | mountainrailway              | 🚞
+tram car                 | tramcar                      | 🚋
+bus stop                 | busstop                      | 🚏
+fuel pump                | fuelpump                     | ⛽
+construction             | construction                 | 🚧
+
+[Emoji nature]
+globe showing europe-africa | globeeurope              | 🌍 
+globe showing americas   | globeamericas                | 🌎
+globe showing asia-australia | globeaustral           | 🌏
+new moon                 | newmoon                      | 🌑
+waxing crescent moon     | waxingcrescent               | 🌒
+first quarter moon       | firstquarter                 | 🌓
+waxing gibbous moon      | waxinggibbous                | 🌔
+full moon                | fullmoon                     | 🌕  
+waning gibbous moon      | waninggibbous                | 🌖
+last quarter moon        | lastquarter                  | 🌗
+waning crescent moon     | waningcrescent               | 🌘
+crescent moon            | crescentmoon                 | 🌙
+new moon face            | newmoonface                  | 🌚
+full moon face           | fullmoonface                 | 🌝
+sun                      | sun                          | ☀
+sun 1                    | sun 1                        | ☼
+sun with face            | sunface                      | 🌞
+ringed planet            | ringedplanet                 | 🪐
+star                     | star                         | ⭐
+glowing star             | glowingstar                  | 🌟
+shooting star            | shootingstar                 | 🌠
+comet                    | comet                        | ☄
+milky way                | milkyway                     | 🌌
+cloud                    | cloud                        | ☁
+sun behind cloud         | suncloud                     | ⛅
+cloud with lightning and rain | cloudlightningrain    | ⛈
+rainbow                  | rainbow                      | 🌈
+umbrella                 | umbrella                     | ☂
+sun behind cloud         | sunbehindcloud               | ⛅
+thunder cloud and rain   | thundercloudrain             | ⛈
+lightning                | lightning                    | ☇
+thunderstorm             | thunderstorm                 | ☈
+
+[Emoji food]
+green apple              | greenapple                   | 🍏
+red apple                | redapple                     | 🍎
+pear                     | pear                         | 🍐
+tangerine                | tangerine                    | 🍊
+lemon                    | lemon                        | 🍋
+banana                   | banana                       | 🍌
+watermelon               | watermelon                   | 🍉
+grapes                   | grapes                       | 🍇
+strawberry               | strawberry                   | 🍓
+melon                    | melon                        | 🍈
+cherries                 | cherries                     | 🍒 
+peach                    | peach                        | 🍑
+pineapple                | pineapple                    | 🍍
+coconut                  | coconut                      | 🥥
+kiwi fruit               | kiwi                         | 🥝
+tomato                   | tomato                       | 🍅
+avocado                  | avocado                      | 🥑
+eggplant                 | eggplant                     | 🍆
+potato                   | potato                       | 🥔
+carrot                   | carrot                       | 🥕
+ear of corn              | corn                         | 🌽
+hot pepper               | hotpepper                    | 🌶
+cucumber                 | cucumber                     | 🥒
+broccoli                 | broccoli                     | 🥦
+mushroom                 | mushroom                     | 🍄
+peanuts                  | peanuts                      | 🥜
+
+    `;
+    var sect = [];
+
+    inputFile.split("\n").forEach(function(line) {
+        if (line.startsWith(";") || line.trim().length < 3) {
+            return;
+        }
+        var cleanLine = line.replace(/\r/g, "");
+        if (/^\[.*\]/.test(cleanLine)) {
+    var name = cleanLine.slice(1, -1).trim();
+    name = name.replace(/[\[\]]/g, '');  
+    sect.push({ Name: name, Hotkeys: [] });
+
+        } else {
+            var col = cleanLine.split("|").map(function(v, i) {
+                v = v.trim();  
+                return v;
+            });
+
+            var obj = {
+                Preview: col[0],  
+                Hotstrg: col[1],
+                Text: col[2]
+            };
+
+            sect[sect.length - 1].Hotkeys.push(obj);  
+        }
+    });
+
+    var texts = [];
+     sect.forEach(function(v) {  
+        var sectMenu = [];
+        v.Hotkeys.forEach(function(hk) {
+            var strg = hk.Text;  
+            sectMenu.push({ 
+                Name: hk.Preview + "\t" + strg, 
+                Callback: `sp.SendString("${strg}");`
+            });
+        });
+        texts.push({ Name: v.Name, Items: sectMenu });
+    });  
+    return texts;
+}
+
+function sendStr(strg) {
+    var clipSaved = sp.GetStoredString('EmojiMenuClip');
+    sp.StoreString('EmojiMenuClip', strg);   
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+    sp.Sleep(100);
+    sp.StoreString('EmojiMenuClip', clipSaved);  
+}
+
+function showMain() {
+    var menuItems = sendText();
+    
+    var popupMenuInfo = new PopupMenuInfoEx(sp.GetCurrentMousePoint());
+    
+    menuItems.forEach(function(mainItem) {
+        var menuItem = new PopupMenuItem(mainItem.Name);  
+        mainItem.Items.forEach(function(subItem) {
+            menuItem.SubMenuItems.Add(new PopupMenuItem(subItem.Name, subItem.Callback));  
+        });
+        popupMenuInfo.MenuItems.Add(menuItem);
+    });
+    
+    popupMenuInfo.MenuItems.Add(new PopupMenuItem("-")); 
+    popupMenuInfo.MenuItems.Add(new PopupMenuItem("Exit", ""));
+    
+    sp.ShowPopupMenuEx(popupMenuInfo);  
+}
+
+showMain();
