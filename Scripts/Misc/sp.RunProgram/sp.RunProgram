@@ -1,0 +1,48 @@
+//var program = 'cmd';
+var program = 'notepad';
+//var program = 'C:\\Windows\\System32\\notepad.exe';
+var programArgs = ''; // Additional command-line arguments
+var openInSingleInstance = false; // Set to false if you want to open files in separate instances
+var admin = false; // Set to true to run the program as administrator
+var openFiles = false; 
+var filePaths = [
+    'C:\\test1.txt',
+    'C:\\test2.txt',
+    'C:\\test3.txt',
+];
+var logs = false; 
+
+if (openFiles) {
+    var files = filePaths.filter(Boolean);
+    var programName = program.split('\\').pop();
+    
+    if (openInSingleInstance) {
+        var filesArgs = files.map(function(path) { return '"' + path + '"'; }).join(' ');
+        var args = programArgs ? programArgs + ' ' + filesArgs : filesArgs;
+        sp.RunProgram(program, args, admin ? 'runas' : '', 'normal', true, false, false);
+        
+        if (logs) {
+            sp.ConsoleLog(programName + (admin ? ' (Administrator)' : '') + ' Additional arguments: ' + (programArgs || 'none'), 'Info');
+            sp.ConsoleLog('Files opened: ' + filesArgs, 'Info');
+        }
+    } else {
+        for (var i = 0; i < files.length; i++) {
+            var args = programArgs ? programArgs + ' "' + files[i] + '"' : '"' + files[i] + '"';
+            sp.RunProgram(program, args, admin ? 'runas' : '', 'normal', true, false, false);
+            sp.Sleep(10);
+        }
+        
+        if (logs) {
+            sp.ConsoleLog(programName + (admin ? ' (Administrator)' : '') + ' Additional arguments: ' + (programArgs || 'none'), 'Info');
+            sp.ConsoleLog('Files opened: ' + files.join(', '), 'Info');
+        }
+    }
+} else {
+    sp.RunProgram(program, programArgs || '', admin ? 'runas' : '', 'normal', true, false, false);
+    var programName = program.split('\\').pop();
+    
+    if (logs) {
+        sp.ConsoleLog(programName + (admin ? ' (Administrator)' : '') + ' Additional arguments: ' + (programArgs || 'none'), 'Info');
+        sp.ConsoleLog('No files opened', 'Info');
+    }
+}
