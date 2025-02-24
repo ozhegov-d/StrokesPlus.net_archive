@@ -41,6 +41,9 @@ https://github.com/user-attachments/assets/ce7b1791-0962-43c2-a39d-0cdf3c525628
 ### Forward-Back
 **Forward**
 
+
+https://github.com/user-attachments/assets/6dd36b3e-b455-4be4-ad86-04f10dfea91d
+ 
 When starting the gesture from a link, the link opens in a new tab;
 
 When starting the gesture not from a link and there is selected text on the page, a new tab opens with a search for the selected text, depending on the length of the gesture;
@@ -55,7 +58,15 @@ Long gesture switches the tab if text is not selected
 + short gesture - Back
 + long gesture - Previous tab
 
-https://github.com/user-attachments/assets/b8ea73d5-7ced-44a6-9a0a-4a11f7f7f174
+v2  
++switching windows of one process in a circle  
++APP_CONFIGS  
+
+
+https://github.com/user-attachments/assets/61a68d8b-8f52-455e-9ee3-6d83823b6a7d
+
+
+
 
 ### Minimize-Return
 **Minimize**
