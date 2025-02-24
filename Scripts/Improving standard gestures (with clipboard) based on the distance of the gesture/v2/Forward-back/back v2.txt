@@ -1,0 +1,347 @@
+//short gesture - back
+//long gesture - previous tab
+
+var logs = false;
+
+       // Check if our variables and functions already exist
+       if (typeof APP_CONFIGS === 'undefined') {
+//Configuration
+    APP_CONFIGS = {
+        BROWSER: {
+            enabled: true, //on/off
+            detect: (exeName) => ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"]
+                .some(browser => exeName.includes(browser)),
+            commands: {
+                short: {
+                    func: () => sp.SendVKey(vk.BROWSER_BACK),
+                    message: 'Back'
+                },
+                long: {
+                    func: () => sp.SendModifiedVKeys([vk.LCONTROL, vk.LSHIFT], [vk.TAB]),
+                    message: '🢦Previous tab'
+                }
+            }
+        },
+
+        WORD_EXCEL: {
+            enabled: false,
+            detect: (exeName) => exeName.includes("winword") || exeName.includes("excel"),
+            commands: {
+                short: {
+                    func: () => sp.SendVKey(vk.BROWSER_BACK),
+                    message: 'Back'
+                },
+                long: {
+                    func: () => sp.SendModifiedVKeys([vk.LCONTROL], [vk.F6]),
+                    message: 'Previous tab'
+                }
+            }
+        },
+
+        SETTINGS: {
+            enabled: true,
+            detect: (exeName) => exeName.includes("applicationframehost"),
+            commands: {
+                short: {
+                    func: () => sp.SendVKey(vk.BACK),
+                    message: 'Back'
+                },
+                long: {
+                    func: () => {
+                        sp.SendVKey(vk.TAB);
+                        sp.Sleep(10);
+                        sp.SendVKey(vk.BACK);
+                    },
+                    message: 'TAB+Back'
+                }
+            }
+        },
+
+        TELEGRAM: {
+            enabled: true,
+            detect: (exeName) => exeName.includes("telegram"),
+            commands: {
+                short: {
+                    func: () => sp.SendVKey(vk.ESCAPE),
+                    message: 'Back'
+                },
+                long: {
+                    func: () => sp.SendVKey(vk.ESCAPE),
+                    message: 'Back'
+                }
+            }
+        },
+
+        EVERYTHING: {
+            enabled: true,
+            detect: (exeName) => exeName.includes("everything"),
+            commands: {
+                short: {
+                    func: () => sp.SendVKey(vk.BROWSER_BACK),
+                    message: 'Back'
+                }, 
+                long: {
+                    func: () => {
+                        sp.SendVKey(vk.F3);
+                        sp.SendVKey(vk.RIGHT);
+                        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_Z]);
+                    },
+                    message: 'Ctrl+Z'
+                }
+            }
+        },
+        
+        EXPLORER: {
+            enabled: false,
+            detect: (exeName) => exeName.includes("explorer"),
+            commands: {
+                short: {
+                    func: () => sp.SendVKey(vk.BROWSER_BACK),
+                    message: 'Back'
+                },
+                long: {  
+                    func: () => sp.SendModifiedVKeys([vk.LCONTROL, vk.LSHIFT], [vk.TAB]),
+                    message: 'Previous tab'
+                }
+            }
+        },
+
+        AUDITION: {
+            enabled: false,
+            detect: (exeName) => exeName.includes("audition"),
+            commands: {
+                short: {
+                    func: () => sp.SendVKey(vk.HOME),
+                    message: '🢦' 
+                },
+                long: {
+                    func: () => sp.SendVKey(vk.HOME),
+                    message: '🢦'
+                }
+            }
+        }
+    };
+
+    // Customizing the information display
+    info = new DisplayTextInfo();
+    info.MessageAlignment = 'center';
+    info.Duration = 700;
+    info.Opacity = 0.9;
+    info.MessageFont = new Font('Segoe UI Semibold', 20);
+    info.BackColor = 'black';
+    info.ForeColor = 'white';
+    info.FadeSteps = 18;
+
+    // Defining the active application
+    detectActiveApp = function(exeName, windowTitle, windowClass) {
+        for (const [appName, config] of Object.entries(APP_CONFIGS)) {
+            if (config.enabled && config.detect(exeName, windowTitle, windowClass)) {
+                return { name: appName, config };
+            }
+        }
+        return null;
+    };
+
+    // Command execution
+    executeCommand = function(command) {
+        command.func();
+        return command.message || '';
+    };
+
+    // Window switching function
+    handleWindowSwitching = function(previousActiveWindow) {
+        var allWindows = sp.AllApplications();
+        var currentModuleName = previousActiveWindow.Process.MainModule.ModuleName.toLowerCase();
+        var processWindows = [];
+        var currentHWndValue = previousActiveWindow.HWnd.ToInt64();
+        
+        // Collect all windows of the current process
+        for (var i = 0; i < allWindows.Length; i++) {
+            try {
+                var window = allWindows[i];
+                var moduleName = window.Process.MainModule.ModuleName.toLowerCase();
+                if (moduleName === currentModuleName) {
+                    processWindows.push({
+                        window: window,
+                        handle: window.HWnd.ToInt64(),
+                        title: window.Title
+                    });
+                }
+            } catch (e) {
+                if (logs) {
+                    sp.ConsoleError(`Error processing window at index ${i}: ${e}`, 'Debug');
+                    sp.ConsoleError(`Window details: Title: "${allWindows[i].Title}"`, 'Debug');
+                }
+            }
+        }
+
+        // Sort windows by handle
+        processWindows.sort((a, b) => a.handle - b.handle);
+        
+        // Logging found windows
+if (logs) {
+        processWindows.forEach((w, i) => {
+            sp.ConsoleLog(`Window ${i}: "${w.title}", Handle: ${w.handle}`, 'Debug');
+        });
+        
+        sp.ConsoleLog(`Found ${processWindows.length} windows for ${currentModuleName}`, 'Debug');
+         }
+        if (processWindows.length > 1) {
+            var currentIndex = processWindows.findIndex(w => w.handle === currentHWndValue);
+            
+            if (currentIndex !== -1) {
+                // Calculate the following index
+                var nextIndex = (currentIndex + 1) % processWindows.length;
+                 if (logs) {
+                    sp.ConsoleLog(`Current window index: ${currentIndex}, activating next window index: ${nextIndex} (${processWindows[nextIndex].title})`, 'Debug');
+                }
+                try {
+                    var nextWindow = processWindows[nextIndex].window;
+                    var activated = activateWindow(nextWindow);
+                    if (activated) {
+                          // return 'Previous Window';
+                         return '';
+                    }
+                } catch (e) {
+                    if (logs) {
+                        sp.ConsoleError(`Error while activating window: ${e}`, 'Debug');
+                    }
+                }
+                
+                return 'Failed to switch';
+            }
+            
+            return 'Window not found';
+        } else {
+            if (logs) {
+                sp.ConsoleLog('No other windows found for this process', 'Debug');
+            }
+            return 'No other windows';
+        }
+    };
+
+    activateWindow = function(window) {
+    try {
+        var restored = false;
+        if (window.Minimized) {
+            if (logs) {
+                sp.ConsoleLog(`Restoring minimized window: ${window.Title}`, 'Debug');
+            }
+            window.Restore();
+            sp.Sleep(50);
+            restored = true;
+        }
+        
+        window.Activate();
+        
+        var checkForeground = sp.ForegroundWindow();
+        if (checkForeground.HWnd.ToInt64() === window.HWnd.ToInt64()) {
+            if (logs) {
+                sp.ConsoleLog(`Successfully activated: ${window.Title}`, 'Debug');
+            }
+            return true;
+        }
+        
+        if (!restored && window.Minimized) {
+            if (logs) {
+                sp.ConsoleLog(`First activation attempt failed, restoring minimized window and retrying...`, 'Debug');
+            }
+            window.Restore();
+            sp.Sleep(50);
+        } else if (logs) {
+            sp.ConsoleLog(`First activation attempt failed, retrying...`, 'Debug');
+        }
+        sp.Sleep(50);
+        
+        window.Activate();
+        
+        checkForeground = sp.ForegroundWindow();
+        var success = checkForeground.HWnd.ToInt64() === window.HWnd.ToInt64();
+        
+        if (success) {
+            if (logs) {
+                sp.ConsoleLog(`Successfully activated on second attempt: ${window.Title}`, 'Debug');
+            }
+        } else {
+            if (logs) {
+                sp.ConsoleLog(`Failed to activate window: ${window.Title}`, 'Debug');
+            }
+        }
+        
+        return success;
+    } catch (e) {
+        if (logs) {
+            sp.ConsoleError(`Error in activateWindow: ${e}`, 'Debug');
+        }
+        return false;
+    }
+};
+    displayMessage = function(message) {
+        info.Message = message;
+        var screen = System.Windows.Forms.Screen.PrimaryScreen;
+        var minMessageWidth = 200;
+        var maxMessageWidth = 500;
+        var charWidth = 20;
+        var messageWidth = Math.min(maxMessageWidth, Math.max(minMessageWidth, message.length * charWidth));
+        var messageHeight = 100;
+        
+        if (typeof action !== 'undefined' && action.End) {
+            var posX = action.End.X - messageWidth + 70;
+            var posY = action.End.Y + 60;
+            
+            if (posX < 0) {
+                posX = action.End.X + 20;
+            }
+            if (posY + messageHeight > screen.Bounds.Height) {
+                posY = screen.Bounds.Height - messageHeight - 10;
+            }
+            info.Location = `${posX},${posY}`;
+        } else {
+            info.Location = '100,100';
+        }
+        sp.DisplayText(info);
+    };
+}
+
+var distance = parseInt(Math.sqrt(
+    Math.pow((action.End.X - action.Start.X), 2.0) + 
+    Math.pow((action.End.Y - action.Start.Y), 2.0)
+));
+
+var isLongGesture = distance > 200; // LongGesture
+
+// Save the active window before executing commands
+var previousActiveWindow = sp.ForegroundWindow();
+
+var fgWnd = sp.ForegroundWindow();
+var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+var windowTitle = fgWnd.Title.toLowerCase();
+var windowClass = fgWnd.ClassName.toLowerCase();
+
+if (logs) {
+    sp.ConsoleLog(`Current process: ${exeName}`, 'Debug');
+}
+
+var activeApp = detectActiveApp(exeName, windowTitle, windowClass);
+var message = '';
+
+if (activeApp) {
+    if (logs) {
+        sp.ConsoleLog(`Detected app: ${activeApp.name}`, 'Debug');
+    }
+    const command = isLongGesture ? activeApp.config.commands.long : activeApp.config.commands.short;
+    message = executeCommand(command);
+} else {
+    // Processing for undefined applications
+    if (logs) {
+        sp.ConsoleLog('No specific app detected, using default behavior', 'Debug');
+    }
+    if (isLongGesture) {
+        message = handleWindowSwitching(previousActiveWindow);
+    } else {
+        sp.SendVKey(vk.BROWSER_BACK); // standard action
+        message = 'Back';
+    }
+}
+
+displayMessage(message);
