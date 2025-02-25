@@ -1,0 +1,130 @@
+// Esc - Close 
+// MouseButtons.Left - Output the result to the StrokePlus console
+
+// Initialize the mouse position and window
+var currpt = sp.GetCurrentMousePoint();
+var wnd = sp.WindowFromPoint(currpt, false);
+
+// Setup display text info
+var info = new DisplayTextInfo();
+info.MessageAlignment = "left";
+info.Duration = 1000; // Duration of the message (can be changed)
+info.Location = (currpt.X - 30) + ',' + (currpt.Y + 20); 
+info.MessageFont = new Font("Segoe UI Semibold", 12);
+info.BackColor = "black";
+info.Padding = 0;
+info.ClipToWorkingArea = false;
+
+// Function to get file path from window title
+function getFilePath(wnd) {
+    var filePath = "";
+    var processName = wnd.Process.ProcessName.toLowerCase();
+    var windowTitle = wnd.Title;
+
+    // Universal method to extract the path from the window title
+    var titleMatch = windowTitle.match(/^(.*?(?:\.[\w]+)?)(?:\s*[-–]\s*|\s+\[|\s+\(|$)/);
+    if (titleMatch) {
+        filePath = titleMatch[1].trim();
+    }
+
+    // If the path is incomplete, try to get it from the command line
+    if (!filePath.includes(":\\") && !filePath.startsWith("\\\\")) {
+        var cmdLine = wnd.CommandLine;
+
+        // Processing Notepad
+        if (processName === "notepad") {
+            var cmdParts = cmdLine.split('"');
+            for (var i = 0; i < cmdParts.length; i++) {
+                if (cmdParts[i].includes(".") && cmdParts[i].includes("\\") && !cmdParts[i].toLowerCase().endsWith("notepad.exe")) {
+                    filePath = cmdParts[i];
+                    break;
+                }
+            }
+        } else { // Processing other applications
+            var cmdMatch = cmdLine.match(/"([^"]+)"|(\S+)/g);
+            if (cmdMatch && cmdMatch.length > 1) {
+                filePath = cmdMatch[1].replace(/"/g, '');
+            }
+        }
+    }
+
+    return filePath;
+}
+// Function to update window info and display it
+function updateWindowInfo() {
+    var windowTitle = wnd.Title ? wnd.Title : "No Title";
+    var actionWindowTitle = action.Window.Title ? action.Window.Title.toLowerCase() : "";
+    var parentWnd = wnd.Parent ? host.cast(nint, wnd.Parent.HWnd) : "No Parent";
+    var filePath = getFilePath(wnd);
+    var processInfo = "Unknown";
+    var processPath = "Unknown Path";
+    var processVersion = "Unknown Version";
+    var startTime = "Unknown";
+
+    try {
+        if (wnd.Process && wnd.Process.MainModule) {
+            processInfo = wnd.Process.MainModule.ModuleName;
+            processPath = wnd.Process.MainModule.FileName;
+            processVersion = wnd.Process.MainModule.FileVersionInfo.FileVersion;
+            startTime = wnd.Process.StartTime ? wnd.Process.StartTime.ToString() : "Unknown";
+        } else if (wnd.Process) {
+            processInfo = wnd.Process.ProcessName;
+        }
+    } catch (e) {
+        // Handling an error of access to process information
+        processInfo = "Access Denied";
+        processVersion = "Unknown";
+    }
+
+    var mainWnd = wnd.FirstMoveableParent;
+    var rect = mainWnd ? mainWnd.Rectangle : new System.Drawing.Rectangle();
+ 
+    var message = "x: " + currpt.X + " y: " + currpt.Y + " (Window Size: " + rect.Width + "x" + rect.Height + ")" +
+                  "\nStart Time: " + startTime +
+                  "\nParent Handle: " + parentWnd + " (Handle: " + host.cast(nint, wnd.HWnd) + ")" +
+                  "\nProcess ID: " + wnd.Process.Id + " (Thread ID: " + wnd.Thread.Id + ")" +
+                  "\nProcess: " + processInfo + " (Version: " + processVersion + ")" +
+                  "\nProcess Path: " + processPath +
+                  "\nFile Path: " + filePath +
+                  "\nClass: " + wnd.ClassName +
+                  "\nTitle: " + actionWindowTitle +
+                  "\nTitle: " + windowTitle + " (under the mouse pointer)";
+
+    info.Message = message;
+    info.Location = (currpt.X - 30) + ',' + (currpt.Y + 20);
+
+    if (sp.IsButtonDown(MouseButtons.Left)) {
+        sp.ConsoleError(message, "Window Info", System.Drawing.Color.Red);        
+}
+}
+// Display initial message
+updateWindowInfo();
+sp.DisplayText(info); 
+
+var lastWnd = null;
+var leftButtonPressed = false;
+while (currpt.Y < 1070) {
+    if (sp.IsKeyDown(vk.ESCAPE)) {
+        if (leftButtonPressed) {
+            sp.Sleep(10);
+            sp.ConsoleShow();
+            
+        }
+        break;
+    }
+    
+    if (sp.IsButtonDown(MouseButtons.Left)) {
+        leftButtonPressed = true;
+    }
+    
+    currpt = sp.GetCurrentMousePoint();
+    wnd = sp.WindowFromPoint(currpt, false);
+    
+    if (!lastWnd || lastWnd.HWnd !== wnd.HWnd) {
+        lastWnd = wnd;
+        updateWindowInfo();
+        sp.DisplayTextUpdate(info);
+    }
+    
+    sp.Sleep(25); 
+}
