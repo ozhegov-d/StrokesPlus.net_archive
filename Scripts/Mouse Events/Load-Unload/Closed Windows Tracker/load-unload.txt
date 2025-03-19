@@ -1,0 +1,285 @@
+// At the beginning of the script, define a list of processes to ignore the headers
+var TITLE_IGNORE_PROCESSES = ["explorer", "chrome", ]; // it is necessary to avoid having a new title in the menu every time (when a tab is changed).
+var maxStoredWindows = 15; // Maximum number of saved windows
+
+var DEBUG_MODE = false; 
+
+function debugLog(message, label = 'Debug', color = System.Drawing.Color.Green) {
+    if (DEBUG_MODE) {
+        sp.ConsoleLog(message, label, color);
+    }
+}
+
+// Check if the current engine is the last one
+if(__spEngineWrapper.Engine.Name == sp.EngineList().Last().Engine.Name) {
+    debugLog("Initializing in last engine: " + __spEngineWrapper.Engine.Name, "Init");
+    
+    // Save the list to the storage so that the timer can use it
+    sp.StoreString("TitleIgnoreProcessesJSON", JSON.stringify(TITLE_IGNORE_PROCESSES));
+    sp.StoreString("MaxStoredWindows", maxStoredWindows.toString());
+    
+    // Function for initialization of windows state
+    function initializeWindowState() {
+        var allWindows = sp.AllApplications(); // Keep in mind that for example telegram will not be shown because it is not located using sp.AllApplications();
+        var currentWindows = [];
+        for (var i = 0; i < allWindows.Length; i++) {
+            var wnd = allWindows[i];
+            if (wnd.Visible) { // Consider only visible windows
+                var exePath = getExePath(wnd);
+                //  Skip windows that cannot be accessed
+                if (exePath === "N/A") continue;
+                currentWindows.push({
+                    title: wnd.Title || "Untitled",
+                  //processName: wnd.Process.ProcessName.toLowerCase(),
+                    processName: wnd.Process.ProcessName,
+                    filePath: getFilePathFromWnd(wnd),
+                    exePath: exePath,
+                    timestamp: Date.now(),
+                    position: {
+                        x: wnd.Location.X,
+                        y: wnd.Location.Y,
+                        width: wnd.Size.Width,
+                        height: wnd.Size.Height,
+                        screen: wnd.Screen.DeviceName,
+                        isMaximized: wnd.Maximized
+                    }
+                });
+            }
+        }
+        // Save the current state of windows as the previous one
+        sp.StoreString("PreviousWindowsJSON", JSON.stringify(currentWindows));
+    }
+
+    // Define auxiliary functions globally
+    function getExePath(wnd) {
+        try {
+            return wnd.Process?.MainModule?.FileName || "N/A";
+        } catch (e) {
+            // Ignore windows that cannot be accessed
+            return "N/A";
+        }
+    }
+
+    function getFilePathFromWnd(wnd) {
+        var processName = wnd.Process?.ProcessName?.toLowerCase() || "";
+        var filePath = "";
+        var windowTitle = wnd.Text || "";
+        var cmdLine = wnd.CommandLine || "";
+
+        var titleMatch = windowTitle.match(/^(.*?(?:\.[\w]+)?)(?:\s*[-–]\s*|\s+\[|\s+\(|$)/);
+        if (titleMatch) {
+            filePath = titleMatch[1].trim();
+        }
+        if (!filePath.includes(":\\") && !filePath.startsWith("\\\\")) {
+            if (processName === "notepad") {
+                var cmdParts = cmdLine.split('"');
+                for (var i = 0; i < cmdParts.length; i++) {
+                    var part = cmdParts[i].trim();
+                    if (part && part.includes(".") && part.includes("\\") && 
+                        !part.toLowerCase().endsWith("notepad.exe")) {
+                        filePath = part;
+                        break;
+                    }
+                }
+            } else {
+                var cmdMatch = cmdLine.match(/"([^"]+)"|(\S+)/g);
+                if (cmdMatch && cmdMatch.length > 1) {
+                    filePath = cmdMatch[1].replace(/"/g, '').trim();
+                }
+            }
+        }
+
+        return System.IO.File.Exists(filePath) ? filePath : "N/A";
+    }
+
+//    // Delete the existing timer, if any
+//    if (sp.GetTimer('WindowTracker')) {
+//        sp.DeleteTimer('WindowTracker');
+//    }
+
+    // Initialize windows state before creating the timer
+    initializeWindowState();
+    debugLog("Initialized window state", "Info", System.Drawing.Color.Green);
+
+    // Timer
+    sp.CreateTimer('WindowTracker', 0, 2000, String.raw` // every 2 seconds
+        // Define the debugLog function inside the timer script
+        function debugLog(message, label = 'Debug', color = System.Drawing.Color.Green) {
+            sp.ConsoleLog(message, label, color);
+        }
+        
+        function getExePath(wnd) {
+            try {
+                return wnd.Process?.MainModule?.FileName || "N/A";
+            } catch (e) {
+                return "N/A";
+            }
+        }
+
+        function getFilePathFromWnd(wnd) {
+            var processName = wnd.Process?.ProcessName?.toLowerCase() || "";
+            var filePath = "";
+            var windowTitle = wnd.Text || "";
+            var cmdLine = wnd.CommandLine || "";
+
+            var titleMatch = windowTitle.match(/^(.*?(?:\.[\w]+)?)(?:\s*[-–]\s*|\s+\[|\s+\(|$)/);
+            if (titleMatch) {
+                filePath = titleMatch[1].trim();
+            }
+
+            if (!filePath.includes(":\\") && !filePath.startsWith("\\\\")) {
+                if (processName === "notepad") {
+                    var cmdParts = cmdLine.split('"');
+                    for (var i = 0; i < cmdParts.length; i++) {
+                        var part = cmdParts[i].trim();
+                        if (part && part.includes(".") && part.includes("\\") && 
+                            !part.toLowerCase().endsWith("notepad.exe")) {
+                            filePath = part;
+                            break;
+                        }
+                    }
+                } else {
+                    var cmdMatch = cmdLine.match(/"([^"]+)"|(\S+)/g);
+                    if (cmdMatch && cmdMatch.length > 1) {
+                        filePath = cmdMatch[1].replace(/"/g, '').trim();
+                    }
+                }
+            }
+
+            return System.IO.File.Exists(filePath) ? filePath : "N/A";
+        }
+        
+        function TrackClosedWindows() {
+            try {
+                var titleIgnoreProcessesJSON = sp.GetStoredString("TitleIgnoreProcessesJSON");
+                var TITLE_IGNORE_PROCESSES = titleIgnoreProcessesJSON ? JSON.parse(titleIgnoreProcessesJSON) : [];
+                
+                var maxStoredWindows = parseInt(sp.GetStoredString("MaxStoredWindows"));
+                
+                // Get a list of all current windows
+                var allWindows = sp.AllApplications();
+                var currentWindows = [];
+                for (var i = 0; i < allWindows.Length; i++) {
+                    var wnd = allWindows[i];
+                    if (wnd.Visible) { 
+                        var exePath = getExePath(wnd);
+                        if (exePath === "N/A") continue;
+                        currentWindows.push({
+                            title: wnd.Title || "Untitled",
+                            processName: wnd.Process.ProcessName,
+                            filePath: getFilePathFromWnd(wnd),
+                            exePath: exePath,
+                            timestamp: Date.now(),
+                            position: {
+                                x: wnd.Location.X,
+                                y: wnd.Location.Y,
+                                width: wnd.Size.Width,
+                                height: wnd.Size.Height,
+                                screen: wnd.Screen.DeviceName,
+                                isMaximized: wnd.Maximized
+                            }
+                        });
+                    }
+                }
+
+                var previousWindowsJSON = sp.GetStoredString("PreviousWindowsJSON") || "[]";
+                var previousWindows = JSON.parse(previousWindowsJSON);
+
+                // Function for comparing windows with regard to ignoring headers for certain processes
+                function areWindowsEqual(wnd1, wnd2) {
+                    var process1 = wnd1.processName.toLowerCase();
+                    var process2 = wnd2.processName.toLowerCase();
+                    
+                    // If both processes are on the header ignore list, compare by process name only
+                    if (TITLE_IGNORE_PROCESSES.includes(process1) && TITLE_IGNORE_PROCESSES.includes(process2)) {
+                        return process1 === process2;
+                    }
+                    
+                    // For other processes, the usual comparison
+                    return wnd1.title === wnd2.title && 
+                           process1 === process2 && 
+                           wnd1.filePath === wnd2.filePath;
+                }
+
+                // Find new windows (appeared since the last scan)
+                var newWindows = currentWindows.filter(currWnd => 
+                    !previousWindows.some(prevWnd => areWindowsEqual(prevWnd, currWnd))
+                );
+
+                // Find closed windows (disappeared since the last scan)
+                var closedWindows = previousWindows.filter(prevWnd => 
+                    !currentWindows.some(currWnd => areWindowsEqual(currWnd, prevWnd))
+                );
+
+                // Log only new windows
+                if (newWindows.length > 0) {
+                    newWindows.forEach(window => {
+                        debugLog("New window appeared: " + window.title, "Info", System.Drawing.Color.Green);
+                    });
+                }
+
+                // Log only closed windows and update the stack
+                if (closedWindows.length > 0) {
+                    // Get the current stack of closed windows
+                    var stackJSON = sp.GetStoredString("ClosedWindowsStackJSON") || "[]";
+                    var stack = JSON.parse(stackJSON);
+
+                    // Duplicate check function with headers ignored
+                    function isDuplicate(window) {
+                        return stack.some(w => {
+                            var process1 = (w.processName || "").toLowerCase();
+                            var process2 = (window.processName || "").toLowerCase();
+                            
+                            function isInIgnoreList(process) {
+                                return TITLE_IGNORE_PROCESSES.includes(process);
+                            }
+                            
+                            // If both processes are on the header ignore list and they are the same,
+                            // then we consider the windows to be the same regardless of the title
+                            if (isInIgnoreList(process1) && isInIgnoreList(process2) && process1 === process2) {
+                                return true;
+                            }
+                            
+                            // For other processes, the usual comparison
+                            return w.title === window.title && 
+                                   process1 === process2 && 
+                                   w.filePath === window.filePath;
+                        });
+                    }
+
+                    // Add closed windows to the stack and log only the additions
+                    closedWindows.forEach(window => {
+                        debugLog("Window closed: " + window.title, "Info", System.Drawing.Color.Yellow);
+                        if (!isDuplicate(window)) {
+                            // Add a flag to distinguish between windows closed by gesture and by tracker
+                            window.closedByGesture = false;
+                            stack.unshift(window); // Add to the beginning of the stack
+                            debugLog("Added closed window to stack: " + window.title, "Info", System.Drawing.Color.Yellow);
+                        }
+                    });
+
+                    // Limit stack size
+                    if (stack.length > maxStoredWindows) {
+                        stack = stack.slice(0, maxStoredWindows);
+                        debugLog("Trimmed stack to " + maxStoredWindows + " items", "Info", System.Drawing.Color.Green);
+                    }
+
+                    // Save the updated stack
+                    sp.StoreString("ClosedWindowsStackJSON", JSON.stringify(stack));
+                }
+
+                // Save the current state of windows as the previous one
+                sp.StoreString("PreviousWindowsJSON", JSON.stringify(currentWindows));
+
+            } catch (e) {
+                debugLog("Error in TrackClosedWindows: " + e.toString(), "Error", System.Drawing.Color.Red);
+            }
+        }
+
+        // Call the main function
+        TrackClosedWindows();
+    `);
+    debugLog("WindowTracker timer created", "Info", System.Drawing.Color.Green);
+} else {
+    debugLog("Skipping initialization in non-last engine: " + __spEngineWrapper.Engine.Name, "Init");
+}
