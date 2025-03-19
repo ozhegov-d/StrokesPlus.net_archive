@@ -200,7 +200,7 @@ if (stack.length > 0) {
             }
         });
        
-       items.push(["Clear history", "sp.StoreString('ClosedWindowsStackJSON', '[]');"]); // Сlear history button
+       //items.push(["Clear history", "sp.StoreString('ClosedWindowsStackJSON', '[]');"]); // Сlear history button
         sp.PopupList(items, action.End);
     } else {
         debugLog("No windows to restore", 'Info', System.Drawing.Color.Red);
