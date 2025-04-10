@@ -1,0 +1,126 @@
+(function(){
+    // === SETTINGS ===
+    var zipExe = 'C:\\7-Zip\\7z.exe'; // Path to 7z.exe
+    var showNotifications = false; // true = show notifications, false = do not show
+    
+    var compressionLevel = 5; // 1 (fastest) to 9 (maximum compression)
+    var targetFolder = ''; // Folder for archive. Empty "" = same as file location
+    //var targetFolder = 'C:\\test';
+    var archiveFormat = '7z'; // 'zip' or '7z'
+    var password = ''; // Password for archive. Empty '' = no password
+    var encryptFilenames = false; // Encrypt file names (only for .7z)
+    var showConsole = false; // true = show 7z console window, false = hidden
+    var copyPathToClipboard = false; // Copy archive path to clipboard
+    var askForArchiveName = false; // Ask for archive name from user
+    var addDateToArchiveName = false; // Add date to archive name
+    var splitArchiveSizeMB = 0; // Split archive size in MB. 0 = no splitting
+
+    // === START OF LOGIC ===
+    if (compressionLevel > 9) compressionLevel = 9; // limit maximum to 9
+
+    var selectedFiles;
+    var isDesktop = action.Control.HWnd.ToInt32() == sp.DesktopWindowListView().HWnd.ToInt32();
+
+    if (isDesktop) {
+        selectedFiles = sp.GetSelectedFilesOnDesktop();
+    } else {
+        selectedFiles = sp.GetSelectedFilesInExplorer(action.Window.HWnd);
+    }
+
+    if (!selectedFiles || selectedFiles.Length == 0) {
+        if (showNotifications) {
+            sp.ShowBalloonTip("ZIP", "No files selected", "error", 1000);
+        }
+        return;
+    }
+
+    var sourcePath = isDesktop 
+        ? System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) 
+        : sp.GetActiveExplorerPath(action.Window.HWnd);
+
+    var firstFile = selectedFiles[0];
+    if (isDesktop) {
+        firstFile = sourcePath + "\\" + selectedFiles[0];
+    }
+
+    var baseName = System.IO.Path.GetFileNameWithoutExtension(firstFile);
+
+    // === Add date to archive name if needed ===
+    if (addDateToArchiveName) {
+        var now = new Date();
+        var year = now.getFullYear();
+        var month = String(now.getMonth() + 1).padStart(2, '0');
+        var day = String(now.getDate()).padStart(2, '0');
+        baseName += `_${year}-${month}-${day}`;
+    }
+
+    // === Determine where to save the archive ===
+    var outputPath = targetFolder.trim() === '' ? sourcePath : targetFolder;
+    var archiveExt = archiveFormat.toLowerCase() === '7z' ? '.7z' : '.zip';
+    var archiveName = outputPath + "\\" + baseName + archiveExt;
+
+    // === Check if archive with this name already exists ===
+    var suffix = 0;
+    while (System.IO.File.Exists(archiveName)) {
+        suffix++;
+        archiveName = outputPath + "\\" + baseName + " (" + suffix + ")" + archiveExt;
+    }
+
+    // === Ask user for archive name ===
+    if (askForArchiveName) {
+        var inputBoxInfo = new InputBoxInfo();
+        inputBoxInfo.Title = 'Archive Name';
+        inputBoxInfo.Message = 'Enter archive name (without extension):';
+        inputBoxInfo.AllowDirectInput = true;
+        inputBoxInfo.ShowAtMouseCursor = false; // Show at center of screen
+        var res = sp.InputBox(inputBoxInfo);
+        if (res != null && res.trim() !== '') {
+            archiveName = outputPath + "\\" + res.trim() + archiveExt;
+        }
+    }
+
+    // === Build the list of files to archive ===
+    var filesToArchive = "";
+    for (var i = 0; i < selectedFiles.Length; i++) {
+        var filePath = isDesktop 
+            ? sourcePath + "\\" + selectedFiles[i]
+            : selectedFiles[i];
+        
+        filesToArchive += `"${filePath}" `;
+    }
+
+    // === Build the 7z command ===
+    var zipCommand = `a -mx=${compressionLevel}`;
+    if (password.trim() !== '') {
+        zipCommand += ` -p"${password}"`;
+    }
+    if (encryptFilenames && archiveFormat.toLowerCase() === '7z') {
+        zipCommand += ` -mhe=on`; // Encrypt file names (only for .7z)
+    }
+    if (splitArchiveSizeMB > 0) {
+        zipCommand += ` -v${splitArchiveSizeMB}m`; // Split archive into volumes
+    }
+    zipCommand += ` "${archiveName}" ${filesToArchive.trim()}`;
+
+    // === Run the archiving process ===
+    var result;
+    if (showConsole) {
+        result = sp.RunProgram(zipExe, zipCommand, 'open', 'normal', true, false, false);
+    } else {
+        result = sp.RunProgram(zipExe, zipCommand, 'open', 'hidden', false, true, true);
+    }
+
+    // === After archiving ===
+    if (result == 0) {
+        if (showNotifications) {
+            sp.ShowBalloonTip("ZIP", "Archive created successfully", "info", 1000);
+        }
+        if (copyPathToClipboard) {
+            clip.SetText(archiveName);
+        }
+    } else {
+        if (showNotifications) {
+            sp.ShowBalloonTip("ZIP", "Failed to create archive", "error", 1000);
+        }
+    }
+})();

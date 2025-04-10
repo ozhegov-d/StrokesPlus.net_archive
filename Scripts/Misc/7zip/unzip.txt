@@ -1,0 +1,96 @@
+(function(){
+    // === SETTINGS ===
+    var sevenZipExe = 'C:\\7-Zip\\7z.exe'; // Path to 7z.exe
+    var showNotifications = false; // true = show notifications, false = silent
+    
+    var targetFolder = ''; // Folder where extracted files will be placed. Empty "" = same as archive location
+    var extractToNewFolder = true; // true = extract into new folder, false = extract into same folder
+    var overwriteFolderIfExists = true; // true = overwrite folder, false = create new folder if exists
+    var overwriteFiles = true; // true = overwrite existing files during extraction,
+                               // false = if file already exists, create a new file with a different name (e.g., file.txt -> file_1.txt)
+    var showConsoleProgress = false; // true = show 7z console with progress, false = silent extraction
+
+    var result;
+    var selectedFiles;
+    var isDesktop = false;
+    var success = false;
+
+    // Get selected files
+    if (action.Control.HWnd.ToInt32() == sp.DesktopWindowListView().HWnd.ToInt32()) {
+        selectedFiles = sp.GetSelectedFilesOnDesktop();
+        isDesktop = true;
+    } else {
+        selectedFiles = sp.GetSelectedFilesInExplorer(action.Window.HWnd);
+    }
+
+    if (!selectedFiles || selectedFiles.Length == 0) {
+        if (showNotifications) {
+            sp.ShowBalloonTip("ZIP Extract", "No files selected", "error", 1000);
+        }
+        return;
+    }
+
+    // Define overwrite mode for files
+    var overwriteMode = overwriteFiles ? "-aoa" : "-aou"; // -aoa: overwrite all, -aou: rename if exists
+
+    for (var i = 0; i < selectedFiles.Length; i++) {
+        var fullPath = selectedFiles[i];
+        if (isDesktop) {
+            fullPath = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) + "\\" + fullPath;
+        }
+
+        var defaultFolderName = System.IO.Path.GetDirectoryName(fullPath);
+        var destinationFolder = (targetFolder.trim() === '') ? defaultFolderName : targetFolder; // <-- NEW!
+        var outputPath;
+
+        if (extractToNewFolder) {
+            var fileNameNoExt = System.IO.Path.GetFileNameWithoutExtension(fullPath);
+            outputPath = destinationFolder + "\\" + fileNameNoExt;
+
+            // Check if output folder exists
+            if (System.IO.Directory.Exists(outputPath)) {
+                if (!overwriteFolderIfExists) {
+                    // Create a new folder like "Name (1)", "Name (2)", etc.
+                    var suffix = 1;
+                    var newOutputPath = outputPath;
+                    while (System.IO.Directory.Exists(newOutputPath)) {
+                        newOutputPath = outputPath + " (" + suffix + ")";
+                        suffix++;
+                    }
+                    outputPath = newOutputPath;
+                }
+            }
+        } else {
+            outputPath = destinationFolder;
+        }
+
+        // Run extraction with or without console window
+        if (showConsoleProgress) {
+            result = sp.RunProgram(sevenZipExe, 
+                `x "${fullPath}" -o"${outputPath}" ${overwriteMode}`, 
+                'open', 'normal', true, false, false); // Console visible
+        } else {
+            result = sp.RunProgram(sevenZipExe, 
+                `x "${fullPath}" -o"${outputPath}" ${overwriteMode}`, 
+                'open', 'hidden', false, true, true); // Silent extraction
+        }
+
+        if (result != 0) {
+            success = false;
+            break;
+        } else {
+            success = true;
+        }
+    }
+
+    // Notifications after extraction
+    if (success) { 
+        if (showNotifications) {
+            sp.ShowBalloonTip("ZIP Extract", "Extraction completed successfully!", "info", 1000);
+        }
+    } else {
+        if (showNotifications) {
+            sp.ShowBalloonTip("ZIP Extract", "Extraction failed.", "error", 1000);
+        }
+    }
+})();
