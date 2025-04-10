@@ -10,17 +10,17 @@ var defaultSettings = { //for all applications.
     bottomSide: 15, //20% at the bottom will have accelerated scrolling
     
     // Time threshold between scrolls in ticks (300000 ticks — approximately 250 ms)
-    WHEEL_FAST_SCROLL_TICKS: 300000, // If the time between the current scroll and the previous one is greater than this value, the acceleration counter is reset
+    WHEEL_FAST_SCROLL_TICKS: 250000, // If the time between the current scroll and the previous one is greater than this value, the acceleration counter is reset
     // A higher value (for example, 350000) allows for longer acceleration to be maintained between scrolls.
     // A lower value (for example, 250000) means the acceleration counter resets faster.
 
     // Maximum number of mouse wheel "clicks" per iteration
-    MAX_WHEEL_COUNT: 40, // This limit prevents scrolling from becoming too fast, even if you continue to spin the wheel quickly
+    MAX_WHEEL_COUNT: 30, // This limit prevents scrolling from becoming too fast, even if you continue to spin the wheel quickly
     // A higher value (for example, 50) allows for a higher maximum scrolling speed.
     // A lower value (for example, 30) limits the maximum scrolling speed to a lower level.
  
     // The amount by which the scroll counter increases with each scroll event
-    WHEEL_COUNT_INCREMENT: 2 // We increase the scrolling intensity by 2 units with each scroll event if the conditions for acceleration are met  
+    WHEEL_COUNT_INCREMENT: 1 // We increase the scrolling intensity by 2 units with each scroll event if the conditions for acceleration are met  
     // A higher value (for example, 3) results in faster acceleration of scrolling speed.
     // A lower value (for example, 1) provides a smoother, more gradual increase in speed.
 };
