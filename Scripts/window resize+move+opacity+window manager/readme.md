@@ -1,3 +1,17 @@
+### MoveWindowByCenter
+
+Dragging the window by its center area with just a mouse click.
+
+https://github.com/user-attachments/assets/dd1d079b-fc66-40f5-a6bd-f831fc215be3
+
+#### Global Actions > Mouse Events > Click
+
+To change the mouse button
+if (!sp.IsButtonDown(MouseButtons.Left)) { // | Left | Right | Middle | XButton1 | XButton2 | Note: Case-sensitive
+
+> Keep in mind that if the window you're clicking on is running as administrator, an error will occur if StrokesPlus is not run as administrator.
+
+---------------------------------------------------------------------------------------------------------
 ### window resize+move+opacity+always on top+remove window title
 
 https://github.com/user-attachments/assets/3a076e3a-e279-4084-974c-43f3ef48d699
@@ -17,8 +31,9 @@ If you want it to work with Ctrl, then you need to (Options > Generals > Ignore 
   
 if opacity is less than 255(maximum value) it becomes over all windows
 
-v2 it doesn't work on the taskbar
+> v2 it doesn't work on the taskbar
 
+---------------------------------------------------------------------------------------------------------
 ### Window Slot Manager  
 #### A script for saving and restoring window positions.
 
@@ -41,6 +56,7 @@ If JSON includes an argument:
 "Arguments": "-help",  
 then the title will be ignored, and the script will find the first available instance of the Everything64 process and will activate it.  
 
+---------------------------------------------------------------------------------------------------------
 ### GridSnapWindow
 
 
@@ -57,6 +73,7 @@ if(!click.Down && sp.GetStoredBool("GridSnapActive")) {
     sp.DeleteStoredBool("GridSnapActive");  
 }  
 
+---------------------------------------------------------------------------------------------------------
 ### WindowSplitter
 
 
