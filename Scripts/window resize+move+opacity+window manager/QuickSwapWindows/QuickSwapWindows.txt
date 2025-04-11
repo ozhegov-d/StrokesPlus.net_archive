@@ -1,0 +1,146 @@
+// === SETTINGS ===
+var logs = false; // Enable logs
+var saveOriginalSize = true; // true: flickers when maximized / false: no flicker
+// true  - Saves the original small window size (even if the window was maximized to full screen)
+// false - Takes the maximized window as is. After minimizing, the window will remain large.
+
+function log(message) {
+    if (logs) {
+        sp.ConsoleLog("[Swap] " + message);
+    }
+}
+
+// === MINI-FUNCTIONS ===
+
+// Restore the window only if it is minimized
+function ensureRestored(windowObj, title) {
+    if (windowObj.Minimized) {
+        log(`Window "${title}" is minimized. Restoring...`);
+        windowObj.Restore();
+    }
+}
+
+// Always unmaximize the window before changing position/size
+function ensureNotMaximized(windowObj, title) {
+    if (windowObj.Maximized) {
+        log(`Window "${title}" is maximized. Restoring before moving...`);
+        windowObj.Restore();
+    }
+}
+
+// Restore the window state (Maximized/Minimized)
+function restoreState(windowObj, info) {
+    if (info.Maximized) {
+        log(`Maximizing window "${info.Title}" back`);
+        windowObj.Maximize();
+    }
+    if (info.Minimized) {
+        log(`Minimizing window "${info.Title}" back`);
+        windowObj.Minimize();
+    }
+}
+
+// === 1. Save the active window ===
+var firstWindow = sp.ForegroundWindow();
+if (!firstWindow) {
+    sp.MessageBox("No active window found!", "Error");
+    throw "Script stopped";
+}
+
+// Save original size if necessary
+var wasFirstMaximized = firstWindow.Maximized;
+if (saveOriginalSize && wasFirstMaximized) {
+    log(`First window "${firstWindow.Title}" is maximized. Restoring to get real size.`);
+    firstWindow.Restore();
+}
+
+var firstInfo = {
+    X: firstWindow.Location.X,
+    Y: firstWindow.Location.Y,
+    Width: firstWindow.Size.Width,
+    Height: firstWindow.Size.Height,
+    Maximized: wasFirstMaximized,
+    Minimized: firstWindow.Minimized,
+    Title: firstWindow.Title
+};
+
+log(`Saved active window: "${firstInfo.Title}" (${firstInfo.X},${firstInfo.Y}, ${firstInfo.Width}x${firstInfo.Height})`);
+
+// Restore maximized state
+if (saveOriginalSize && wasFirstMaximized) {
+    firstWindow.Maximize();
+}
+
+// === 2. Switch to the previous window ===
+log("Switching to the previous window via sp.LastApplication()...");
+sp.LastApplication();
+sp.Sleep(100); // small delay for switching
+
+// === 3. Save the new active window ===
+var secondWindow = sp.ForegroundWindow();
+if (!secondWindow) {
+    sp.MessageBox("Failed to find another window after switching!", "Error");
+    throw "Script stopped";
+}
+
+// === CHECK: windows must be different ===
+if (secondWindow.HWnd === firstWindow.HWnd) {
+    sp.MessageBox("The selected windows are the same! Cannot swap.", "Error");
+    throw "Script stopped";
+}
+
+var wasSecondMaximized = secondWindow.Maximized;
+if (saveOriginalSize && wasSecondMaximized) {
+    log(`Second window "${secondWindow.Title}" is maximized. Restoring to get real size.`);
+    secondWindow.Restore();
+}
+
+var secondInfo = {
+    X: secondWindow.Location.X,
+    Y: secondWindow.Location.Y,
+    Width: secondWindow.Size.Width,
+    Height: secondWindow.Size.Height,
+    Maximized: wasSecondMaximized,
+    Minimized: secondWindow.Minimized,
+    Title: secondWindow.Title
+};
+
+log(`Saved new active window: "${secondInfo.Title}" (${secondInfo.X},${secondInfo.Y}, ${secondInfo.Width}x${secondInfo.Height})`);
+
+// Restore maximized state
+if (saveOriginalSize && wasSecondMaximized) {
+    secondWindow.Maximize();
+}
+
+// === PREPARE WINDOWS ===
+
+// Restore windows if they are minimized
+ensureRestored(firstWindow, firstInfo.Title);
+ensureRestored(secondWindow, secondInfo.Title);
+
+// ALWAYS unmaximize before moving to avoid flickering
+ensureNotMaximized(firstWindow, firstInfo.Title);
+ensureNotMaximized(secondWindow, secondInfo.Title);
+
+// === SWAP WINDOWS ===
+
+log(`Moving first window "${firstInfo.Title}" to second window's position "${secondInfo.Title}"`);
+firstWindow.Location = new Point(secondInfo.X, secondInfo.Y);
+firstWindow.Size = new Size(secondInfo.Width, secondInfo.Height);
+
+log(`Moving second window "${secondInfo.Title}" to first window's position "${firstInfo.Title}"`);
+secondWindow.Location = new Point(firstInfo.X, firstInfo.Y);
+secondWindow.Size = new Size(firstInfo.Width, firstInfo.Height);
+
+// === RESTORE WINDOW STATES ===
+
+restoreState(firstWindow, secondInfo);
+restoreState(secondWindow, firstInfo);
+
+// === FINAL ===
+
+log(`Bringing windows "${firstInfo.Title}" and "${secondInfo.Title}" to front`);
+firstWindow.BringToFront();
+secondWindow.BringToFront();
+
+log("=== Window swap completed successfully ===");
