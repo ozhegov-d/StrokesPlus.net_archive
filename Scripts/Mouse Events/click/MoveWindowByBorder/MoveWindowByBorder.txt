@@ -1,0 +1,242 @@
+// Enables/disables the entire script (window dragging)
+var enableScript = true;  
+
+// Toggle for applying default edge settings
+var globalAreas = true; // If false, then default edge zones are not applied
+
+// Toggle for applying default center settings
+var globalCenter = true; // If true, then default center settings are applied
+
+// Custom Settings
+var useCustomSettings = true;
+
+// Default edge settings
+var defaultAreas = {
+    top:    true,
+    bottom: true,
+    left:   true,
+    right:  true
+};
+var defaultTopSide    = 10; // 10% from the top
+var defaultBottomSide = 10; // 10% from the bottom
+var defaultLeftSide   = 10; // 10% from the left
+var defaultRightSide  = 0;  // 0% = disabled
+
+// Default center settings (relative to the geometric center of the window)
+var defaultCenter = {
+    enabled: true,
+    top:    10,  // 10% upward from center
+    bottom: 10,  // 10% downward from center
+    left:   10,  // 10% to the left of center
+    right:  10   // 10% to the right of center
+};
+// If an application's enabled property is false, the script will not execute for it.
+var appSettings = {
+    "audition.exe":  { enabled: false },
+    "explorer.exe":  { enabled: false },
+    "deepl.exe": {
+        enabled: true,
+        topSide:    0,
+        bottomSide: 0,
+        leftSide:   0,
+        rightSide:  0,
+        center: {
+            enabled: true,
+            top:    55,
+            bottom: 55,
+            left:   10,
+            right:  0
+        }
+    },
+    "notepad.exe": {
+        enabled: true,
+        topSide:    10,
+        bottomSide: 10,
+        leftSide:   0,
+        rightSide:  0,
+        center: {
+            enabled: true,
+            top:    15,
+            bottom: 15,
+            left:   15,
+            right:  15
+        }
+    }
+};
+(function() {
+    // Function to check if a point falls within a window zone based on a percentage of its width/height
+    function isPointInArea(point, rect, pct, pos) {
+        var factor = pct / 100.0;
+        switch (pos) {
+            case "top":
+                return (point.Y >= rect.Top && point.Y <= rect.Top + rect.Height * factor);
+            case "bottom":
+                return (point.Y >= rect.Bottom - rect.Height * factor && point.Y <= rect.Bottom);
+            case "left":
+                return (point.X >= rect.Left && point.X <= rect.Left + rect.Width * factor);
+            case "right":
+                return (point.X >= rect.Right - rect.Width * factor && point.X <= rect.Right);
+            default:
+                return false;
+        }
+    }
+
+    // Main block: if the button is pressed, execute window dragging logic; otherwise, clear variables
+    if (click.Down) {
+        // If window dragging mode is already active, do not proceed
+        if (sp.GetStoredBool("MoveWindowActive")) {
+            return;
+        }
+        
+        // Determine the window from the click point and ensure the window exists and is not maximized
+        var window = sp.WindowFromPoint(click.Point, true);
+        if (!window || window.Maximized) {
+            return;
+        }
+        
+        var exeName = window.ExecutableName.toLowerCase();
+        var custom = (useCustomSettings && appSettings[exeName]) ? appSettings[exeName] : null;
+        // If processing is explicitly disabled for the application, exit
+        if (custom && custom.enabled === false) {
+            return;
+        }
+        
+        // Initialization of edge settings
+        var topP    = globalAreas ? defaultTopSide : 0;
+        var bottomP = globalAreas ? defaultBottomSide : 0;
+        var leftP   = globalAreas ? defaultLeftSide : 0;
+        var rightP  = globalAreas ? defaultRightSide : 0;
+        var areas = {
+            top:    globalAreas ? defaultAreas.top : false,
+            bottom: globalAreas ? defaultAreas.bottom : false,
+            left:   globalAreas ? defaultAreas.left : false,
+            right:  globalAreas ? defaultAreas.right : false
+        };
+        
+        // Initialization of center settings
+        var center = {
+            enabled: globalCenter ? defaultCenter.enabled : false,
+            top:     globalCenter ? defaultCenter.top : 0,
+            bottom:  globalCenter ? defaultCenter.bottom : 0,
+            left:    globalCenter ? defaultCenter.left : 0,
+            right:   globalCenter ? defaultCenter.right : 0
+        };
+        
+        // Override global settings if custom values are provided for the application
+        if (custom && (custom.enabled === true || custom.enabled === undefined)) {
+            if (typeof custom.topSide === "number") {
+                topP = custom.topSide;
+                areas.top = topP > 0;
+            }
+            if (typeof custom.bottomSide === "number") {
+                bottomP = custom.bottomSide;
+                areas.bottom = bottomP > 0;
+            }
+            if (typeof custom.leftSide === "number") {
+                leftP = custom.leftSide;
+                areas.left = leftP > 0;
+            }
+            if (typeof custom.rightSide === "number") {
+                rightP = custom.rightSide;
+                areas.right = rightP > 0;
+            }
+            if (custom.center && typeof custom.center === "object") {
+                center.enabled = (typeof custom.center.enabled === "boolean") ? custom.center.enabled : center.enabled;
+                center.top     = (typeof custom.center.top === "number") ? custom.center.top : center.top;
+                center.bottom  = (typeof custom.center.bottom === "number") ? custom.center.bottom : center.bottom;
+                center.left    = (typeof custom.center.left === "number") ? custom.center.left : center.left;
+                center.right   = (typeof custom.center.right === "number") ? custom.center.right : center.right;
+            }
+        }
+        
+        // Obtain the window's geometry and the click coordinates
+        var rect = window.Rectangle;
+        var w = rect.Width;
+        var h = rect.Height;
+        var x = click.Point.X;
+        var y = click.Point.Y;
+        
+        // Determine if the click point falls within the defined zones if the settings are enabled
+        var inTop    = areas.top    && isPointInArea(click.Point, rect, topP, "top");
+        var inBottom = areas.bottom && isPointInArea(click.Point, rect, bottomP, "bottom");
+        var inLeft   = areas.left   && isPointInArea(click.Point, rect, leftP, "left");
+        var inRight  = areas.right  && isPointInArea(click.Point, rect, rightP, "right");
+        
+        var inCenter = false;
+        if (center.enabled) {
+            var cTopPct    = center.top / 100.0;
+            var cBottomPct = center.bottom / 100.0;
+            var cLeftPct   = center.left / 100.0;
+            var cRightPct  = center.right / 100.0;
+            
+            var centerX = rect.Left + w / 2;
+            var centerY = rect.Top + h / 2;
+            
+            var topPixels    = h * cTopPct;
+            var bottomPixels = h * cBottomPct;
+            var leftPixels   = w * cLeftPct;
+            var rightPixels  = w * cRightPct;
+            
+            var centerRect = {
+                top:    centerY - topPixels,
+                bottom: centerY + bottomPixels,
+                left:   centerX - leftPixels,
+                right:  centerX + rightPixels
+            };
+            
+            inCenter = (x >= centerRect.left && x <= centerRect.right &&
+                        y >= centerRect.top  && y <= centerRect.bottom);
+        }
+        
+        // If the click point does not fall within any of the zones, do nothing
+        if (!(inTop || inBottom || inLeft || inRight || inCenter)) {
+            return;
+        }
+        
+        // Activate window dragging: store the window's initial position and the click coordinates
+        sp.StoreBool("MoveWindowActive", true);
+        sp.StoreHandle("MoveWindowHandle", window.HWnd);
+        sp.StorePoint("MoveWindowMouseStart", click.Point);
+        sp.StorePoint("MoveWindowStart", window.Location);
+        
+        // Create a timer for window dragging. Here MouseButtons.Left is used. (40 - smoothness of movement (the smaller the smoother))
+        sp.CreateTimer("MoveWindow", 40, 1, String.raw` 
+            var wnd = sp.WindowFromHandle(sp.GetStoredHandle("MoveWindowHandle"));
+            if (!wnd) {
+                sp.DeleteTimer("MoveWindow");
+                sp.DeleteStoredHandle("MoveWindowHandle");
+                sp.DeleteStoredBool("MoveWindowActive");
+                sp.DeleteStoredPoint("MoveWindowMouseStart");
+                sp.DeleteStoredPoint("MoveWindowStart");
+            } else {
+              if (!sp.IsButtonDown(MouseButtons.Left)) { // | Left | Right | Middle | XButton1 | XButton2 | Note: Case-sensitive
+                    sp.DeleteTimer("MoveWindow");
+                    sp.DeleteStoredHandle("MoveWindowHandle");
+                    sp.DeleteStoredBool("MoveWindowActive");
+                    sp.DeleteStoredPoint("MoveWindowMouseStart");
+                    sp.DeleteStoredPoint("MoveWindowStart");
+                } else {
+                    var startMousePt = sp.GetStoredPoint("MoveWindowMouseStart");
+                    var currMousePt  = sp.GetCurrentMousePoint();
+                    var currWinPt    = wnd.Location;
+                    
+                    wnd.Location = new Point(
+                        currWinPt.X + (currMousePt.X - startMousePt.X),
+                        currWinPt.Y + (currMousePt.Y - startMousePt.Y)
+                    );
+                    sp.StorePoint("MoveWindowMouseStart", currMousePt);
+                }
+            }
+        `);
+        
+    } else {
+        // If the button is released, clear variables and delete the timer if window dragging is active
+        if (sp.GetStoredBool("MoveWindowActive")) {
+            sp.DeleteTimer("MoveWindow");
+            sp.DeleteStoredHandle("MoveWindowHandle");
+            sp.DeleteStoredBool("MoveWindowActive");
+            sp.DeleteStoredPoint("MoveWindowMouseStart");
+            sp.DeleteStoredPoint("MoveWindowStart");
+        }
+    }
+})();
