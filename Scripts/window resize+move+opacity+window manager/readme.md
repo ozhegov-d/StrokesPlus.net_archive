@@ -1,3 +1,4 @@
+
 ### MoveWindowByCenter
 
 Dragging the window by its center area with just a mouse click.
@@ -11,6 +12,13 @@ if (!sp.IsButtonDown(MouseButtons.Left)) { // | Left | Right | Middle | XButton1
 
 > Keep in mind that if the window you're clicking on is running as administrator, an error will occur if StrokesPlus is not run as administrator.
 
+---------------------------------------------------------------------------------------------------------
+### QuickSwapWindows
+Swap the current window with the previously active window, preserving their positions and sizes.
+
+https://github.com/user-attachments/assets/1b2083f0-0cd7-448d-bec8-f01c008cfea5
+
+> Switches via sp.LastApplication(); // Activates the last active, non-minimized window, similar to Alt+Tab
 ---------------------------------------------------------------------------------------------------------
 ### window resize+move+opacity+always on top+remove window title
 
