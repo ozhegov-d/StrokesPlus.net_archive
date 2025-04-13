@@ -12,6 +12,9 @@ if (!sp.IsButtonDown(MouseButtons.Left)) { // | Left | Right | Middle | XButton1
 
 > Keep in mind that if the window you're clicking on is running as administrator, an error will occur if StrokesPlus is not run as administrator.
 
+v2  
+If part of the window extends beyond the screen, the 'center' area shifts to the visible part of the window.
+
 ---------------------------------------------------------------------------------------------------------
 ### QuickSwapWindows
 Swap the current window with the previously active window, preserving their positions and sizes.
