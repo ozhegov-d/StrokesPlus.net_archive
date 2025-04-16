@@ -1,0 +1,254 @@
+//v2
+// ----- Manual Zone Customization Possibility -----
+    //
+    // Constructor new Rectangle(x, y, width, height):
+    //  x = 500 -> X coordinate (left position)
+    //  y = 300 -> Y coordinate (top position)
+    //  width = 800 -> Rectangle width
+    //  height = 600 -> Rectangle height
+    //
+    // Defines the window zone according to a 9-zone grid (like on a numeric keypad):
+    //    1   2   3
+    //    4   5   6
+    //    7   8   9
+    // ----- Adding Manual Zone Customization -----
+    // If the value for a zone is "off", then that zone is disabled.
+    // Example: to disable zone 4, you can set:
+    //   4: "off"
+(function() {
+    var customZones = {
+        1: null,  
+        //1: new Rectangle(0, 0, 960, 549),
+        2: null, 
+        //2: new Rectangle(0, 0, 1920, 549),
+        3: null, 
+        //3: new Rectangle(960, 0, 960, 549),
+        4: null, 
+        //4: new Rectangle(0, 0, 960, 1099),
+        5: null, 
+        //5: new Rectangle(480, 374, 960, 680),
+        6: null,  
+        //6: new Rectangle(960, 0, 960, 1099),
+        7: null, 
+        //7: new Rectangle(0, 549, 960, 549),
+        8: null, 
+        //8: new Rectangle(0, 549, 1920, 549),
+        9: null   
+        //9: new Rectangle(960, 549, 960, 549),
+    };
+
+    // Logging function 
+var logsEnabled = false;
+
+// 1. If the window is maximized – save its "maximized" state and set the flag, then call restore
+// Get the window we're working with
+var wnd = action.Window;
+
+    // If the window is maximized – save its state and restore it
+    if (wnd.Maximized) {
+        var screen = wnd.Screen.WorkingArea;
+        var fullScreenRect = new Rectangle(screen.Left, screen.Top, screen.Width, screen.Height);
+        
+        // Get the string representation of Hwnd
+        var hwndObj = wnd.HWnd;
+        var hwndStr = "unknown";
+        try {
+            hwndStr = hwndObj.ToInt64();
+        } catch (e) {
+            hwndStr = hwndObj.toString();
+        }
+        
+        // Keys for storing the original state
+        var keyOrigLeft     = "SP_OriginalWindow_Left_" + hwndStr;
+        var keyOrigTop      = "SP_OriginalWindow_Top_" + hwndStr;
+        var keyOrigWidth    = "SP_OriginalWindow_Width_" + hwndStr;
+        var keyOrigHeight   = "SP_OriginalWindow_Height_" + hwndStr;
+        var keyWasMaximized = "SP_WasMaximized_" + hwndStr;
+        
+        sp.StoreNumber(keyOrigLeft, fullScreenRect.Left);
+        sp.StoreNumber(keyOrigTop, fullScreenRect.Top);
+        sp.StoreNumber(keyOrigWidth, fullScreenRect.Width);
+        sp.StoreNumber(keyOrigHeight, fullScreenRect.Height);
+        sp.StoreNumber(keyWasMaximized, 1);  // Mark that the window was maximized
+        
+        myLog("Window was maximized; saved full screen state for Hwnd=" + hwndStr +
+            ": Left=" + fullScreenRect.Left + ", Top=" + fullScreenRect.Top + 
+            ", Width=" + fullScreenRect.Width + ", Height=" + fullScreenRect.Height, 
+            "MoveWindow", System.Drawing.Color.Purple);
+        
+        // Exit the maximized state
+        wnd.Restore();
+    }
+        
+function myLog(message, label, color) {
+    if (logsEnabled)
+        sp.ConsoleLog(message, label, color);
+}
+  
+myLog("-----------------------------------------------------------", "", System.Drawing.Color.Red);
+var hwndStr = "";
+try {
+    hwndStr = action.Window.HWnd.ToInt64();
+} catch (e) {
+    hwndStr = action.Window.HWnd.toString();
+}
+myLog("Processing window with Hwnd=" + hwndStr, "MoveWindow", System.Drawing.Color.LightGreen);
+
+var screen = wnd.Screen.WorkingArea;
+
+var halfWidth = parseInt(screen.Width / 2);
+var halfHeight = parseInt(screen.Height / 2);
+var quarterWidth = parseInt(screen.Width / 4);
+var quarterHeight = parseInt(screen.Height / 4);
+
+var currentRect = wnd.Rectangle;
+myLog("Current window state: Left=" + currentRect.Left + ", Top=" + currentRect.Top +
+    ", Width=" + currentRect.Width + ", Height=" + currentRect.Height, "MoveWindow", System.Drawing.Color.DarkOrange);
+
+// Keys for storing state by Hwnd
+var keyOrigLeft   = "SP_OriginalWindow_Left_" + hwndStr;
+var keyOrigTop    = "SP_OriginalWindow_Top_" + hwndStr;
+var keyOrigWidth  = "SP_OriginalWindow_Width_" + hwndStr;
+var keyOrigHeight = "SP_OriginalWindow_Height_" + hwndStr;
+var keyLastZone   = "SP_LastZone_" + hwndStr;
+var keyIsStandard = "SP_IsStandard_" + hwndStr;
+
+var tolerance = 15;
+function rectEquals(r1, r2, tol) {
+    return (Math.abs(r1.Left - r2.Left) < tol &&
+            Math.abs(r1.Top - r2.Top) < tol &&
+            Math.abs(r1.Width - r2.Width) < tol &&
+            Math.abs(r1.Height - r2.Height) < tol);
+}
+
+// If the original state has not been saved yet – save it
+if (sp.GetStoredNumber(keyOrigWidth) == null || sp.GetStoredNumber(keyOrigWidth) == 0) {
+    sp.StoreNumber(keyOrigLeft, currentRect.Left);
+    sp.StoreNumber(keyOrigTop, currentRect.Top);
+    sp.StoreNumber(keyOrigWidth, currentRect.Width);
+    sp.StoreNumber(keyOrigHeight, currentRect.Height);
+    sp.StoreNumber(keyIsStandard, 0);
+    myLog("Saved original window state for Hwnd=" + hwndStr +
+        ": Left=" + currentRect.Left + ", Top=" + currentRect.Top +
+        ", Width=" + currentRect.Width + ", Height=" + currentRect.Height,
+        "MoveWindow", System.Drawing.Color.Purple);
+}
+
+var origRect = new Rectangle(
+    sp.GetStoredNumber(keyOrigLeft),
+    sp.GetStoredNumber(keyOrigTop),
+    sp.GetStoredNumber(keyOrigWidth),
+    sp.GetStoredNumber(keyOrigHeight)
+);
+
+// Determine which zone (like on a numeric keypad: 1-9) the gesture start point is in
+var centerX = currentRect.Left + currentRect.Width / 2;
+var centerY = currentRect.Top + currentRect.Height / 2;
+var oneThirdX = currentRect.Left + currentRect.Width / 3;
+var twoThirdX = currentRect.Left + (currentRect.Width * 2 / 3);
+var oneThirdY = currentRect.Top + currentRect.Height / 3;
+var twoThirdY = currentRect.Top + (currentRect.Height * 2 / 3);
+var start = action.Start;
+var zone = 0;
+if (start.Y < oneThirdY) {
+    if (start.X < oneThirdX)
+        zone = 1;
+    else if (start.X < twoThirdX)
+        zone = 2;
+    else
+        zone = 3;
+} else if (start.Y < twoThirdY) {
+    if (start.X < oneThirdX)
+        zone = 4;
+    else if (start.X < twoThirdX)
+        zone = 5;
+    else
+        zone = 6;
+} else {
+    if (start.X < oneThirdX)
+        zone = 7;
+    else if (start.X < twoThirdX)
+        zone = 8;
+    else
+        zone = 9;
+}
+myLog("Gesture inside window in zone " + zone + " for Hwnd=" + hwndStr, "MoveWindow", System.Drawing.Color.DarkOrange);
+
+// 4. Calculate the standard (expected) window position for the selected zone
+var expectedRect;
+switch (zone) {
+    case 1:
+        expectedRect = new Rectangle(screen.Left, screen.Top, halfWidth, halfHeight);
+        break;
+    case 2:
+        expectedRect = new Rectangle(screen.Left, screen.Top, screen.Width, halfHeight);
+        break;
+    case 3:
+        expectedRect = new Rectangle(screen.Left + halfWidth, screen.Top, halfWidth, halfHeight);
+        break;
+    case 4:
+        expectedRect = new Rectangle(screen.Left, screen.Top, halfWidth, screen.Height);
+        break;
+    case 5:
+        expectedRect = new Rectangle(screen.Left + quarterWidth, screen.Top + quarterHeight, halfWidth, halfHeight);
+        break;
+    case 6:
+        expectedRect = new Rectangle(screen.Left + halfWidth, screen.Top, halfWidth, screen.Height);
+        break;
+    case 7:
+        expectedRect = new Rectangle(screen.Left, screen.Top + halfHeight, halfWidth, halfHeight);
+        break;
+    case 8:
+        expectedRect = new Rectangle(screen.Left, screen.Top + halfHeight, screen.Width, halfHeight);
+        break;
+    case 9:
+        expectedRect = new Rectangle(screen.Left + halfWidth, screen.Top + halfHeight, halfWidth, halfHeight);
+        break;
+    default:
+        expectedRect = currentRect;
+}
+
+// 4.1. Process zone customization:
+if (customZones[zone] !== null) {
+    if (customZones[zone] === "off") {
+        myLog("Zone " + zone + " is disabled (off). Operation will not be performed.", "MoveWindow", System.Drawing.Color.Gray);
+        return; // Stop script execution for this zone
+    } else {
+        expectedRect = customZones[zone];
+        myLog("Using custom settings for zone " + zone + ".", "MoveWindow", System.Drawing.Color.Gray);
+    }
+}
+
+myLog("Expected standard state for zone " + zone + ": Left=" + expectedRect.Left + ", Top=" + expectedRect.Top +
+      ", Width=" + expectedRect.Width + ", Height=" + expectedRect.Height, "MoveWindow", System.Drawing.Color.Cyan);
+
+// 5. Toggle:
+var storedZone = sp.GetStoredNumber(keyLastZone);
+var isStandard = sp.GetStoredNumber(keyIsStandard) || 0;
+
+if (rectEquals(currentRect, expectedRect, tolerance) && (isStandard == 1) && (storedZone == zone)) {
+    myLog("Same zone detected for Hwnd=" + hwndStr + "! Restoring window to original state.", "MoveWindow", System.Drawing.Color.Red);
+    myLog("Restoring to: Left=" + origRect.Left + ", Top=" + origRect.Top +
+          ", Width=" + origRect.Width + ", Height=" + origRect.Height, "MoveWindow", System.Drawing.Color.Red);
+    wnd.Rectangle = origRect;
+    // If the window was maximized, maximize it again after restoration
+    if (sp.GetStoredNumber("SP_WasMaximized_" + hwndStr) == 1) {
+        wnd.Maximize();
+    }
+    sp.DeleteStoredNumber(keyLastZone);
+    sp.DeleteStoredNumber(keyOrigLeft);
+    sp.DeleteStoredNumber(keyOrigTop);
+    sp.DeleteStoredNumber(keyOrigWidth);
+    sp.DeleteStoredNumber(keyOrigHeight);
+    sp.DeleteStoredNumber("SP_WasMaximized_" + hwndStr);
+    sp.StoreNumber(keyIsStandard, 0);
+} else {
+    sp.StoreNumber(keyLastZone, zone);
+    sp.StoreNumber(keyIsStandard, 1);
+    myLog("Gesture zone updated to " + zone + " for Hwnd=" + hwndStr, "MoveWindow", System.Drawing.Color.DarkMagenta);
+    myLog("Moving window for Hwnd=" + hwndStr + " to standard state for zone " + zone + ": " +
+          "Left=" + expectedRect.Left + ", Top=" + expectedRect.Top +
+          ", Width=" + expectedRect.Width + ", Height=" + expectedRect.Height, "MoveWindow", System.Drawing.Color.Cyan);
+    wnd.Rectangle = expectedRect;
+}
+})();
