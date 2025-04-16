@@ -1,4 +1,15 @@
+### GridSnapWindow v2
 
+
+https://github.com/user-attachments/assets/cafbb0de-561b-4a8e-a077-465ebd22baf2
+
+![example](https://github.com/user-attachments/assets/890e46e3-103a-4b83-ad4d-290f2ff749ba)
+
+Zones can be manually assigned (size and position).
+
+> There is a bug where, if the window is maximized, it will return to full screen even after resizing it to different dimensions.
+
+---------------------------------------------------------------------------------------------------------
 ### MoveWindowByCenter
 
 Dragging the window by its center area with just a mouse click.
@@ -66,23 +77,6 @@ If JSON includes an argument:
 "ProcessName": "Everything64",  
 "Arguments": "-help",  
 then the title will be ignored, and the script will find the first available instance of the Everything64 process and will activate it.  
-
----------------------------------------------------------------------------------------------------------
-### GridSnapWindow
-
-
-https://github.com/user-attachments/assets/4bf13867-0b11-4b9a-b2c9-7b564c8b1580
-
-
-#### Global Actions > Mouse Events > Left Click:
-
-//If the click event is not the Down event (so on left button up) and the grid snap is active  
-if(!click.Down && sp.GetStoredBool("GridSnapActive")) {  
-// Disables GridSnapWindow: removes the timer and related variables  
-    sp.DeleteTimer("GridSnap");  
-    sp.DeleteStoredHandle("GridSnapWindow");  
-    sp.DeleteStoredBool("GridSnapActive");  
-}  
 
 ---------------------------------------------------------------------------------------------------------
 ### WindowSplitter
