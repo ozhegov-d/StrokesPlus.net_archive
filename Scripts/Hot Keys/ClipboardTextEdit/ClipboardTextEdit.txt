@@ -1,0 +1,104 @@
+// --- SETTINGS ---
+var findText = "123";                    // What to search for / var findText = '""'; (search for quotes)
+var addText = "456";                     // What to add
+var replaceFindText = "";                // What to replace findText with
+var removeText = "";                     // What to remove
+
+var addAtBeginning = false;      // Add to beginning or end of the replaced text
+var removeInsideWords = true;    // Remove parts of words?
+var removeFirstOnly = false;     // Remove only the first match?
+var ignoreCase = false;          // Ignore case when searching
+var autoRemoveSpaces = false;    // Automatically remove extra spaces after processing?
+
+var enableLogs = false;          // Enable/disable logging
+var logBeforeAfter = true;       // Show text before/after changes
+// ------------------
+
+// Copy selected text
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(100);
+
+var text = clip.GetText();
+var originalText = text; // Save original text for logging
+
+if (text) {
+    var matchFound = ignoreCase 
+        ? text.toLowerCase().includes(findText.toLowerCase())
+        : text.includes(findText);
+
+    if (matchFound) {
+        if (enableLogs) sp.ConsoleLog('-----------------------------');
+        if (enableLogs) sp.ConsoleLog('Text found: "' + findText + '"');
+
+        // === 1. Replace text ===
+        if (replaceFindText !== '') {
+            var regexFlags = ignoreCase ? 'gi' : 'g';
+            var regex = new RegExp(findText, regexFlags);
+            text = text.replace(regex, replaceFindText);
+            if (enableLogs) sp.ConsoleLog('Replaced "' + findText + '" with "' + replaceFindText + '"');
+
+            // === 2. Add addText after replacement ===
+            if (addText !== '') {
+                if (addAtBeginning) {
+                    text = addText + text;
+                    if (enableLogs) sp.ConsoleLog('Added "' + addText + '" to the BEGINNING of the text.');
+                } else {
+                    text = text + addText;
+                    if (enableLogs) sp.ConsoleLog('Added "' + addText + '" to the END of the text.');
+                }
+            }
+        } else {
+            // === If no replacement, just add normally ===
+            if (addText !== '') {
+                if (addAtBeginning) {
+                    text = addText + text;
+                    if (enableLogs) sp.ConsoleLog('Added "' + addText + '" to the BEGINNING of the text.');
+                } else {
+                    text = text + addText;
+                    if (enableLogs) sp.ConsoleLog('Added "' + addText + '" to the END of the text.');
+                }
+            }
+        }
+
+        // === 3. Remove text ===
+        if (removeText.trim() !== '') {
+            var itemsToRemove = removeText.trim().split(/\s+/);
+
+            for (var i = 0; i < itemsToRemove.length; i++) {
+                var word = itemsToRemove[i];
+                var regexFlags = ignoreCase ? 'i' : '';
+                var regexPattern = removeInsideWords ? word : '\\b' + word + '\\b';
+                var regex = new RegExp(regexPattern, regexFlags + (removeFirstOnly ? '' : 'g'));
+
+                if (regex.test(text)) {
+                    text = text.replace(regex, '');
+                    if (enableLogs) sp.ConsoleLog('Removed text: ' + word);
+                    if (removeFirstOnly) break;
+                } else {
+                    if (enableLogs) sp.ConsoleLog('Text to remove "' + word + '" not found.');
+                }
+            }
+            // text = text.replace(/\s{2,}/g, ' ').trim(); // remove spaces without setting
+        }
+
+        // === 4. Log before/after ===
+        if (logBeforeAfter && enableLogs) {
+            sp.ConsoleLog('Text BEFORE: [' + originalText + ']');
+            sp.ConsoleLog('Text AFTER: [' + text + ']');
+        }
+
+        // === 5. Save back to clipboard ===
+        clip.SetText(text);
+        if (enableLogs) sp.ConsoleLog('Clipboard updated.');
+    } else {
+        if (enableLogs) sp.ConsoleLog('"' + findText + '" not found in clipboard.');
+    }
+} else {
+    if (enableLogs) sp.ConsoleLog('Clipboard is empty.');
+}
+
+// === 6. Remove extra spaces ===
+if (autoRemoveSpaces) {
+    text = text.replace(/\s{2,}/g, ' ').trim();  // Replace multiple spaces with one, trim edges
+    if (enableLogs) sp.ConsoleLog('Extra spaces removed.');
+}
