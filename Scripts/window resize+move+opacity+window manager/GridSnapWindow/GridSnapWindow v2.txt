@@ -1,4 +1,4 @@
-//v2
+//v2.1
 // ----- Manual Zone Customization Possibility -----
     //
     // Constructor new Rectangle(x, y, width, height):
@@ -40,59 +40,31 @@
     // Logging function 
 var logsEnabled = false;
 
-// 1. If the window is maximized – save its "maximized" state and set the flag, then call restore
-// Get the window we're working with
-var wnd = action.Window;
+    function myLog(msg, lbl, clr) {
+        if (logsEnabled) sp.ConsoleLog(msg, lbl, clr);
+    }
+    myLog("-----------------------------------------------------------", "", System.Drawing.Color.Red);
 
-    // If the window is maximized – save its state and restore it
+    var wnd = action.Window;
+    var hwndObj = wnd.HWnd;
+    var hwndStr = "unknown";
+    try { hwndStr = hwndObj.ToInt64(); }
+    catch (e) { hwndStr = hwndObj.toString(); }
+
+    var keyWasMaximized = "SP_WasMaximized_"           + hwndStr;
+    var keyOrigLeft     = "SP_OriginalWindow_Left_"    + hwndStr;
+    var keyOrigTop      = "SP_OriginalWindow_Top_"     + hwndStr;
+    var keyOrigWidth    = "SP_OriginalWindow_Width_"   + hwndStr;
+    var keyOrigHeight   = "SP_OriginalWindow_Height_"  + hwndStr;
+    var keyLastZone     = "SP_LastZone_"               + hwndStr;
+    var keyIsStandard   = "SP_IsStandard_"             + hwndStr;
+
     if (wnd.Maximized) {
-        var screen = wnd.Screen.WorkingArea;
-        var fullScreenRect = new Rectangle(screen.Left, screen.Top, screen.Width, screen.Height);
-        
-        // Get the string representation of Hwnd
-        var hwndObj = wnd.HWnd;
-        var hwndStr = "unknown";
-        try {
-            hwndStr = hwndObj.ToInt64();
-        } catch (e) {
-            hwndStr = hwndObj.toString();
-        }
-        
-        // Keys for storing the original state
-        var keyOrigLeft     = "SP_OriginalWindow_Left_" + hwndStr;
-        var keyOrigTop      = "SP_OriginalWindow_Top_" + hwndStr;
-        var keyOrigWidth    = "SP_OriginalWindow_Width_" + hwndStr;
-        var keyOrigHeight   = "SP_OriginalWindow_Height_" + hwndStr;
-        var keyWasMaximized = "SP_WasMaximized_" + hwndStr;
-        
-        sp.StoreNumber(keyOrigLeft, fullScreenRect.Left);
-        sp.StoreNumber(keyOrigTop, fullScreenRect.Top);
-        sp.StoreNumber(keyOrigWidth, fullScreenRect.Width);
-        sp.StoreNumber(keyOrigHeight, fullScreenRect.Height);
-        sp.StoreNumber(keyWasMaximized, 1);  // Mark that the window was maximized
-        
-        myLog("Window was maximized; saved full screen state for Hwnd=" + hwndStr +
-            ": Left=" + fullScreenRect.Left + ", Top=" + fullScreenRect.Top + 
-            ", Width=" + fullScreenRect.Width + ", Height=" + fullScreenRect.Height, 
-            "MoveWindow", System.Drawing.Color.Purple);
-        
-        // Exit the maximized state
+        sp.StoreNumber(keyWasMaximized, 1);
         wnd.Restore();
     }
-        
-function myLog(message, label, color) {
-    if (logsEnabled)
-        sp.ConsoleLog(message, label, color);
-}
-  
-myLog("-----------------------------------------------------------", "", System.Drawing.Color.Red);
-var hwndStr = "";
-try {
-    hwndStr = action.Window.HWnd.ToInt64();
-} catch (e) {
-    hwndStr = action.Window.HWnd.toString();
-}
-myLog("Processing window with Hwnd=" + hwndStr, "MoveWindow", System.Drawing.Color.LightGreen);
+
+    myLog("Processing window with Hwnd=" + hwndStr, "MoveWindow", System.Drawing.Color.LightGreen);
 
 var screen = wnd.Screen.WorkingArea;
 
@@ -104,14 +76,6 @@ var quarterHeight = parseInt(screen.Height / 4);
 var currentRect = wnd.Rectangle;
 myLog("Current window state: Left=" + currentRect.Left + ", Top=" + currentRect.Top +
     ", Width=" + currentRect.Width + ", Height=" + currentRect.Height, "MoveWindow", System.Drawing.Color.DarkOrange);
-
-// Keys for storing state by Hwnd
-var keyOrigLeft   = "SP_OriginalWindow_Left_" + hwndStr;
-var keyOrigTop    = "SP_OriginalWindow_Top_" + hwndStr;
-var keyOrigWidth  = "SP_OriginalWindow_Width_" + hwndStr;
-var keyOrigHeight = "SP_OriginalWindow_Height_" + hwndStr;
-var keyLastZone   = "SP_LastZone_" + hwndStr;
-var keyIsStandard = "SP_IsStandard_" + hwndStr;
 
 var tolerance = 15;
 function rectEquals(r1, r2, tol) {
@@ -243,12 +207,33 @@ if (rectEquals(currentRect, expectedRect, tolerance) && (isStandard == 1) && (st
     sp.DeleteStoredNumber("SP_WasMaximized_" + hwndStr);
     sp.StoreNumber(keyIsStandard, 0);
 } else {
-    sp.StoreNumber(keyLastZone, zone);
-    sp.StoreNumber(keyIsStandard, 1);
-    myLog("Gesture zone updated to " + zone + " for Hwnd=" + hwndStr, "MoveWindow", System.Drawing.Color.DarkMagenta);
-    myLog("Moving window for Hwnd=" + hwndStr + " to standard state for zone " + zone + ": " +
+
+    if (isStandard == 1 &&
+        storedZone == zone &&
+        !rectEquals(currentRect, expectedRect, tolerance)) {
+
+        sp.StoreNumber(keyOrigLeft,  currentRect.Left);
+        sp.StoreNumber(keyOrigTop,   currentRect.Top);
+        sp.StoreNumber(keyOrigWidth, currentRect.Width);
+        sp.StoreNumber(keyOrigHeight,currentRect.Height);
+
+
+    sp.DeleteStoredNumber("SP_WasMaximized_" + hwndStr);
+
+        myLog("Manual resize detected – new original saved for Hwnd=" +
+              hwndStr, "MoveWindow", System.Drawing.Color.Purple);
+    }
+
+    sp.StoreNumber(keyLastZone, zone);         
+    sp.StoreNumber(keyIsStandard, 1);           
+    myLog("Gesture zone updated to " + zone +   
+          " for Hwnd=" + hwndStr, "MoveWindow", System.Drawing.Color.DarkMagenta);
+    myLog("Moving window for Hwnd=" + hwndStr +
+          " to standard state for zone " + zone + ": " +
           "Left=" + expectedRect.Left + ", Top=" + expectedRect.Top +
-          ", Width=" + expectedRect.Width + ", Height=" + expectedRect.Height, "MoveWindow", System.Drawing.Color.Cyan);
-    wnd.Rectangle = expectedRect;
+          ", Width=" + expectedRect.Width + ", Height=" + expectedRect.Height,
+          "MoveWindow", System.Drawing.Color.Cyan);
+    wnd.Rectangle = expectedRect;   
 }
 })();
+
