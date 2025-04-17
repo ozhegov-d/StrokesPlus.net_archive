@@ -7,8 +7,6 @@ https://github.com/user-attachments/assets/cafbb0de-561b-4a8e-a077-465ebd22baf2
 
 Zones can be manually assigned (size and position).
 
-> There is a bug where, if the window is maximized, it will return to full screen even after resizing it to different dimensions.
-
 ---------------------------------------------------------------------------------------------------------
 ### MoveWindowByCenter
 
