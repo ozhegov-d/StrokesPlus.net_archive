@@ -30,7 +30,9 @@ Swap the current window with the previously active window, preserving their posi
 
 https://github.com/user-attachments/assets/1b2083f0-0cd7-448d-bec8-f01c008cfea5
 
-> Switches via sp.LastApplication(); // Activates the last active, non-minimized window, similar to Alt+Tab
+v2  
+implemented via click-based saving of recent windows (now all windows swap positions correctly)
+
 ---------------------------------------------------------------------------------------------------------
 ### window resize+move+opacity+always on top+remove window title
 
