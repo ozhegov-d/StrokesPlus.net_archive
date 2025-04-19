@@ -1,0 +1,83 @@
+(function () {
+    const LOG = false; 
+    function log(msg) { if (LOG) sp.ConsoleLog([GestureSwap]  + msg); }
+
+    function storeWindow(prefix, w, tag) {
+        if (!w) return;
+        const x = w.Location.X, y = w.Location.Y;
+        if (x  0  y  0) {
+            log(Skip  + tag +  negative position ( + x + , + y + ));
+            return;
+        }
+        sp.StoreHandle(prefix + _Hwnd, w.HWnd);
+        sp.StoreString(prefix + _Title, w.Title);
+        sp.StoreNumber(prefix + _X, x);
+        sp.StoreNumber(prefix + _Y, y);
+        sp.StoreNumber(prefix + _W, w.Size.Width);
+        sp.StoreNumber(prefix + _H, w.Size.Height);
+        log(Saved  + tag +   + w.Title +  at ( + x + , + y + )  + w.Size.Width + × + w.Size.Height);
+    }
+
+    function loadWindow(prefix) {
+        return {
+            Hwnd sp.GetStoredHandle(prefix + _Hwnd),
+            Title sp.GetStoredString(prefix + _Title),
+            X sp.GetStoredNumber(prefix + _X),
+            Y sp.GetStoredNumber(prefix + _Y),
+            W sp.GetStoredNumber(prefix + _W),
+            H sp.GetStoredNumber(prefix + _H)
+        };
+    }
+
+    function shiftWindowsChain(newWnd) {
+        const oldA = sp.WindowFromHandle(sp.GetStoredHandle(Swap_A_Hwnd));
+        const oldB = sp.WindowFromHandle(sp.GetStoredHandle(Swap_B_Hwnd));
+        if (oldB) storeWindow(Swap_C, oldB, Shifted to C);
+        if (oldA) storeWindow(Swap_B, oldA, Shifted to B);
+        storeWindow(Swap_A, newWnd, Shifted to A);
+        log(Shift C ← B, B ← A, A ← новое окно);
+    }
+
+    sp.StoreBool(Swap_InProgress, true);
+
+    const A = loadWindow(Swap_A), B = loadWindow(Swap_B);
+    const wndA = sp.WindowFromHandle(A.Hwnd), wndB = sp.WindowFromHandle(B.Hwnd);
+
+    if (!wndA  !wndB) {
+        log(Cannot swap A or B not found);
+        sp.StoreBool(Swap_InProgress, false);
+        return;
+    }
+
+    if (wndA.HWnd.ToInt64() === wndB.HWnd.ToInt64()) {
+        log(Skip swap both windows are the same);
+        sp.StoreBool(Swap_InProgress, false);
+        return;
+    }
+
+    log(Swapping  + A.Title +  ↔  + B.Title);
+
+    [wndA, wndB].forEach(w = { if (w.Minimized  w.Maximized) w.Restore(); });
+
+    if (B.X = 0 && B.Y = 0) wndA.Location = new Point(B.X, B.Y);
+    wndA.Size = new Size(B.W, B.H);
+    if (A.X = 0 && A.Y = 0) wndB.Location = new Point(A.X, A.Y);
+    wndB.Size = new Size(A.W, A.H);
+
+    const oldA = wndA;
+    const oldB = wndB;
+    const newA = wndB; 
+
+    newA.Activate();
+    shiftWindowsChain(newA);
+
+    [wndA, wndB].forEach(w = w.BringToFront());
+
+    sp.Sleep(200);  Waiting for WindowActivated not to trigger prematurely
+    sp.StoreBool(Swap_InProgress, false);
+
+    log(Post-swap A  + newA.Title);
+    log(Post-swap B  + oldA.Title);
+    log(Post-swap C  + oldB.Title);
+    log(Swap complete);
+})();
