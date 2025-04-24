@@ -14,7 +14,7 @@ old site/forum
 https://web.archive.org/web/20240509182702/https://www.strokesplus.net/
 https://web.archive.org/web/20240923100130/https://forum.strokesplus.net/
 
-![GlobalActions_Play](https://github.com/user-attachments/assets/93b7332d-f932-43c8-b2af-2b89fe8770c7)
+![GestureList](https://github.com/user-attachments/assets/a29f3d26-6b15-460a-991a-52bad2a01663)
 ![GlobalActions_Play](https://github.com/user-attachments/assets/4d036186-7a94-4f89-9aeb-6e96bb6d378f)  
 
 
