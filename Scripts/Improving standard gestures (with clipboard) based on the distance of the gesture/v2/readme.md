@@ -53,6 +53,12 @@ Short gesture not from a link and with no selected text on the page performs the
 Long gesture switches the tab if text is not selected 
 + It also works in any application: the browser opens and searches
 
+v2  
++Opens URLs directly (e.g. reddit.com → opens in browser instead of performing a search)  
++Opens registry paths in RegEdit (e.g. HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run)  
++Runs system consoles/control panels (e.g. devmgmt.msc, main.cpl)  
++Opens local files and folders (e.g. %USERPROFILE%\AppData or C:\Temp)  
+
 **Back**
 
 + short gesture - Back
