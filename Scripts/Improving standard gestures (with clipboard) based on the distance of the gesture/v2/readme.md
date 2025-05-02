@@ -1,3 +1,45 @@
+
+### Minimize-Return
+
+v2  
+long gesture  
+
+true — strict mode:  
+Only the windows that were directly under the gesture line will be minimized.  
+If the gesture starts and ends on the same window, that window and the one beneath it will be minimized.  
+
+false — extended mode:  
+All the same as in strict mode, plus: if at least one window of a process was under the gesture line, all windows of that process will be minimized, even if they were not directly under the gesture.
+
+
+If the Options → General → Always Activate Window Where Gesture Began setting is enabled,  
+the window where the gesture started will always be focused after the gesture, and it will cover the window at the end of the gesture.  
+
+If this option is disabled,  
+focus will be restored correctly — to the window that was active before the gesture began, regardless of where the gesture started or ended.  
+
+
+https://github.com/user-attachments/assets/a7ef9a92-b964-4507-b56d-e76aa5caa341
+
+
+
+**Minimize**
++ short gesture - minimizing a single window
++ long gesture - all windows of one process 
+
+**Return**
++ short gesture - restoring a single window
++ long gesture - all windows of one process 
+
+if the stack is empty then sp.LastApplication();
+
+If the window has the same HWnd (and it should be restored), then sp.LastApplication();
+
+https://github.com/user-attachments/assets/753058d4-5b75-4de0-a20e-e06383c07207
+
+
+
+
 ### Quick Close/Re-Open
 
 **Close**  
@@ -71,23 +113,6 @@ v2
 
 https://github.com/user-attachments/assets/61a68d8b-8f52-455e-9ee3-6d83823b6a7d
 
-
-
-
-### Minimize-Return
-**Minimize**
-+ short gesture - minimizing a single window
-+ long gesture - all windows of one process 
-
-**Return**
-+ short gesture - restoring a single window
-+ long gesture - all windows of one process 
-
-if the stack is empty then sp.LastApplication();
-
-If the window has the same HWnd (and it should be restored), then sp.LastApplication();
-
-https://github.com/user-attachments/assets/753058d4-5b75-4de0-a20e-e06383c07207
 
 ### Max or Restore+Everything
 Everything is a program for fast file searching on your compute
