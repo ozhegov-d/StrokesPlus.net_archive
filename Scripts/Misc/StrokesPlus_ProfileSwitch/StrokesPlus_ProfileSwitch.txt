@@ -1,0 +1,51 @@
+var File = System.IO.File;
+var Path = System.IO.Path;
+var spPath = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+
+// 📌 Full path where the current profile will be saved
+var saveCurrentTo = Path.Combine(spPath, "StrokesPlus.net.Work.json");
+
+// 📌 Full path of the profile to load
+var newProfile = Path.Combine(spPath, "StrokesPlus.net.Default.json");
+
+// 📌 Currently active profile
+var activeProfile = Path.Combine(spPath, "StrokesPlus.net.json");
+
+// === Checks
+if (!File.Exists(activeProfile)) {
+    sp.MessageBox("❌ Active profile not found: StrokesPlus.net.json", "Error");
+} else if (!File.Exists(newProfile)) {
+    sp.MessageBox("❌ New profile not found:\n" + newProfile, "Error");
+} else {
+    try {
+        // 1. Save the current active profile
+        File.Copy(activeProfile, saveCurrentTo, true);
+        sp.ConsoleLog(`💾 Saved current profile to: ${saveCurrentTo}`, "BACKUP");
+
+        // 2. Load the new profile
+        File.Copy(newProfile, activeProfile, true);
+        sp.ConsoleLog(`✅ Loaded new profile: ${newProfile}`, "SWITCH");
+
+        // 3. Notification via DisplayTextInfo
+        var info = new DisplayTextInfo();
+        info.Title = "✔ Profile Activated";
+        info.TitleFont = new Font("Segoe UI", 18, host.flags(FontStyle.Bold));
+        //info.Message = Path.GetFileName(newProfile);
+        info.Message = "test1";
+        info.MessageFont = new Font("Segoe UI", 16);
+        info.Location = "middlecenter";
+        info.Opacity = 0.95;
+        info.Duration = 3000;
+        info.Padding = 30;
+        info.BackColor = "black";
+        info.ForeColor = "white";
+        info.UsePrimaryScreen = true;
+
+        sp.DisplayText(info);
+        //sp.PlaySound("C:\\Windows\\Media\\tada.wav");
+        // 4. Reload configuration
+        sp.Reload();
+    } catch (ex) {
+        sp.MessageBox("❌ Profile switch error:\n" + ex.message, "Error");
+    }
+}
