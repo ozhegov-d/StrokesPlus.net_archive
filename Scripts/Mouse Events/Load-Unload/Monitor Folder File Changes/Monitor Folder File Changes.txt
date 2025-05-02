@@ -1,0 +1,194 @@
+const watchTarget = "C:\\test"; // can be a file or a folder
+const delayStart = 10000; // 10 seconds
+const interval = 5000; // 5 seconds
+
+const enableLog = true;
+const enableNotify = true;
+const notifyTypes = "added,removed,renamed,modified";
+const notifySet = new Set(notifyTypes.split(",").map(s => s.trim().toLowerCase()));
+
+const escapedPath = watchTarget.replace(/\\/g, "\\\\");
+
+sp.CreateTimer("PathChangeMonitor", delayStart, interval, `
+    function formatSize(bytes) {
+        return (bytes / 1024).toFixed(1) + " KB";
+    }
+
+    function formatDiff(oldBytes, newBytes) {
+        const diff = Math.abs(oldBytes - newBytes);
+        if (diff >= 1024 * 1024) return (diff / (1024 * 1024)).toFixed(2) + " MB";
+        if (diff >= 1024) return (diff / 1024).toFixed(1) + " KB";
+        return diff + " bytes";
+    }
+
+    function getSnapshot(path, isFile) {
+        const snapshot = {};
+        if (isFile) {
+            const fi = new System.IO.FileInfo(path);
+            snapshot[fi.FullName] = {
+                type: "file",
+                ticks: fi.LastWriteTimeUtc.Ticks,
+                time: fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"),
+                size: fi.Length
+            };
+        } else {
+            const di = new System.IO.DirectoryInfo(path);
+            let files = [], dirs = [];
+            try {
+                files = Array.from(di.GetFiles("*", System.IO.SearchOption.AllDirectories));
+            } catch (e) {
+                sp.ConsoleError("Error getting files from: " + path + " → " + e.message, "Error", System.Drawing.Color.Red);
+            }
+            try {
+                dirs = Array.from(di.GetDirectories("*", System.IO.SearchOption.AllDirectories));
+            } catch (e) {
+                sp.ConsoleError("Error getting directories from: " + path + " → " + e.message, "Error", System.Drawing.Color.Red);
+            }
+
+            files.forEach(f => {
+                snapshot[f.FullName] = {
+                    type: "file",
+                    ticks: f.LastWriteTimeUtc.Ticks,
+                    time: f.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"),
+                    size: f.Length
+                };
+            });
+
+            dirs.forEach(d => {
+                snapshot[d.FullName] = {
+                    type: "dir",
+                    ticks: d.LastWriteTimeUtc.Ticks,
+                    time: d.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+                };
+            });
+        }
+        return snapshot;
+    }
+
+    function compareSnapshots(oldSnap, newSnap) {
+        const changes = { added: [], removed: [], modified: [], renamed: [] };
+        const oldKeys = new Set(Object.keys(oldSnap));
+        const newKeys = new Set(Object.keys(newSnap));
+
+        for (const key of newKeys) {
+            if (!oldSnap[key]) {
+                changes.added.push({ path: key, type: newSnap[key].type });
+            } else {
+                const oldItem = oldSnap[key];
+                const newItem = newSnap[key];
+                let reason = [];
+                if (oldItem.ticks !== newItem.ticks) reason.push("date");
+                if (oldItem.size !== undefined && oldItem.size !== newItem.size) reason.push("size");
+                if (reason.length > 0) {
+                    changes.modified.push({
+                        path: key, type: newItem.type, reasons: reason,
+                        oldTime: oldItem.time, newTime: newItem.time,
+                        oldSize: oldItem.size, newSize: newItem.size
+                    });
+                }
+            }
+        }
+
+        for (const key of oldKeys) {
+            if (!newSnap[key]) {
+                changes.removed.push({ path: key, type: oldSnap[key].type });
+            }
+        }
+
+        for (let i = changes.added.length - 1; i >= 0; i--) {
+            const add = changes.added[i];
+            const addedInfo = newSnap[add.path];
+            for (let j = changes.removed.length - 1; j >= 0; j--) {
+                const rem = changes.removed[j];
+                const removedInfo = oldSnap[rem.path];
+                if (
+                    add.type === rem.type &&
+                    addedInfo.size === removedInfo.size &&
+                    addedInfo.ticks === removedInfo.ticks
+                ) {
+                    changes.renamed.push({
+                        from: rem.path, to: add.path, type: add.type
+                    });
+                    changes.added.splice(i, 1);
+                    changes.removed.splice(j, 1);
+                    break;
+                }
+            }
+        }
+
+        return changes;
+    }
+
+    try {
+        const path = "${escapedPath}";
+        const isFile = System.IO.File.Exists(path);
+        const isDir = System.IO.Directory.Exists(path);
+
+        if (!isFile && !isDir) {
+            sp.ConsoleError("Path not found: " + path, "Error", System.Drawing.Color.Red);
+        }
+
+        const storeKey = "monitor_snapshot_" + path.replace(/[^a-zA-Z0-9]/g, "_");
+        const oldSnap = JSON.parse(sp.GetStoredString(storeKey) || "{}");
+        const newSnap = getSnapshot(path, isFile);
+        const changes = compareSnapshots(oldSnap, newSnap);
+
+        if (changes.added.length || changes.removed.length || changes.modified.length || changes.renamed.length) {
+            let notifyMessage = "";
+
+            changes.added.forEach(item => {
+                const name = System.IO.Path.GetFileName(item.path);
+                const dir = System.IO.Path.GetDirectoryName(item.path);
+                const msg = "Added: " + item.type.toUpperCase() + " " + name + " (" + dir + ")";
+                if (enableLog) sp.ConsoleError(msg, "", System.Drawing.Color.LimeGreen);
+                if (notifySet.has("added")) notifyMessage += msg + "\\n";
+            });
+
+            changes.removed.forEach(item => {
+                const name = System.IO.Path.GetFileName(item.path);
+                const dir = System.IO.Path.GetDirectoryName(item.path);
+                const msg = "Removed: " + item.type.toUpperCase() + " " + name + " (" + dir + ")";
+                if (enableLog) sp.ConsoleError(msg, "", System.Drawing.Color.Red);
+                if (notifySet.has("removed")) notifyMessage += msg + "\\n";
+            });
+
+            changes.renamed.forEach(item => {
+                const fromName = System.IO.Path.GetFileName(item.from);
+                const toName = System.IO.Path.GetFileName(item.to);
+                const dir = System.IO.Path.GetDirectoryName(item.to);
+                const msg = "Renamed: " + item.type.toUpperCase() + " " + fromName + " → " + toName + " (" + dir + ")";
+                if (enableLog) sp.ConsoleError(msg, "", System.Drawing.Color.Cyan);
+                if (notifySet.has("renamed")) notifyMessage += msg + "\\n";
+            });
+
+            changes.modified.forEach(item => {
+                const name = System.IO.Path.GetFileName(item.path);
+                const dir = System.IO.Path.GetDirectoryName(item.path);
+                let msg = "Modified (" + item.reasons.join(", ") + "): " + item.type.toUpperCase() + " " + name + " (" + dir + ")";
+                const parts = [];
+if (item.oldTime !== item.newTime) {
+    const oldTime = item.oldTime.split(" ")[1];
+    const newTime = item.newTime.split(" ")[1];
+  //parts.push("[" + item.oldTime + " → " + item.newTime + "]"); // full datetime 
+    parts.push("[time: " + oldTime + " → " + newTime + "]"); // only time
+}
+
+                if (item.oldSize !== undefined && item.oldSize !== item.newSize) {
+                    const diffBytes = formatDiff(item.oldSize, item.newSize);
+                    parts.push("[size: " + formatSize(item.oldSize) + " → " + formatSize(item.newSize) + " (+" + diffBytes + ")]");
+                }
+                if (parts.length > 0) msg += " " + parts.join(" ");
+                if (enableLog) sp.ConsoleError(msg, "", System.Drawing.Color.Yellow);
+                if (notifySet.has("modified")) notifyMessage += msg + "\\n";
+            });
+
+            if (enableNotify && notifyMessage.trim()) {
+                sp.ShowBalloonTip("Changes detected: " + path, notifyMessage.trim(), "Info", 5000);
+            }
+        }
+
+        sp.StoreString(storeKey, JSON.stringify(newSnap));
+    } catch (e) {
+        sp.ConsoleError("Monitor error: " + e.message, "Error", System.Drawing.Color.Red);
+    }
+`);
