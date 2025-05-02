@@ -1,0 +1,114 @@
+v2
+/*══════════  SETTINGS  ══════════*/
+var DEBUG_MODE     = false;    
+var LONG_THRESHOLD = 160;     
+
+/*══════════  LOGS  ═══════════════*/
+function debugLog(msg, lbl, col) {
+    if (DEBUG_MODE)
+        sp.ConsoleError(msg, lbl, col || System.Drawing.Color.Gray);
+}
+
+/*══════════  HELPERS  ════════════*/
+function ok(w) {
+    return w && typeof w.IsValid === "function" && w.IsValid();
+}
+
+/*══════════  STACKS   ══════════════*/
+var shortStack = sp.GetStoredObject("ShortWindowStack");
+if (!Array.isArray(shortStack)) shortStack = [];
+
+var longStack = sp.GetStoredObject("LongWindowStack");
+if (!Array.isArray(longStack)) longStack = [];
+
+/*══════════  DISTANCE  ══════════*/
+var distance = Math.round(Math.hypot(
+    action.End.X - action.Start.X,
+    action.End.Y - action.Start.Y
+));
+debugLog("Gesture Distance: " + distance, "Distance", System.Drawing.Color.Orange);
+
+/*══════════  SHORT GEST.  ═════*/
+if (distance <= LONG_THRESHOLD) {
+    debugLog("Short-restore. Stack length = " + shortStack.length,
+             "Info", System.Drawing.Color.Yellow);
+
+    if (!shortStack.length) {
+        sp.LastApplication();
+        debugLog("Stack empty → LastApplication()", "Info", System.Drawing.Color.Magenta);
+    } else {
+        var win = shortStack.pop();
+        if (ok(win)) {
+            try { win.Activate(); } catch(e) {}
+            debugLog("Restored (short): " + win.Title, "Restore-short", System.Drawing.Color.Green);
+        }
+        sp.StoreObject("ShortWindowStack", shortStack);
+    }
+
+/*══════════  LONG GEST.  ══════*/
+} else {
+    debugLog("Long-restore. Stack length = " + longStack.length,
+             "Info", System.Drawing.Color.Yellow);
+
+    if (!longStack.length) {
+        sp.LastApplication();
+        debugLog("Stack empty → LastApplication()", "Info", System.Drawing.Color.Magenta);
+    } else {
+         // >>> 1) Get the last element from the stack of "long" gestures
+var longWindowStack = sp.GetStoredObject("LongWindowStack") || [];
+var entry = longWindowStack.pop();        // { windows: [...], focusHwnd: 123456 }
+var pack  = entry.windows;                // window array
+var hwnd  = entry.focusHwnd;              // saved HWnd
+
+// >>> 2) First we restore the windows themselves from the gesture
+if (Array.isArray(pack) && pack.length) {
+  for (var i = 0; i < pack.length; i++) {
+    var w = pack[i];
+    if (ok(w)) {
+      try { w.Activate(); } catch(e){}
+      sp.Sleep(10);
+      debugLog(
+        `[Restore] #${i} ${w.Title}`,
+        "Restore-long",
+        System.Drawing.Color.Green
+      );
+    }
+  }
+
+  // >>> 3) Now the focus is on the window that was in focus before the gesture
+  debugLog("FocusRestore: Loaded saved HWnd: " + hwnd,
+           "FocusRestore",
+           System.Drawing.Color.Magenta);
+
+  if (typeof hwnd === "number") {
+    // turn the number into IntPtr and take the window
+    var ptr = new clr.System.IntPtr(hwnd);
+    var win = sp.WindowFromHandle(ptr);
+    if (win && win.IsValid()) {
+      try { win.Activate(); } catch(e){}
+      sp.Sleep(10);
+      debugLog("Focused saved window: " + win.Title,
+               "FocusAfter",
+               System.Drawing.Color.Green);
+    } else {
+      debugLog("No valid window for HWnd " + hwnd,
+               "FocusAfter",
+               System.Drawing.Color.Magenta);
+    }
+  }
+}
+
+// >>> 4) Save the modified stack or clear if empty
+if (longWindowStack.length) {
+  sp.StoreObject("LongWindowStack", longWindowStack);
+} else {
+  sp.DeleteStoredObject("LongWindowStack");
+}
+
+        if (longStack.length) {
+            sp.StoreObject("LongWindowStack", longStack);
+        } else {
+            sp.DeleteStoredObject("LongWindowStack");
+        }
+    }
+}

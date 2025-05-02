@@ -1,0 +1,265 @@
+v2
+/*
+true — strict mode:
+Only the windows that were directly under the gesture line will be minimized.
+If the gesture starts and ends on the same window, that window and the one beneath it will be minimized.
+
+false — extended mode:
+All the same as in strict mode, plus: if at least one window of a process was under the gesture line, all windows of that process will be minimized, even if they were not directly under the gesture.
+*/
+
+var STRICT_PROCESS_MATCH_FOR_FINAL = true; 
+
+var DEBUG_MODE = true;
+function debugLog(message, label, color) {
+  if (DEBUG_MODE) {
+    sp.ConsoleError(message, label, color);
+  }
+}
+function ok(w) { return w && w.IsValid(); } 
+
+// ---------------------- Threshold for long gesture ----------------------
+var longGestureThreshold = 240;
+var distance = Math.round(
+  Math.sqrt(
+    Math.pow(action.End.X - action.Start.X, 2) +
+    Math.pow(action.End.Y - action.Start.Y, 2)
+  )
+);
+
+debugLog("Gesture Distance: " + distance, "Distance", System.Drawing.Color.Orange);
+debugLog("-------------- (" + (distance > longGestureThreshold ? 'Long' : 'Short') + " gesture detected)",
+         "Info",
+         System.Drawing.Color.Orange);
+
+// ---------------------- Unique windows (dictionary) ----------------------
+var uniqueWindows = {};
+function addWindow(win, description) {
+  if (win && win.IsValid()) {
+    var key = (win.HWnd && typeof win.HWnd.ToString === "function")
+                ? win.HWnd.ToString()
+                : win.Title;
+    if (!uniqueWindows[key]) {
+      uniqueWindows[key] = win;
+      debugLog(
+        "Added " + description + " window: " + win.Title +
+        " | HWnd: " + key +
+        " | Process: " + win.Process.ProcessName,
+        "Info", System.Drawing.Color.Green
+      );
+    }
+  }
+}
+
+// ---------------------- Minimize window ----------------------
+function minimizeWindow(w) {
+  if (w && w.IsValid() && w.Visible && !w.Minimized) {
+    try {
+      w.SendMessageObj(0x0112, 0xF020, 0); // WM_SYSCOMMAND/SC_MINIMIZE
+    } catch(e) {}
+    w.Minimize();
+    debugLog("Successfully minimized window: " + w.Title +
+             " | Process: " + w.Process.ProcessName,
+             "Minimize",
+             System.Drawing.Color.Red);
+    return true;
+  } else if (w) {
+    debugLog("Window already minimized or not visible: " + w.Title,
+             "Minimize",
+             System.Drawing.Color.Magenta);
+  }
+  return false;
+}
+
+// ---------------------- Minimize all windows of a given process ----------------------
+function minimizeAllWindowsOfProcess(procName, outArray) {
+  var allApps = sp.AllApplications();
+  for (var i = 0; i < allApps.Length; i++) {
+    var aw = allApps[i];
+    if (aw.Process.ProcessName === procName && aw.Visible && !aw.Minimized) {
+      if (minimizeWindow(aw)) {
+        outArray.push(aw);
+      }
+    }
+  }
+}
+
+// ---------------------- MAIN CODE ----------------------
+if (distance > longGestureThreshold) {
+
+// =============== LONG GESTURE ===============
+
+// 0) MAINTAIN FOCUS BEFORE ANY LOGGING AND MINIMIZATION
+var initialFore = sp.ForegroundWindow();
+var initialHwnd = (initialFore && initialFore.IsValid())
+                    ? initialFore.HWnd.ToInt64()
+                    : null;
+debugLog("Saved initial focus HWnd: " + initialHwnd,
+         "SaveFocus",
+         System.Drawing.Color.Cyan);
+
+
+  // 1) Collect windows (start, end, intermediate)
+  var startWindow = sp.WindowFromPoint(new Point(Math.round(action.Start.X), Math.round(action.Start.Y)), true);
+addWindow(startWindow, "start");
+
+
+  var endWindow = sp.WindowFromPoint(new Point(Math.round(action.End.X), Math.round(action.End.Y)), true);
+  addWindow(endWindow, "end");
+
+  var steps = 10; // 10 steps from the beginning of the gesture to the end (100% / 10 = 10% )
+  for (var i = 1; i < steps; i++) {
+    var px = action.Start.X + (action.End.X - action.Start.X) * (i / steps);
+    var py = action.Start.Y + (action.End.Y - action.Start.Y) * (i / steps);
+    var midWin = sp.WindowFromPoint(new Point(Math.round(px), Math.round(py)), true);
+    addWindow(midWin, "intermediate");
+  }
+
+  debugLog("Processing long gesture: minimizing unique windows along gesture line",
+           "Gesture",
+           System.Drawing.Color.Orange);
+
+  // 2) Minimize the windows that were collected
+  var windowsToMinimize = [];
+  for (var key in uniqueWindows) {
+    if (uniqueWindows.hasOwnProperty(key)) {
+      var w = uniqueWindows[key];
+      if (minimizeWindow(w)) {
+        windowsToMinimize.push(w);
+      }
+    }
+  }
+
+  // How many windows were closed before MinimizeEnd?
+  var numBeforeEnd = windowsToMinimize.length;
+
+  // 3) MinimizeEnd
+  var finalWin = sp.WindowFromPoint(
+    new Point(Math.round(action.End.X), Math.round(action.End.Y)),
+    true
+  );
+  if (finalWin && finalWin.IsValid() && finalWin.Visible && !finalWin.Minimized) {
+    // Checking to see if it's already been rolled
+    var alreadyMinimized = false;
+    for (var k = 0; k < windowsToMinimize.length; k++) {
+      if (windowsToMinimize[k].HWnd === finalWin.HWnd) {
+        alreadyMinimized = true;
+        break;
+      }
+    }
+
+    if (!alreadyMinimized) {
+      // If it was <2 before, allow the final window to minimize, even if it is someone else's process.
+      // If >=2, then minimize only if the process matches one of the already minimized ones.
+      var allowMinimizeFinal = false;
+
+    if (!STRICT_PROCESS_MATCH_FOR_FINAL) {
+    // Instead of the final window - immediately minimize all windows of those processes that have already been affected
+    var touchedProcNames = {};
+    windowsToMinimize.forEach(function(w) {
+        touchedProcNames[w.Process.ProcessName] = true;
+    });
+
+    for (var procName in touchedProcNames) {
+        minimizeAllWindowsOfProcess(procName, windowsToMinimize);
+    }
+
+    // You do not need to minimize the final window separately - it will already be taken into account
+    allowMinimizeFinal = false;
+
+    } else if (numBeforeEnd < 2) {
+        // Less than two windows → allow in any case
+        allowMinimizeFinal = true;
+    } else {
+        // >=2 windows, check the process
+        var finalProc = finalWin.Process.ProcessName;
+        for (var j = 0; j < windowsToMinimize.length; j++) {
+            if (windowsToMinimize[j].Process.ProcessName === finalProc) {
+                allowMinimizeFinal = true;
+                break;
+            }
+        }
+    }
+
+    if (allowMinimizeFinal) {
+        minimizeWindow(finalWin);
+        debugLog("Additionally minimized final window: " + finalWin.Title +
+                 " | Process: " + finalWin.Process.ProcessName,
+                 "MinimizeEnd", System.Drawing.Color.Red);
+        windowsToMinimize.push(finalWin);
+    } else {
+        debugLog("Skipped final window (process mismatch or strict mode): " +
+                 finalWin.Title, "MinimizeEnd", System.Drawing.Color.Magenta);
+    }
+}
+  }
+
+  // 4) Logging processes among minimized windows
+  var procCountMap = {};
+  for (var i = 0; i < windowsToMinimize.length; i++) {
+    var ww = windowsToMinimize[i];
+    var pn = ww.Process.ProcessName;
+    if (!procCountMap[pn]) {
+      procCountMap[pn] = 1;
+    } else {
+      procCountMap[pn]++;
+    }
+  }
+
+  debugLog("Processes among minimized windows:", "Info", System.Drawing.Color.Yellow);
+  var distinctProcs = Object.keys(procCountMap);
+  for (var i=0; i<distinctProcs.length; i++) {
+    var pName = distinctProcs[i];
+    debugLog("  " + pName + " => " + procCountMap[pName] + " windows",
+             "Info",
+             System.Drawing.Color.Yellow);
+  }
+
+  // 5) If there is exactly one process and more than one window => minimize all process windows
+  if (!STRICT_PROCESS_MATCH_FOR_FINAL && distinctProcs.length === 1) {
+  var theProcName = distinctProcs[0];
+  var countWin = procCountMap[theProcName];
+  if (countWin > 1) {
+    debugLog("All minimized belong to single process " + theProcName +
+             " with " + countWin + " windows => Minimizing ALL windows of that process",
+             "Info",
+             System.Drawing.Color.Green);
+
+    minimizeAllWindowsOfProcess(theProcName, windowsToMinimize);
+  } else {
+    debugLog("Only one process => " + theProcName + ", but total windows = " + countWin +
+             ". Not expanding to entire process.",
+             "Info",
+             System.Drawing.Color.Green);
+  }
+}
+  // 6) Save the "stack" of long gestures
+if (windowsToMinimize.length > 0) {
+  var longWindowStack = sp.GetStoredObject("LongWindowStack");
+  if (!Array.isArray(longWindowStack)) longWindowStack = [];
+  longWindowStack.push({
+    windows:   windowsToMinimize,
+    focusHwnd: initialHwnd  
+  });
+  sp.StoreObject("LongWindowStack", longWindowStack);
+}
+  // ----- For a short gesture ----- 
+} else {
+    // for a short gesture, only the gesture start window is minimized
+    var windowAtGesture = sp.WindowFromPoint(
+        new Point(Math.round(action.Start.X), Math.round(action.Start.Y)),
+        true
+    );
+    if (windowAtGesture && windowAtGesture.IsValid() && windowAtGesture.Visible && !windowAtGesture.Minimized) {
+        debugLog("Processing as short gesture (or same window). Minimizing only windowAtStart: " + windowAtGesture.Title, "Logic", System.Drawing.Color.Magenta);
+        windowAtGesture.Minimize();
+        var shortWindowStack = sp.GetStoredObject("ShortWindowStack");
+        if (!Array.isArray(shortWindowStack)) {
+            shortWindowStack = [];
+        }
+        shortWindowStack.push(windowAtGesture);
+        sp.StoreObject("ShortWindowStack", shortWindowStack);
+    } else {
+        debugLog("Cannot proceed – windowAtStart is invalid.", "Error", System.Drawing.Color.Red);
+    }
+}
