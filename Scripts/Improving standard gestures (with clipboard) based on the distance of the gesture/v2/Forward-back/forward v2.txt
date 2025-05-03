@@ -83,7 +83,10 @@ var cursor    = sp.GetCurrentMouseCursor();
 
 // === New clipboard content ===
 var newClipboardContent = isAud ? "" : readClipboard();
-var trimmed            = newClipboardContent.trim();
+// Convert double backslashes to single backslashes.
+var trimmed = newClipboardContent.trim();
+
+var normalized = trimmed.replace(/\\\\/g, "\\");
 var handled = false;
 
 // ─────────────────────────────────────────────────────────────
@@ -151,11 +154,11 @@ if (!handled) try {
   }
 
   else if (
-    enableFilePathOpen &&
-    trimmed !== originalClipboardContent.trim() &&
-    isFilePath(clr.System.Environment.ExpandEnvironmentVariables(trimmed))
-  ) {
-    var expanded = clr.System.Environment.ExpandEnvironmentVariables(trimmed);
+   enableFilePathOpen &&
+   normalized !== originalClipboardContent.trim() &&
+   isFilePath(clr.System.Environment.ExpandEnvironmentVariables(normalized))
+ ) {
+   var expanded = clr.System.Environment.ExpandEnvironmentVariables(normalized);
     log("Buffer→Path: " + expanded, "Path");
     if (useRunPath) {
       var U = RunPath.toUpperCase();
