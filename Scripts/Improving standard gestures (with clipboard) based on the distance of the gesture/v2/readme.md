@@ -11,12 +11,22 @@ If the gesture starts and ends on the same window, that window and the one benea
 false — extended mode:  
 All the same as in strict mode, plus: if at least one window of a process was under the gesture line, all windows of that process will be minimized, even if they were not directly under the gesture.
 
+If you have the Options → General → Always Activate Window Where Gesture Began setting enabled,  
+And so, when we restore windows, the focus will return to the window where the gesture began rather than the one that was actually active.  
+To avoid this:  
+Uncheck the Always Activate Window Where Gesture Began option.  
 
-If the Options → General → Always Activate Window Where Gesture Began setting is enabled,  
-the window where the gesture started will always be focused after the gesture, and it will cover the window at the end of the gesture.  
-
-If this option is disabled,  
-focus will be restored correctly — to the window that was active before the gesture began, regardless of where the gesture started or ended.  
+Add the following code in Settings → Before Action.  
+This will still activate the window under your gesture, but will be ignored by this script.  
+> if (action.ActionName === "minimize v2") { // Write the name of the window-minimizing script here.
+    var focusWin = sp.ForegroundWindow();
+} else {
+    var startWin = sp.WindowFromPoint(
+        new Point(Math.round(action.Start.X), Math.round(action.Start.Y)),
+        true);
+    if (startWin && startWin.IsValid()) {
+        try {startWin.Activate();
+        } catch (e) {}}}
 
 
 https://github.com/user-attachments/assets/a7ef9a92-b964-4507-b56d-e76aa5caa341
