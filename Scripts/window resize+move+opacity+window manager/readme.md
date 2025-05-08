@@ -32,8 +32,8 @@ Swap the current window with the previously active window, preserving their posi
 
 https://github.com/user-attachments/assets/1b2083f0-0cd7-448d-bec8-f01c008cfea5
 
-v2  
-implemented via click-based saving of recent windows (now all windows swap positions correctly)
+v1: via sp.LastApplication(); – Activates the last active, non-minimized window (similar to Alt+Tab; doesn't work with some apps like Telegram).  
+v2: via left click (last two windows) – Works for both minimized and maximized windows (works with Telegram).  
 
 ---------------------------------------------------------------------------------------------------------
 ### window resize+move+opacity+always on top+remove window title
