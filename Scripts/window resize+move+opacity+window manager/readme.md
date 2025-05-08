@@ -1,7 +1,7 @@
 ### GridSnapWindow 
 v3  
-+ Long gesture (>240px) → teleport to the next monitor with proportional resizing  
-+ Zone 5 expanded to make it easier to hit  
++Long gesture (>240px) → teleport to the next monitor with proportional resizing  
++Zone 5 expanded to make it easier to hit  
 
 https://github.com/user-attachments/assets/cafbb0de-561b-4a8e-a077-465ebd22baf2
 
@@ -30,10 +30,11 @@ If part of the window extends beyond the screen, the 'center' area shifts to the
 ### QuickSwapWindows
 Swap the current window with the previously active window, preserving their positions and sizes.
 
-https://github.com/user-attachments/assets/1b2083f0-0cd7-448d-bec8-f01c008cfea5
-
 v1: via sp.LastApplication(); – Activates the last active, non-minimized window (similar to Alt+Tab; doesn't work with some apps like Telegram).  
 v2: via left click (last two windows) – Works for both minimized and maximized windows (works with Telegram).  
+
+
+https://github.com/user-attachments/assets/1b2083f0-0cd7-448d-bec8-f01c008cfea5
 
 ---------------------------------------------------------------------------------------------------------
 ### window resize+move+opacity+always on top+remove window title
