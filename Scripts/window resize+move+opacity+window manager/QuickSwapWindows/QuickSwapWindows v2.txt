@@ -1,0 +1,143 @@
+
+(function () {
+    const LOG = false;
+    const FOCUS_NEXT_WINDOW = false; 
+   //false — set focus to the window where the gesture was made 
+   //true — set focus to the window that was swapped into its place
+
+    function log(msg) { if (LOG) sp.ConsoleLog("[GestureSwap] " + msg); }
+
+    // ----------------------------------------
+    // A/B storage/loading helpers
+    function storeWindow(prefix, w, tag) {
+        if (!w) return;
+        const rect = w.AbsoluteRectangle;
+        sp.StoreHandle(prefix + "_Hwnd", w.HWnd);
+        sp.StoreString(prefix + "_Title", w.Title);
+        sp.StoreNumber(prefix + "_X", rect.X);
+        sp.StoreNumber(prefix + "_Y", rect.Y);
+        sp.StoreNumber(prefix + "_W", rect.Width);
+        sp.StoreNumber(prefix + "_H", rect.Height);
+        log(`Saved ${tag}: ${w.Title} at (${rect.X},${rect.Y}) ${rect.Width}×${rect.Height}` + (w.Maximized ? " [MAXIMIZED]" : ""));
+    }
+
+    function loadWindow(prefix) {
+        return {
+            Hwnd:  sp.GetStoredHandle(prefix + "_Hwnd"),
+            Title: sp.GetStoredString(prefix + "_Title"),
+            X:     sp.GetStoredNumber(prefix + "_X"),
+            Y:     sp.GetStoredNumber(prefix + "_Y"),
+            W:     sp.GetStoredNumber(prefix + "_W"),
+            H:     sp.GetStoredNumber(prefix + "_H")
+        };
+    }
+
+    function shiftWindowsChain(newWnd) {
+        const oldA = sp.WindowFromHandle(sp.GetStoredHandle("Swap_A_Hwnd"));
+        const oldB = sp.WindowFromHandle(sp.GetStoredHandle("Swap_B_Hwnd"));
+        if (oldB) storeWindow("Swap_B", oldB, "Shifted to B");
+        if (oldA) storeWindow("Swap_A", oldA, "Shifted to A");
+        log("Shift: B ← A, A ← новое окно");
+    }
+    // ----------------------------------------
+
+    // Save the window where the gesture was to bring the focus back to it
+    sp.StoreHandle("LastFocusedBeforeGesture_Hwnd", sp.ForegroundWindow().HWnd);
+
+    sp.StoreBool("Swap_InProgress", true);
+
+    // Load A и B
+    const A = loadWindow("Swap_A"), B = loadWindow("Swap_B");
+    const wndA = sp.WindowFromHandle(A.Hwnd), wndB = sp.WindowFromHandle(B.Hwnd);
+    const gestureHwnd = sp.GetStoredHandle("LastFocusedBeforeGesture_Hwnd");
+
+    if (!wndA || !wndB) {
+        log("Cannot swap: A or B not found");
+        sp.StoreBool("Swap_InProgress", false);
+        return;
+    }
+    if (wndA.HWnd.ToInt64() === wndB.HWnd.ToInt64()) {
+        log("Skip swap: both windows are the same");
+        sp.StoreBool("Swap_InProgress", false);
+        return;
+    }
+
+    log(`Swapping: ${A.Title} ↔ ${B.Title}`);
+
+    // Preserving initial states
+    const wasMaxA = wndA.Maximized, wasMinA = wndA.Minimized;
+    const wasMaxB = wndB.Maximized, wasMinB = wndB.Minimized;
+
+    // If one window is minimized - special logic
+    if ((wasMinA && !wasMinB) || (wasMinB && !wasMinA)) {
+        let restoreWnd, minimizeWnd, restoreTo;
+        if (wasMinA && !wasMinB) {
+            restoreWnd = wndA; minimizeWnd = wndB;
+        } else {
+            restoreWnd = wndB; minimizeWnd = wndA;
+        }
+        restoreTo = {
+            X: minimizeWnd.Location.X,
+            Y: minimizeWnd.Location.Y,
+            W: minimizeWnd.Size.Width,
+            H: minimizeWnd.Size.Height
+        };
+
+        if (wasMinA || wasMaxA) wndA.Restore();
+        if (wasMinB || wasMaxB) wndB.Restore();
+
+        restoreWnd.Location = new Point(restoreTo.X, restoreTo.Y);
+        restoreWnd.Size     = new Size(restoreTo.W, restoreTo.H);
+        log(`Restoring: ${restoreWnd.Title} to (${restoreTo.X},${restoreTo.Y})`);
+
+        // NOT giving intermediate focus here
+        minimizeWnd.Minimize();
+    }
+    // Standard swap
+    else {
+        if (wasMinA || wasMaxA) wndA.Restore();
+        if (wasMinB || wasMaxB) wndB.Restore();
+
+        const rA = wndA.AbsoluteRectangle;
+        const rB = wndB.AbsoluteRectangle;
+
+        let p = wndA.Position;
+        p.Left   = rB.X;   p.Top    = rB.Y;
+        p.Right  = rB.X + rB.Width;
+        p.Bottom = rB.Y + rB.Height;
+        wndA.Position = p;
+
+        p = wndB.Position;
+        p.Left   = rA.X;   p.Top    = rA.Y;
+        p.Right  = rA.X + rA.Width;
+        p.Bottom = rA.Y + rA.Height;
+        wndB.Position = p;
+
+        if (wasMaxA) wndB.Maximize();
+        if (wasMaxB) wndA.Maximize();
+    }
+
+    // Updating the chain
+    shiftWindowsChain(sp.WindowFromHandle(A.Hwnd));
+
+    sp.Sleep(50);
+
+    //  FINAL Focuse  
+    if (gestureHwnd) {
+        const gestureWnd = sp.WindowFromHandle(gestureHwnd);
+        const targetWnd = FOCUS_NEXT_WINDOW
+            ? gestureWnd
+            : (wndA.HWnd.ToInt64() === gestureHwnd.ToInt64() ? wndB : wndA);
+
+        if (targetWnd && !targetWnd.Minimized) {
+            log("Final focus on " + (FOCUS_NEXT_WINDOW ? "gesture" : "opposite") + " window: " + targetWnd.Title);
+            targetWnd.Activate();
+            targetWnd.BringToFront();
+        } else {
+            log("Final focus skipped: target window is minimized or not found");
+        }
+    }
+
+    sp.StoreBool("Swap_InProgress", false);
+    log("Swap complete");
+})();

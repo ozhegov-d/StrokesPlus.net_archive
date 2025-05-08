@@ -1,0 +1,77 @@
+(function () {
+    const LOG = false;
+    function log(msg) { if (LOG) sp.ConsoleLog("[SaveClick] " + msg); }
+
+    function storeWindow(prefix, w, tag) {
+        if (!w) return;
+        // Absolute rectangle (including border and title)
+        const rect = w.AbsoluteRectangle;
+        const x = rect.X, y = rect.Y;
+        const width = rect.Width, height = rect.Height;
+        const maximized = w.Maximized;
+
+ // Get the process name
+    const procName = w.ProcessName || (w.Process && w.Process.ProcessName) || "unknown";
+    log(`${tag}: process="${procName}", hwnd=${w.HWnd.ToInt64()}, maximized=${maximized}`);
+
+        sp.StoreHandle(prefix + "_Hwnd", w.HWnd);
+        sp.StoreString(prefix + "_Title", w.Title);
+        sp.StoreNumber(prefix + "_X", x);
+        sp.StoreNumber(prefix + "_Y", y);
+        sp.StoreNumber(prefix + "_W", width);
+        sp.StoreNumber(prefix + "_H", height);
+        sp.StoreBool(prefix + "_Maximized", maximized);
+
+        log("Saved " + tag + ": " + w.Title +
+            " at (" + x + "," + y + ") " + width + "×" + height +
+            (maximized ? " [MAXIMIZED]" : ""));
+    }
+
+    function loadWindow(prefix) {
+        return {
+            Hwnd:      sp.GetStoredHandle(prefix + "_Hwnd"),
+            Title:     sp.GetStoredString(prefix + "_Title"),
+            X:         sp.GetStoredNumber(prefix + "_X"),
+            Y:         sp.GetStoredNumber(prefix + "_Y"),
+            W:         sp.GetStoredNumber(prefix + "_W"),
+            H:         sp.GetStoredNumber(prefix + "_H"),
+            Maximized: sp.GetStoredBool(prefix + "_Maximized")
+        };
+    }
+
+    function shiftWindowsChain(newWnd) {
+        const oldA = sp.WindowFromHandle(sp.GetStoredHandle("Swap_A_Hwnd"));
+        const oldB = sp.WindowFromHandle(sp.GetStoredHandle("Swap_B_Hwnd"));
+        if (oldB) storeWindow("Swap_C", oldB, "Shifted to C");
+        if (oldA) storeWindow("Swap_B", oldA, "Shifted to B");
+        storeWindow("Swap_A", newWnd, "Shifted to A");
+        log("Shift chain: C ← B, B ← A, A ← new window");
+    }
+
+    if (sp.GetStoredBool("Swap_InProgress")) return;
+
+    const wnd = sp.ForegroundWindow();
+    if (!wnd || !wnd.Title || !wnd.Title.trim()) {
+        log("Ignoring: no valid window activated");
+        return;
+    }
+
+    const hCurr = wnd.HWnd.ToInt64();
+    const hPrev = (sp.GetStoredHandle("Swap_A_Hwnd") || new IntPtr(0)).ToInt64();
+
+    // update A if position/size/Maximized has changed
+    if (hCurr === hPrev) {
+        const old = loadWindow("Swap_A");
+        const rect = wnd.AbsoluteRectangle;
+        if (old.X !== rect.X || old.Y !== rect.Y ||
+            old.W !== rect.Width || old.H !== rect.Height ||
+            old.Maximized !== wnd.Maximized) {
+            storeWindow("Swap_A", wnd, "Updated A");
+        }
+        return;
+    }
+
+    // new chain
+    shiftWindowsChain(wnd);
+})();
+
