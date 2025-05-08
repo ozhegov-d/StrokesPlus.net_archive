@@ -1,5 +1,7 @@
-### GridSnapWindow v2
-
+### GridSnapWindow 
+v3  
++ Long gesture (>240px) → teleport to the next monitor with proportional resizing  
++ Zone 5 expanded to make it easier to hit  
 
 https://github.com/user-attachments/assets/cafbb0de-561b-4a8e-a077-465ebd22baf2
 
