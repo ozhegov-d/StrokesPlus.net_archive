@@ -1,0 +1,207 @@
+v3
+
+(function () {
+// Constructor new Rectangle(x, y, width, height):
+    //  x = 500 -> X coordinate (left position)
+    //  y = 300 -> Y coordinate (top position)
+    //  width = 800 -> Rectangle width
+    //  height = 600 -> Rectangle height
+    //
+    // Defines the window zone according to a 9-zone grid (like on a numeric keypad):
+    //    1   2   3
+    //    4   5   6
+    //    7   8   9
+    // ----- Adding Manual Zone Customization -----
+    const customZonesByMon = {
+/*-------------------------1 monitor */
+0: 
+{
+//1:"off",
+1:null,
+2:null,
+3:null,
+4:null,
+5:null,
+//5: new clr.System.Drawing.Rectangle(400,200,1200,820), // x=400 y=200 w=1200 h=820
+6:null,
+7:null,
+8:null,
+9:null},
+/*-------------------------2 monitor */
+1: 
+{
+1:null,
+2:null,
+3:null,
+4:null,
+5:null,
+//5:new clr.System.Drawing.Rectangle(400,200,1200,820),  // x=400 y=200 w=1200 h=820
+6:null,
+7:null,
+8:null,
+9:null}
+    };
+
+    function log(msg, lbl="MoveWindow", clr=System.Drawing.Color.Cyan) {
+        sp.ConsoleLog("[MoveWindow] " + msg, lbl, clr);
+    }
+
+    log("=====================");
+
+    const wnd = action.Window;
+    if (!wnd) return;
+
+    const screens = clr.System.Windows.Forms.Screen.AllScreens;
+    const dx = action.End.X - action.Start.X;
+    const dy = action.End.Y - action.Start.Y;
+    const dist = Math.hypot(dx, dy);
+    let curR = wnd.Rectangle;
+
+    // Long gesture: teleport to the next monitor
+    if (dist > 240) {
+        const curScr = wnd.Screen, curWA = curScr.WorkingArea;
+        const relX = (curR.Left - curWA.Left)/curWA.Width;
+        const relY = (curR.Top - curWA.Top)/curWA.Height;
+        const relW = curR.Width/curWA.Width;
+        const relH = curR.Height/curWA.Height;
+
+        let idx = 0;
+        for (let i = 0; i < screens.Length; i++)
+            if (screens[i].DeviceName === curScr.DeviceName) { idx = i; break; }
+
+        if (screens.Length <= 1) {
+            log("Only one monitor — skip teleport", "Long", System.Drawing.Color.Yellow);
+ return;
+        } else {
+            const next = screens[(idx + 1) % screens.Length];
+            const nWA = next.WorkingArea;
+            const L = System.Convert.ToInt32(nWA.Left + relX * nWA.Width);
+            const T = System.Convert.ToInt32(nWA.Top + relY * nWA.Height);
+            const W = System.Convert.ToInt32(relW * nWA.Width);
+            const H = System.Convert.ToInt32(relH * nWA.Height);
+
+            log(`Teleport ${curScr.Bounds.Width}×${curScr.Bounds.Height} → ${next.Bounds.Width}×${next.Bounds.Height}`, "Long");
+            log(`→ L=${L} T=${T} W=${W} H=${H}`, "Long", System.Drawing.Color.Green);
+
+            wnd.Rectangle = new clr.System.Drawing.Rectangle(L, T, W, H);
+return;
+            curR = wnd.Rectangle;
+        }
+    }
+
+    // Determining the current monitor by window position
+    let monIdx = 0;
+const gesturePt = new clr.System.Drawing.Point(action.Start.X, action.Start.Y);
+for (let i = 0; i < screens.Length; i++)
+    if (screens[i].Bounds.Contains(gesturePt)) { monIdx = i; break; }
+
+    const WA = screens[monIdx].WorkingArea;
+
+    // Defining a zone by cursor position (Start)
+    const pt = new clr.System.Drawing.Point(action.Start.X, action.Start.Y);
+    const qX = curR.Left + curR.Width * 0.25;
+    const tX = curR.Left + curR.Width * 0.75;
+    const qY = curR.Top + curR.Height * 0.25;
+    const tY = curR.Top + curR.Height * 0.75;
+    const st = action.Start;
+    const zone = st.Y < qY ? (st.X < qX ? 1 : (st.X < tX ? 2 : 3))
+                : st.Y < tY ? (st.X < qX ? 4 : (st.X < tX ? 5 : 6))
+                :               (st.X < qX ? 7 : (st.X < tX ? 8 : 9));
+
+    log(`Zone ${zone} on mon ${monIdx} (${WA.Width}x${WA.Height})`);
+
+    function mk(x,y,w,h) {
+        return new clr.System.Drawing.Rectangle(
+            System.Convert.ToInt32(x),
+            System.Convert.ToInt32(y),
+            System.Convert.ToInt32(w),
+            System.Convert.ToInt32(h)
+        );
+    }
+
+    let exp;
+    switch (zone) {
+        case 1: exp = mk(WA.Left, WA.Top, WA.Width / 2, WA.Height / 2); break;
+        case 2: exp = mk(WA.Left, WA.Top, WA.Width,     WA.Height / 2); break;
+        case 3: exp = mk(WA.Left + WA.Width / 2, WA.Top, WA.Width / 2, WA.Height / 2); break;
+        case 4: exp = mk(WA.Left, WA.Top, WA.Width / 2, WA.Height); break;
+
+        //case 5: exp = mk(WA.Left + WA.Width / 3, WA.Top + WA.Height / 3, WA.Width / 3, WA.Height / 3); break; // 33% 
+       case 5: exp = mk(WA.Left + WA.Width / 4, WA.Top + WA.Height / 4, WA.Width / 2, WA.Height / 2); break; //size 50% window 5 zone
+        // case 5: exp = mk(WA.Left + WA.Width * 0.2, WA.Top + WA.Height * 0.2, WA.Width * 0.6, WA.Height * 0.6); break; //60%
+
+        case 6: exp = mk(WA.Left + WA.Width / 2, WA.Top, WA.Width / 2, WA.Height); break;
+        case 7: exp = mk(WA.Left, WA.Top + WA.Height / 2, WA.Width / 2, WA.Height / 2); break;
+        case 8: exp = mk(WA.Left, WA.Top + WA.Height / 2, WA.Width,     WA.Height / 2); break;
+        case 9: exp = mk(WA.Left + WA.Width / 2, WA.Top + WA.Height / 2, WA.Width / 2, WA.Height / 2); break;
+        default: exp = curR;
+    }
+
+    const cz = (customZonesByMon[monIdx] || {})[zone];
+    if (cz === "off") return;
+    if (cz) {
+
+        exp = new clr.System.Drawing.Rectangle(
+            WA.Left + cz.Left,
+            WA.Top  + cz.Top,
+            cz.Width,
+            cz.Height
+        );
+        log(`Using CUSTOM zone ${zone}`, "", System.Drawing.Color.Yellow);
+    }
+
+    log(`Target: L=${exp.Left} T=${exp.Top} W=${exp.Width} H=${exp.Height}`);
+
+    function eq(a, b, tol) {
+        return Math.abs(a.Left - b.Left) < tol &&
+               Math.abs(a.Top - b.Top) < tol &&
+               Math.abs(a.Width - b.Width) < tol &&
+               Math.abs(a.Height - b.Height) < tol;
+    }
+
+    const id = wnd.HWnd.ToInt64();
+    const base = `MW_${id}_`;
+    const K_ORIG = base + "orig";
+    const K_FULL = base + "full";
+    const K_ZONE = base + "zone";
+    const K_STD  = base + "std";
+    const K_ISM  = base + "isMax";
+
+    const storedOrig = sp.GetStoredString(K_ORIG) || "";
+    const lastZone   = sp.GetStoredNumber(K_ZONE) || 0;
+    const isStd      = sp.GetStoredNumber(K_STD)  || 0;
+    const isMaxOrig  = sp.GetStoredNumber(K_ISM)  || 0;
+    const storedFull = sp.GetStoredString(K_FULL) || "";
+
+    if (zone === lastZone && isStd === 1 && eq(curR, exp, 40)) {
+        const src = isMaxOrig ? storedFull : storedOrig;
+        const p = src.split(",").map(x => System.Convert.ToInt32(x));
+        log("Restore ORIGINAL", "", System.Drawing.Color.Red);
+        wnd.Rectangle = new clr.System.Drawing.Rectangle(p[0], p[1], p[2], p[3]);
+        if (isMaxOrig) wnd.Maximize();
+        sp.DeleteStoredString(K_ORIG);
+        sp.DeleteStoredString(K_FULL);
+        sp.DeleteStoredNumber(K_ZONE);
+        sp.DeleteStoredNumber(K_STD);
+        sp.DeleteStoredNumber(K_ISM);
+        return;
+    }
+
+    if (!storedOrig) {
+        const s0 = [curR.Left, curR.Top, curR.Width, curR.Height].join(",");
+        sp.StoreString(K_ORIG, s0);
+        log("Saved ORIGINAL", "", System.Drawing.Color.Magenta);
+    }
+
+    if (zone === lastZone && isStd === 1 && !eq(curR, exp, 40)) {
+        const s1 = [curR.Left, curR.Top, curR.Width, curR.Height].join(",");
+        sp.StoreString(K_ORIG, s1);
+        sp.StoreNumber(K_ISM, 0);
+        log("Manual resize → ORIGINAL updated", "", System.Drawing.Color.Purple);
+    }
+
+    sp.StoreNumber(K_ZONE, zone);
+    sp.StoreNumber(K_STD, 1);
+    log(`Moving to zone ${zone}`, "", System.Drawing.Color.Green);
+    wnd.Rectangle = exp;
+})();
