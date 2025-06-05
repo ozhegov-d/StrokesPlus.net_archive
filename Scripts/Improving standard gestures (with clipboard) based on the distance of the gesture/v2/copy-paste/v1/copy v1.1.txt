@@ -1,0 +1,145 @@
+
+var DISPLAY_ENABLED = true;         
+
+// - short gestures (Copy / small scroll) -------------
+var FINE_SCROLL_ENABLED = false;    // <120 / <220 
+var DIST_SMALL  = 120,  WHEEL_SMALL  = -260, HUD_SMALL_TEXT='<120', HUD_SMALL_FORE='navy', HUD_SMALL_BACK='powderblue';
+var DIST_MEDIUM = 220,  WHEEL_MEDIUM = -400, HUD_MED_TEXT ='<220', HUD_MED_FORE ='white', HUD_MED_BACK ='cornflowerblue';
+
+// — long gesture (autoscroll)----------------------------
+var PAGE_WHEEL      = -1900;        // downward spiral
+var SCROLL_DELAY_MS = 0;            // pause (ms) between WM_MOUSEWHEEL
+var DEFAULT_COUNT   = 600;          // how many messages to send
+
+var GLOBAL_END_HOTKEY = "CTRL_END";
+
+/* ——— per-application configuration ————————————————
+   →  noJump     : true  — do not press End/Ctrl+End at all
+   →  only_END   : true  — press End even if GLOBAL_END_HOTKEY = "CTRL_END"
+   →  count      : how many WM_MOUSEWHEEL messages to send
+   →  scrollDelay: overrides SCROLL_DELAY_MS
+*/
+-----------------------------------------------------------------*/
+var APP_SCROLL_CONFIG = [
+    { names:["chrome","firefox","msedge","opera","brave","vivaldi"], count:600,  scrollDelay:0, noJump:true},
+    { names:["audition"], count:50, scrollDelay:0, noJump:true },
+    { names:["tixati"], count:0,    scrollDelay:0, only_END:true } 
+];
+
+// mouse buttons to stop autoscroll with
+var STOP_AUTO_SCROLL = [ MouseButtons.Middle,MouseButtons.Left,MouseButtons.Right ];
+
+// — HUD- ----------------------------------------------------
+var HUD_LONG_TEXT='⬇',   HUD_LONG_FORE='white',  HUD_LONG_BACK='black';
+var HUD_COPY_TEXT='Copy', HUD_COPY_FORE='saddlebrown', HUD_COPY_BACK='oldlace', HUD_COPY_OP=1;
+var HUD_CLIP_TEXT='Clipboard unchanged', HUD_CLIP_FORE='white', HUD_CLIP_BACK='black';
+
+// ────────── HUD ───────────────────────────────────
+var info=new DisplayTextInfo();
+info.MessageAlignment='top'; info.Duration=300; info.Opacity=0.5;
+info.MessageFont=new Font('Segoe UI Semibold',20);
+info.BackColor='black'; info.ForeColor='white'; info.Padding=15; info.FadeSteps=18;
+
+function show(txt,fc,bc,op){
+    if(!DISPLAY_ENABLED||!txt) return;
+    info.Message=txt; info.Location=`${action.End.X+10},${action.End.Y+10}`;
+    if(fc) info.ForeColor=fc; if(bc) info.BackColor=bc; if(op!==undefined) info.Opacity=op;
+    sp.DisplayText(info);
+}
+
+// ────────── MINI-SHOT OF WINDOW (use only before/after Jump) ────
+var THUMB_W=60, THUMB_H=40, S=15,
+    tbmp=new System.Drawing.Bitmap(THUMB_W,THUMB_H),
+    gth =System.Drawing.Graphics.FromImage(tbmp);
+
+function snap(w){
+    var r=w.Rectangle, fb=new System.Drawing.Bitmap(r.Width,r.Height),
+        g =System.Drawing.Graphics.FromImage(fb);
+    g.CopyFromScreen(r.X,r.Y,0,0,new System.Drawing.Size(r.Width,r.Height)); g.Dispose();
+    gth.DrawImage(fb,0,0,THUMB_W,THUMB_H); fb.Dispose();
+
+    var a=[]; for(var i=0;i<S;i++)for(var j=0;j<S;j++)
+        a.push(tbmp.GetPixel(((i+.5)*THUMB_W/S)|0,((j+.5)*THUMB_H/S)|0));
+    return a;
+}
+function same(a,b,t){t=t||20; if(a.length!==b.length)return false;
+    var eq=0; for(var i=0;i<a.length;i++){
+        var d=Math.abs(a[i].R-b[i].R)+Math.abs(a[i].G-b[i].G)+Math.abs(a[i].B-b[i].B);
+        if(d<=t) eq++; } return eq/a.length>0.9; }
+
+(function(){
+
+    var dx=action.End.X-action.Start.X,
+        dy=action.End.Y-action.Start.Y,
+        dist=Math.sqrt(dx*dx+dy*dy),
+        pt =sp.GetCurrentMousePoint();
+
+    // ===== SHORT  (< DIST_MEDIUM) =======================
+    if(dist < DIST_MEDIUM){
+        // Copy
+        var clipBefore=clip.GetText();
+        sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_C]); sp.Sleep(100);
+        if(clipBefore!==clip.GetText()){
+            show(HUD_COPY_TEXT,HUD_COPY_FORE,HUD_COPY_BACK,HUD_COPY_OP);
+            return;
+        }
+        if(!FINE_SCROLL_ENABLED){
+            show(HUD_CLIP_TEXT,HUD_CLIP_FORE,HUD_CLIP_BACK);
+            return;
+        }
+        if(dist < DIST_SMALL){
+            sp.MouseWheel(pt,false,WHEEL_SMALL);
+            show(HUD_SMALL_TEXT,HUD_SMALL_FORE,HUD_SMALL_BACK);
+        }else{
+            sp.MouseWheel(pt,false,WHEEL_MEDIUM);
+            show(HUD_MED_TEXT,HUD_MED_FORE,HUD_MED_BACK);
+        }
+        return;
+    }
+
+    // ===== LONG (autoscroll) ===========================
+    show(HUD_LONG_TEXT,HUD_LONG_FORE,HUD_LONG_BACK);
+
+    var exe  =sp.ForegroundWindow().Process.MainModule.ModuleName.toLowerCase();
+    var cfg  =APP_SCROLL_CONFIG.find(c=>c.names.some(n=>exe.includes(n)))||{};
+    var cnt  =(cfg.count!==undefined)?cfg.count:DEFAULT_COUNT;
+    var dly  =(cfg.scrollDelay!==undefined)?cfg.scrollDelay:SCROLL_DELAY_MS;
+
+    // ---------- 1) Jump End / Ctrl+End -------------------------
+    if(!cfg.noJump){
+        var before=snap(sp.ForegroundWindow());
+
+        if(cfg.only_END || GLOBAL_END_HOTKEY==="END")
+            sp.SendVKey(vk.END);
+        else
+            sp.SendModifiedVKeys([vk.LCONTROL],[vk.END]);
+
+        sp.Sleep(100);
+        var after=snap(sp.ForegroundWindow());
+        if(!same(before,after)) return;   // the page is already down
+    }
+
+    // ---------- Autoscroll ----------------------------------
+    if(cnt>0) scrollInPage(pt,PAGE_WHEEL,cnt,dly);
+})();
+
+// ────────── 5. ROLLING (stop on the wheel)───────────────
+function scrollInPage(pt,delta,count,delay){
+    sp.StoreBool("LongScrollActive", true);
+    sp.StoreBool("LongScrollAbort" , false);
+
+    var wParam=(delta<<16)|0, lParam=(pt.Y<<16)|pt.X,
+        hwnd  =sp.WindowFromPoint(pt,true);
+
+    for(var i=0;i<count;i++){
+        if(sp.GetStoredBool("LongScrollAbort")) break;         
+        for(var b of STOP_AUTO_SCROLL) if(sp.IsButtonDown(b)) return;
+
+        hwnd.PostMessage(host.cast(uint,0x020A),
+                         new IntPtr(wParam), new IntPtr(lParam));
+        sp.Sleep(delay);
+    }
+
+    sp.StoreBool("LongScrollActive", false);
+    sp.StoreBool("LongScrollAbort" , false);
+}

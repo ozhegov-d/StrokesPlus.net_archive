@@ -1,0 +1,138 @@
+
+var DISPLAY_ENABLED       = true;
+
+var DIST_MEDIUM           = 220;     // long gesture
+var FOLLOW_SCROLL_ENABLED = true;    // catch-up phase
+
+var PAGE_WHEEL_START_UP   = 1900;
+var PAGE_WHEEL_FOLLOW_UP  = 1300;
+var SCROLL_DELAY_MS       = 0; // pause between WM_MOUSEWHEEL A larger delay lets new content load before continuing to scroll.
+
+var APP_SCROLL_CONFIG = [
+    { names:["chrome","firefox","msedge","opera","brave","vivaldi"], startCount:600, followCount:1300, scrollDelay:0 },
+    { names:["audition"], startCount:1,   followCount:0,    scrollDelay:0 }
+];
+
+/* HUD */
+var HUD_PASTE_TEXT   = 'Paste', HUD_PASTE_FORE='seagreen', HUD_PASTE_BACK='honeydew';
+var HUD_LONG_UP_TEXT = '⬆',     HUD_LONG_UP_FORE='white',   HUD_LONG_UP_BACK='black';
+
+// Stop automatic scrolling if left/right/middle mouse button is pressed
+var STOP_AUTO_SCROLL = [ MouseButtons.Middle, MouseButtons.Left, MouseButtons.Right ];
+
+// ────────── HUD ───────────────────────────────────────────
+var info = new DisplayTextInfo();
+info.MessageAlignment='top'; info.Duration=300; info.Opacity=0.5;
+info.MessageFont=new Font('Segoe UI Semibold',20);
+info.BackColor='black'; info.ForeColor='white'; info.Padding=15; info.FadeSteps=18;
+
+function show(txt,fc,bc,op){
+    if(!DISPLAY_ENABLED||!txt) return;
+    info.Message=txt; info.Location=`${action.End.X+10},${action.End.Y+10}`;
+    if(fc) info.ForeColor=fc; if(bc) info.BackColor=bc; if(op!==undefined) info.Opacity=op;
+    sp.DisplayText(info);
+}
+
+var THUMB_W=60, THUMB_H=40, SAMPLES=15;
+var thumbBmp=new System.Drawing.Bitmap(THUMB_W,THUMB_H);
+var thumbG  =System.Drawing.Graphics.FromImage(thumbBmp);
+
+function captureWindowState(wnd){
+    var r=wnd.Rectangle;
+    var fullBmp=new System.Drawing.Bitmap(r.Width,r.Height);
+    var gFull =System.Drawing.Graphics.FromImage(fullBmp);
+    gFull.CopyFromScreen(r.X,r.Y,0,0,new System.Drawing.Size(r.Width,r.Height));
+    gFull.Dispose();
+
+    thumbG.DrawImage(fullBmp,
+        new System.Drawing.Rectangle(0,0,THUMB_W,THUMB_H),
+        new System.Drawing.Rectangle(0,0,r.Width,r.Height),
+        System.Drawing.GraphicsUnit.Pixel);
+    fullBmp.Dispose();
+
+    var arr=[];
+    for(var i=0;i<SAMPLES;i++){
+        for(var j=0;j<SAMPLES;j++){
+            var px=((i+0.5)*THUMB_W /SAMPLES)|0;
+            var py=((j+0.5)*THUMB_H/SAMPLES)|0;
+            arr.push( thumbBmp.GetPixel(px,py) );
+        }
+    }
+    return arr;
+}
+
+function compareStates(a,b,tol){
+    tol=tol||20;
+    if(a.length!==b.length) return false;
+    var same=0;
+    for(var i=0;i<a.length;i++){
+        var d=Math.abs(a[i].R-b[i].R)+Math.abs(a[i].G-b[i].G)+Math.abs(a[i].B-b[i].B);
+        if(d<=tol) same++;
+    }
+    return same/a.length>0.9;
+}
+
+(function(){
+    var dx=action.End.X-action.Start.X,
+        dy=action.End.Y-action.Start.Y,
+        dist=Math.sqrt(dx*dx+dy*dy),
+        mousePt=sp.GetCurrentMousePoint();
+
+    // ===== SHORT  → Paste ==========================================
+    if(dist < DIST_MEDIUM){
+        sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]); sp.Sleep(100);
+        show(HUD_PASTE_TEXT,HUD_PASTE_FORE,HUD_PASTE_BACK,1);
+        return;
+    }
+
+    // ===== LONG  → scroll up ================================
+    show(HUD_LONG_UP_TEXT,HUD_LONG_UP_FORE,HUD_LONG_UP_BACK);
+
+    var exe  = sp.ForegroundWindow().Process.MainModule.ModuleName.toLowerCase();
+    var cfg  = APP_SCROLL_CONFIG.find(c=>c.names.some(n=>exe.indexOf(n)!==-1))||{};
+    var startCnt = cfg.startCount || 0,
+        followCnt= cfg.followCount||0,
+        delay    = (cfg.scrollDelay!==undefined)?cfg.scrollDelay:SCROLL_DELAY_MS;
+
+    var before = captureWindowState(sp.ForegroundWindow());
+
+    if(startCnt){
+        scrollInPage(mousePt,PAGE_WHEEL_START_UP,startCnt,delay);
+        if(FOLLOW_SCROLL_ENABLED&&followCnt){
+            if(!compareStates(before,captureWindowState(sp.ForegroundWindow())))
+                scrollInPage(mousePt,PAGE_WHEEL_FOLLOW_UP,followCnt,delay);
+        }
+    }else{
+        // fallback: Ctrl+Home + default counts
+        sp.SendModifiedVKeys([vk.LCONTROL],[vk.HOME]); sp.Sleep(100);
+        if(compareStates(before,captureWindowState(sp.ForegroundWindow()))){
+            scrollInPage(mousePt,PAGE_WHEEL_START_UP,600,delay);
+            if(FOLLOW_SCROLL_ENABLED)
+                scrollInPage(mousePt,PAGE_WHEEL_FOLLOW_UP,1300,delay);
+        }
+    }
+})();
+
+// ────────── SCROLL UP FUNCTION ─────────────────────────────
+function scrollInPage(pt,delta,count,delay){
+    var wParam=(delta<<16)|0, lParam=(pt.Y<<16)|pt.X;
+    var hwnd=sp.WindowFromPoint(pt,true);
+
+    var prev=captureWindowState(sp.ForegroundWindow()), unchanged=0;
+
+    for(var i=0;i<count;i++){
+        // click stop
+        for(var b of STOP_AUTO_SCROLL) if(sp.IsButtonDown(b)) return;
+
+        hwnd.PostMessage(host.cast(uint,0x020A),new IntPtr(wParam),new IntPtr(lParam));
+        sp.Sleep(delay);
+
+        if(i%200===0){ // once every 200 steps take a screen snapshot to determine if scrolling has reached the end
+            var cur=captureWindowState(sp.ForegroundWindow());
+            if(compareStates(prev,cur)){
+                if(++unchanged>=2) return;  // 2 times in a row with no change
+            }else unchanged=0;
+            prev=cur;
+        }
+    }
+}
