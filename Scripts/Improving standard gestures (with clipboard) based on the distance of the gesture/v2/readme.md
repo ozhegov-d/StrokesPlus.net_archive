@@ -1,3 +1,25 @@
+### Copy-Paste
+
+v1: long gesture  
+First, take a screenshot; press Ctrl+End; take another screenshot and compare pixels to see if the page scrolled. If the pixels didn’t change, send a WM_MOUSEWHEEL message and repeat these steps until the pixels match.
+
+v2: long gesture  
+First send Ctrl+End, then send WM_MOUSEWHEEL messages for continuous scrolling; it stops as soon as the user scrolls the wheel or clicks the mouse.
+
+**Copy**
+
+How it works: if text is selected, it will be copied; if the same text is copied again, it will scroll the page
+Depending on the distance of the gesture, you can scroll down a little or to the end of the page
++ It works in almost all applications where scrolling is available
++ If there are two columns on the page, they can be scrolled independently of each other
+
+**Paste**
+
+There are only two states: paste or scroll the page to the top
+
+https://github.com/user-attachments/assets/a17a7c5a-7fda-4b6b-9acd-385654811520
+
+
 
 ### Minimize-Return
 
@@ -64,21 +86,6 @@ Long gesture - menu for restoring programs
 
 
 https://github.com/user-attachments/assets/7593ad56-a9f4-4001-9963-6eab5fb22b95
-
-
-### Copy-Paste
-**Copy**
-
-How it works: if text is selected, it will be copied; if the same text is copied again, it will scroll the page
-Depending on the distance of the gesture, you can scroll down a little or to the end of the page
-+ It works in almost all applications where scrolling is available
-+ If there are two columns on the page, they can be scrolled independently of each other
-
-**Paste**
-
-There are only two states: paste or scroll the page to the top
-
-https://github.com/user-attachments/assets/a17a7c5a-7fda-4b6b-9acd-385654811520
 
 ### Deepl+Esc
 Works only for DeepL for Windows
