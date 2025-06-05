@@ -5,6 +5,14 @@ First, take a screenshot; press Ctrl+End; take another screenshot and compare pi
 
 v2: long gesture  
 First send Ctrl+End, then send WM_MOUSEWHEEL messages for continuous scrolling; it stops as soon as the user scrolls the wheel or clicks the mouse.
+> You need to add this under Mouse Events → Mouse Wheel.  
+> (function () {
+    //  ▸ If autoscroll is in progress, stop it and do nothing else.
+    if (sp.GetStoredBool("LongScrollActive")) {
+        sp.StoreBool("LongScrollAbort", true);  
+        return;
+    }
+})();
 
 **Copy**
 
