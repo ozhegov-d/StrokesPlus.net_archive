@@ -38,7 +38,7 @@ var GLOBAL_END_HOTKEY = "CTRL_END";  // "CTRL_END" | "END" | "NONE"
 */
 
 var APP_SCROLL_CONFIG = [
-{ names:["chrome","firefox","msedge","opera","brave","vivaldi"],count:5000, scrollDelay:5, hot_key: "NONE" },
+{ names:["chrome","firefox","msedge","opera","brave","vivaldi"],count:5000, scrollDelay:10, hot_key: "NONE" },
 { names:["audition"], count:50, scrollDelay:0, hot_key:"NONE" },
 { names:["tixati"], hot_key:"END" },
 { names:["notepad"],hot_key:"CTRL_END"},
