@@ -1,0 +1,137 @@
+/*
+You need to add this under Mouse Events → Mouse Wheel.
+(function () {
+    //  ▸ If autoscroll is in progress, stop it and do nothing else.
+    if (sp.GetStoredBool("LongScrollActive")) {
+        sp.StoreBool("LongScrollAbort", true);  
+        return;
+    }
+})();
+*/
+
+var DISPLAY_ENABLED = true;
+var DIST_MEDIUM     = 220;            // long gesture threshold
+
+var PAGE_WHEEL_UP   = 1900;           // Δ-wheel up
+var DEFAULT_COUNT   = 600;           // how many messages to send
+var SCROLL_DELAY_MS = 0;             // pause between WM_MOUSEWHEEL (ms)
+
+/* Per-application settings
+   names[]     – fragments of the executable name (lowercase)
+   count       – how many WM_MOUSEWHEEL messages to send (0 = do not send)
+   scrollDelay – delay (ms) specifically for this application
+   hot_key     – "CTRL_END" | "END" | "NONE"
+*/
+//{ names:["chrome"],count:100000, scrollDelay:0, hot_key:"NONE"     // automatic scrolling without Ctrl+End
+//{ names:["chrome"],count:100000, scrollDelay:0, hot_key:"CTRL_END" // Ctrl+End first, then auto-scroll. 
+//{ names:["chrome"],hot_key:"CTRL_END"                              // Ctrl+End
+
+var APP_SCROLL_CONFIG = [
+    { names:["chrome","firefox","msedge","opera","brave","vivaldi"],count:5000,  scrollDelay:5,  hot_key:"NONE" },
+    { names:["audition"], count:1,  scrollDelay:0,  hot_key:"NONE" },
+    { names:["tixati"], hot_key:"HOME" },                
+    { names:["notepad"],hot_key:"CTRL_END"},
+];
+
+/* HUD */
+var HUD_PASTE_TEXT='Paste', HUD_LONG_UP_TEXT='⬆';
+var HUD_PASTE_FORE='seagreen', HUD_PASTE_BACK='honeydew';
+var HUD_LONG_UP_FORE='white',  HUD_LONG_UP_BACK='black';
+
+// mouse buttons used to stop autoscroll
+var STOP_AUTO_SCROLL = [ MouseButtons.Middle,MouseButtons.Left,MouseButtons.Right ];
+
+/* HUD */
+function show(txt,fc,bc,op){
+    if(!DISPLAY_ENABLED||!txt) return;
+    var info=new DisplayTextInfo();
+    info.Message=txt;
+    info.MessageAlignment='top'; info.Duration=300; info.Opacity=0.5;
+    info.MessageFont=new Font('Segoe UI Semibold',20);
+    info.ForeColor=fc||'white'; info.BackColor=bc||'black';
+    info.Padding=15; info.FadeSteps=18;
+    info.Location=`${action.End.X+10},${action.End.Y+10}`;
+    sp.DisplayText(info);
+}
+
+// ────────── PREVIOUS SCROLL STOP ─────────────────────────
+function stopPrevAutoScroll(){
+    if(sp.GetStoredBool("LongScrollActive")){
+        sp.StoreBool("LongScrollAbort", true);
+        for(var t=0;t<50&&sp.GetStoredBool("LongScrollActive");t++)
+            sp.Sleep(2);
+    }
+}
+
+(function(){
+
+    var dx   = action.End.X - action.Start.X,
+        dy   = action.End.Y - action.Start.Y,
+        dist = Math.sqrt(dx*dx + dy*dy),
+
+        ptStart = new System.Drawing.Point(action.Start.X, action.Start.Y);
+
+    stopPrevAutoScroll();                    // stop the previous autoscroll
+
+    /* ─ short gesture → Paste ─ */
+    if(dist < DIST_MEDIUM){
+        sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]); sp.Sleep(100);
+        show(HUD_PASTE_TEXT, HUD_PASTE_FORE, HUD_PASTE_BACK, 1);
+        return;
+    }
+
+    /* ─ long gesture ─ */
+    show(HUD_LONG_UP_TEXT, HUD_LONG_UP_FORE, HUD_LONG_UP_BACK);
+
+    var exe = sp.ForegroundWindow().Process.MainModule.ModuleName.toLowerCase();
+    var cfg = APP_SCROLL_CONFIG.find(c=>c.names.some(n=>exe.includes(n)))||{};
+
+    var cnt   = (cfg.count!==undefined)
+                  ? cfg.count
+                  : (cfg.hot_key&&cfg.hot_key!=="NONE" ? 0 : DEFAULT_COUNT);
+    var delay = (cfg.scrollDelay!==undefined) ? cfg.scrollDelay : SCROLL_DELAY_MS;
+    var hk    = (cfg.hot_key!==undefined)     ? cfg.hot_key     : "CTRL_HOME";
+
+    /* Home / Ctrl+Home */
+    if(hk !== "NONE"){
+        if(hk === "HOME") sp.SendVKey(vk.HOME);
+        else              sp.SendModifiedVKeys([vk.LCONTROL],[vk.HOME]);
+        sp.Sleep(50);
+    }
+
+    /* 2) autoscroll up */
+    if(cnt > 0) scrollInPage(ptStart, PAGE_WHEEL_UP, cnt, delay);
+
+})();
+
+function scrollInPage(pt, delta, count, delay){
+
+    sp.StoreBool("LongScrollActive", true);
+    sp.StoreBool("LongScrollAbort" , false);
+
+    const WM_MOUSEWHEEL = 0x020A;
+    var   msg  = host.cast(uint, WM_MOUSEWHEEL);   
+    var   pW   = new IntPtr((delta<<16)|0);        
+    var   pL   = new IntPtr((pt.Y<<16)|pt.X);      
+    var   hwnd = sp.WindowFromPoint(pt, true);    
+
+    for (var i = 0; i < count; i++) {
+
+        /* ─ a small pause so that Wheel script has time to set Abort ─ */
+        if (delay) sp.Sleep(delay); else sp.Sleep(1);
+
+        /* ─ check flags / buttons EVERY iteration ─ */
+        if (sp.GetStoredBool("LongScrollAbort")) break;
+        for (var b of STOP_AUTO_SCROLL)
+            if (sp.IsButtonDown(b)) return;
+
+        hwnd.PostMessage(msg, pW, pL);
+    }
+
+    sp.StoreBool("LongScrollActive", false);
+    sp.StoreBool("LongScrollAbort" , false);
+
+    /* single GC to immediately release GDI/Handle objects */
+    System.GC.Collect();
+    System.GC.WaitForPendingFinalizers();
+}

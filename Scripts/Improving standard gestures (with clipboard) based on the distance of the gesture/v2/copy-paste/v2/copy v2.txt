@@ -1,0 +1,164 @@
+/*
+You need to add this under Mouse Events → Mouse Wheel.
+(function () {
+    //  ▸ If autoscroll is in progress, stop it and do nothing else.
+    if (sp.GetStoredBool("LongScrollActive")) {
+        sp.StoreBool("LongScrollAbort", true);  
+        return;
+    }
+})();
+*/
+
+var DISPLAY_ENABLED = true;          // HUD
+
+// — short gestures (after Copy - small scrolling) -
+var FINE_SCROLL_ENABLED = false;
+var DIST_SMALL  = 120,  WHEEL_SMALL  = -260,
+    HUD_SMALL_TEXT='<120', HUD_SMALL_FORE='navy', HUD_SMALL_BACK='powderblue';
+var DIST_MEDIUM = 220,  WHEEL_MEDIUM = -400,
+    HUD_MED_TEXT ='<220', HUD_MED_FORE ='white', HUD_MED_BACK ='cornflowerblue';
+
+// — long gesture —
+var PAGE_WHEEL      = -1900;         // “jump downwards”
+var DEFAULT_COUNT   = 600;           // how many messages to send
+var SCROLL_DELAY_MS = 0;             // pause between WM_MOUSEWHEEL (ms)
+var GLOBAL_END_HOTKEY = "CTRL_END";  // "CTRL_END" | "END" | "NONE"
+
+/* Per-application settings
+   names[]     – fragments of the executable name (lowercase)
+   count       – how many WM_MOUSEWHEEL messages to send (0 = do not send)
+   scrollDelay – delay (ms) specifically for this application
+   hot_key     – "CTRL_END" | "END" | "NONE"
+*/
+/*
+{ names:["chrome"],count:100000, scrollDelay:0, hot_key:"NONE"     // automatic scrolling without Ctrl+End
+{ names:["chrome"],count:100000, scrollDelay:0, hot_key:"CTRL_END" // Ctrl+End first, then auto-scroll. 
+{ names:["chrome"],hot_key:"CTRL_END"                              // Ctrl+End
+    },
+*/
+
+var APP_SCROLL_CONFIG = [
+{ names:["chrome","firefox","msedge","opera","brave","vivaldi"],count:5000, scrollDelay:5, hot_key: "NONE" },
+{ names:["audition"], count:50, scrollDelay:0, hot_key:"NONE" },
+{ names:["tixati"], hot_key:"END" },
+{ names:["notepad"],hot_key:"CTRL_END"},
+];
+
+// mouse buttons used to stop autoscroll
+var STOP_AUTO_SCROLL = [ MouseButtons.Middle,MouseButtons.Left,MouseButtons.Right ];
+
+// — HUD —
+var HUD_LONG_TEXT='⬇',   HUD_LONG_FORE='white',  HUD_LONG_BACK='black';
+var HUD_COPY_TEXT='Copy', HUD_COPY_FORE='saddlebrown', HUD_COPY_BACK='oldlace', HUD_COPY_OP=1;
+var HUD_CLIP_TEXT='Clipboard unchanged', HUD_CLIP_FORE='white', HUD_CLIP_BACK='black';
+
+var info=new DisplayTextInfo();
+info.MessageAlignment='top'; info.Duration=300; info.Opacity=0.5;
+info.MessageFont=new Font('Segoe UI Semibold',20);
+info.BackColor='black'; info.ForeColor='white'; info.Padding=15; info.FadeSteps=18;
+
+function show(txt,fc,bc,op){
+    if(!DISPLAY_ENABLED||!txt) return;
+    info.Message=txt; info.Location=`${action.End.X+10},${action.End.Y+10}`;
+    if(fc) info.ForeColor=fc; if(bc) info.BackColor=bc; if(op!==undefined) info.Opacity=op;
+    sp.DisplayText(info);
+}
+
+(function(){
+    var dx=action.End.X-action.Start.X,
+        dy=action.End.Y-action.Start.Y,
+        dist=Math.sqrt(dx*dx+dy*dy),
+        pt =sp.GetCurrentMousePoint();
+
+        stopPrevAutoScroll();   // stop the previous autoscroll
+
+    // ===== SHORT GESTURE (< DIST_MEDIUM) =======================
+    if(dist < DIST_MEDIUM){
+
+        // Copy
+        var clipBefore=clip.GetText();
+        sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_C]); sp.Sleep(100);
+        if(clipBefore!==clip.GetText()){
+            show(HUD_COPY_TEXT,HUD_COPY_FORE,HUD_COPY_BACK,HUD_COPY_OP);
+            return;
+        }
+
+        // Fine scrolling
+        if(!FINE_SCROLL_ENABLED){
+            show(HUD_CLIP_TEXT,HUD_CLIP_FORE,HUD_CLIP_BACK);
+            return;
+        }
+        if(dist < DIST_SMALL){
+            sp.MouseWheel(pt,false,WHEEL_SMALL);
+            show(HUD_SMALL_TEXT,HUD_SMALL_FORE,HUD_SMALL_BACK);
+        }else{
+            sp.MouseWheel(pt,false,WHEEL_MEDIUM);
+            show(HUD_MED_TEXT,HUD_MED_FORE,HUD_MED_BACK);
+        }
+        return;
+    }
+
+    // ===== LONG GESTURE (autoscroll) ===========================
+    show(HUD_LONG_TEXT,HUD_LONG_FORE,HUD_LONG_BACK);
+
+    var exe  = sp.ForegroundWindow().Process.MainModule.ModuleName.toLowerCase();
+    var cfg  = APP_SCROLL_CONFIG.find(c=>c.names.some(n=>exe.includes(n)))||{};
+    var cnt = (cfg.count !== undefined) 
+            ? cfg.count 
+            : ((cfg.hot_key && cfg.hot_key!=="NONE") ? 0 : DEFAULT_COUNT);
+
+    var dly  = (cfg.scrollDelay!==undefined)?cfg.scrollDelay:SCROLL_DELAY_MS;
+    var hk   = (cfg.hot_key!==undefined)?cfg.hot_key:GLOBAL_END_HOTKEY;
+
+    //  Ctrl+End / End -------------------------------
+    if(hk!=="NONE"){
+        if(hk==="END")       sp.SendVKey(vk.END);
+        else /* CTRL_END */  sp.SendModifiedVKeys([vk.LCONTROL],[vk.END]);
+        sp.Sleep(100);   // wait a little while, or some of the wheels will fly off to nowhere.
+    }
+
+    // Autoscroll down --------------------------------------
+    if(cnt>0) scrollInPage(pt,PAGE_WHEEL,cnt,dly);
+})();
+
+function stopPrevAutoScroll(){
+    if(sp.GetStoredBool("LongScrollActive")){
+        sp.StoreBool("LongScrollAbort", true);          // stop cycle
+        /* wait until the Active flag goes out (up to 100 ms) */
+        for(var t=0; t<50 && sp.GetStoredBool("LongScrollActive"); t++)
+            sp.Sleep(2);
+    }
+}
+
+// ────────── WHEEL STOP SCROLLING ────────────────
+function scrollInPage(pt, delta, count, delay){
+
+    sp.StoreBool("LongScrollActive", true);
+    sp.StoreBool("LongScrollAbort" , false);
+
+    const WM_MOUSEWHEEL = 0x020A;
+    var   msg  = host.cast(uint, WM_MOUSEWHEEL);   
+    var   pW   = new IntPtr((delta<<16)|0);        
+    var   pL   = new IntPtr((pt.Y<<16)|pt.X);      
+    var   hwnd = sp.WindowFromPoint(pt, true);   
+
+    for (var i = 0; i < count; i++) {
+
+        /* ─ a small pause for Wheel script to set Abort ─ */
+        if (delay) sp.Sleep(delay); else sp.Sleep(1);
+
+        /* ─ check flags / buttons EVERY iteration ─ */
+        if (sp.GetStoredBool("LongScrollAbort")) break;
+        for (var b of STOP_AUTO_SCROLL)
+            if (sp.IsButtonDown(b)) return;
+
+        hwnd.PostMessage(msg, pW, pL);
+    }
+
+    sp.StoreBool("LongScrollActive", false);
+    sp.StoreBool("LongScrollAbort" , false);
+
+    /* single GC to immediately release GDI/Handle objects */
+//    System.GC.Collect();
+//    System.GC.WaitForPendingFinalizers();
+}
