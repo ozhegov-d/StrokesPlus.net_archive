@@ -4,8 +4,11 @@ v1: long gesture
 First, take a screenshot; press Ctrl+End; take another screenshot and compare pixels to see if the page scrolled. If the pixels didn’t change, send a WM_MOUSEWHEEL message and repeat these steps until the pixels match.
 
 v2: long gesture  
-First send Ctrl+End, then send WM_MOUSEWHEEL messages for continuous scrolling; it stops as soon as the user scrolls the wheel or clicks the mouse.
-> You need to add this under Mouse Events → Mouse Wheel.  
+First send Ctrl+End, then send WM_MOUSEWHEEL messages for continuous scrolling; it stops as soon as the user scrolls the wheel or clicks the mouse.  
+>#### You need to add this under   
+>Mouse Events → Mouse Wheel.  
+>Settings → Before Action  
+
 > (function () {
     //  ▸ If autoscroll is in progress, stop it and do nothing else.
     if (sp.GetStoredBool("LongScrollActive")) {
@@ -13,6 +16,7 @@ First send Ctrl+End, then send WM_MOUSEWHEEL messages for continuous scrolling; 
         return;
     }
 })();
+
 
 **Copy**
 
