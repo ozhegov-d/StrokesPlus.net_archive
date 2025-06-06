@@ -1,5 +1,8 @@
 /*
-You need to add this under Mouse Events → Mouse Wheel.
+You need to add this under
+Mouse Events → Mouse Wheel.
+Settings → Before Action
+
 (function () {
     //  ▸ If autoscroll is in progress, stop it and do nothing else.
     if (sp.GetStoredBool("LongScrollActive")) {
