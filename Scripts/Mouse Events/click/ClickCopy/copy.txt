@@ -1,0 +1,145 @@
+// ---- Settings ----
+var LP6_ENABLE_FEATURE       = true;   // true = feature enabled, false = completely disable
+var LP6_ENABLE_LOG           = false;  // true = output log messages, false = do not log
+var LP6_LONG_PRESS_THRESHOLD = 200;    // long-press threshold in milliseconds (200 ms)
+var LP6_MOVE_THRESHOLD       = 3;      // maximum cursor movement (px) for a “static” press
+
+// “Allow list”: if this array is NOT empty, the script will run only in applications
+// whose executable name contains at least one of these strings.
+// If ALLOWED_APPS = [], the script is allowed in all apps (except those in DISABLED_APPS).
+var LP6_ALLOWED_APPS         = [];     // if NOT empty, only these applications
+//var LP6_ALLOWED_APPS       = ["telegram", "notepad"];
+
+// “Block list”: the script will NOT run in applications
+// whose executable name contains any string from this array.
+// If DISABLED_APPS = [], it is not blocked anywhere.
+var LP6_DISABLED_APPS        = [];     // ignore these applications
+
+// Button used for Long-Press → Copy
+var LP6_COPY_BUTTON          = MouseButtons.Left; // | Left | Right | Middle | XButton1 | XButton2 | Note: Case-sensitive
+
+// HUD configurations
+var LP6_HUD_COPY = {
+  text:    "Copy",
+  fore:    "saddlebrown",
+  back:    "oldlace",
+  opacity: 1,
+  duration: 600,
+  font:    new Font("Segoe UI Semibold", 12)
+};
+var LP6_HUD_UNCHANGED = {
+  text:    "Clipboard unchanged",
+  fore:    "white",
+  back:    "black",
+  opacity: 0.6,
+  duration: 400,
+  font:    new Font("Segoe UI Semibold", 12)
+};
+
+// Storage and timer keys
+var LP6_STATE_KEY            = "LP6_LongPressState";
+var LP6_TIMER_NAME           = "LP6_LongPressTimer";
+
+var LP6_hudInfo = null;
+function LP6_showHUD(cfg) {
+  if (!LP6_ENABLE_FEATURE || !cfg.text) return;
+  if (!LP6_hudInfo) {
+    LP6_hudInfo = new DisplayTextInfo();
+    LP6_hudInfo.Title            = "";
+    LP6_hudInfo.MessageAlignment = "Center";
+    LP6_hudInfo.Location         = "Center";
+  }
+  LP6_hudInfo.Duration    = cfg.duration;
+  LP6_hudInfo.Opacity     = cfg.opacity;
+  LP6_hudInfo.ForeColor   = cfg.fore;
+  LP6_hudInfo.BackColor   = cfg.back;
+  LP6_hudInfo.MessageFont = cfg.font;
+  var pt = sp.GetCurrentMousePoint();
+  LP6_hudInfo.Message     = cfg.text;
+  LP6_hudInfo.Location    = (pt.X + 10) + "," + (pt.Y + 10);
+  sp.DisplayText(LP6_hudInfo);
+}
+
+function LP6_log(msg) {
+  if (LP6_ENABLE_LOG) sp.ConsoleLog("[LP6] " + msg, "LOG");
+}
+
+// Timer and status clearing
+function LP6_cleanup() {
+  if (sp.GetTimer(LP6_TIMER_NAME)) sp.DeleteTimer(LP6_TIMER_NAME);
+  sp.DeleteStoredObject(LP6_STATE_KEY);
+}
+
+// Long hold times
+function LP6_onLongPressTimer() {
+  try {
+    // If the button is released, we do nothing
+    if (!sp.IsButtonDown(LP6_COPY_BUTTON)) return;
+
+    var st = sp.GetStoredObject(LP6_STATE_KEY);
+    if (!st) return;
+
+    // Checking the cursor movement
+    var cur = sp.GetCurrentMousePoint(),
+        dx  = cur.X - st.startX,
+        dy  = cur.Y - st.startY;
+    if (Math.sqrt(dx*dx + dy*dy) > LP6_MOVE_THRESHOLD) {
+      LP6_log("cancelled: moved too much");
+      return;
+    }
+
+    // Copy
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.Sleep(150);
+    var nt = clip.GetText() || "";
+
+    // HUD
+    if (nt.trim() !== "" && nt !== st.prevText) {
+      LP6_log("copied new: " + nt);
+      LP6_showHUD(LP6_HUD_COPY);
+    } else {
+      LP6_log("buffer unchanged");
+      LP6_showHUD(LP6_HUD_UNCHANGED);
+    }
+  } catch (e) {
+    sp.ConsoleError("[LP6] Timer error: " + e.message);
+  } finally {
+    // Remove timer and status
+    LP6_cleanup();
+  }
+}
+
+// Mouse Events
+(function() {
+  if (!LP6_ENABLE_FEATURE) return;
+
+  // Application Filter
+  var exe = "";
+  try { exe = sp.ForegroundWindow().ExecutableName.toLowerCase(); }
+  catch { return; }
+  for (var b of LP6_DISABLED_APPS) if (exe.includes(b)) return;
+  if (LP6_ALLOWED_APPS.length && !LP6_ALLOWED_APPS.some(a => exe.includes(a))) return;
+
+  // Copy button processing
+  if (click.Button === LP6_COPY_BUTTON) {
+    // When pressed - save the start state and start the timer
+    if (click.Down) {
+      var prev = clip.GetText() || "";
+      sp.StoreObject(LP6_STATE_KEY, {
+        startX:   click.Point.X,
+        startY:   click.Point.Y,
+        prevText: prev
+      });
+      sp.CreateTimer(LP6_TIMER_NAME,
+                     LP6_LONG_PRESS_THRESHOLD,
+                     0,
+                     "LP6_onLongPressTimer()");
+      LP6_log("timer started");
+    }
+    // When released - cancel the timer and clear the timer
+    else {
+      LP6_log("timer cancelled");
+      LP6_cleanup();
+    }
+  }
+})();
