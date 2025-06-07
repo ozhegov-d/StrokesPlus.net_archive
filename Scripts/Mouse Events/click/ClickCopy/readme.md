@@ -9,7 +9,7 @@ click.Down
   if (click.Down) {  
     sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);}})();
 
-click.down + sp.IsButtonDown(MouseButtons.Left)  
+sp.IsButtonDown(MouseButtons.Left) + click.down
 >(function(){  
   if (click.Down  
       && sp.IsButtonDown(MouseButtons.Left)) {  
