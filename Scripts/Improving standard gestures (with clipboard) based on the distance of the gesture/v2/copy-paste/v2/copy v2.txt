@@ -155,6 +155,14 @@ function scrollInPage(pt, delta, count, delay){
         for (var b of STOP_AUTO_SCROLL)
             if (sp.IsButtonDown(b)) return;
 
+        if (
+            sp.IsKeyDown(vk.CONTROL) ||
+            sp.IsKeyDown(vk.MENU)    ||  // ALT
+            sp.IsKeyDown(vk.SHIFT)
+        ) {
+            return;
+        }
+
         hwnd.PostMessage(msg, pW, pL);
     }
 
