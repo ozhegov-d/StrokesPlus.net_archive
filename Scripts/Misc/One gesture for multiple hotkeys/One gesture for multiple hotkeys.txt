@@ -1,0 +1,107 @@
+// this particular script is for file/folder properties
+
+// --- Global toggles ---
+var showMessages         = false;   // true — show text, false — do not show
+var enableLongGesture    = false;  // true — handle long gesture, false — always short
+var longGestureThreshold = 200;    // threshold for long gesture (px)
+
+var appConfigs2 = [
+  {
+   /* Explorer, Everything, ... */
+    patterns: ["explorer", "everything" , "7z", "xnview" , "foobar2000" , "TOTALCMD64"],
+    commands: {
+      short: { func: () => sp.SendModifiedVKeys([vk.LMENU], [vk.RETURN]), message: "Alt+Enter" },
+      long:  { func: () => sp.SendVKey(vk.F2),                             message: "F2"       }
+    }
+  },
+  {
+    /* AIMP */
+    patterns: ["aimp"],
+    commands: {
+      short: { func: () => sp.SendVKey(vk.F4),   message: "F4" },
+      long:  { func: () => {},                   message: ""   }
+    }
+  },
+{
+    /* MPC-HC */
+    patterns: ["mpc-hc"],
+    commands: {
+      short: { func: () => sp.SendModifiedVKeys([vk.LSHIFT], [vk.F10]),   message: "Shift+F10" },
+      long:  { func: () => {},                   message: ""   }
+    }
+  },
+    /* Adobe Audition */
+  {
+    patterns: ["audition"],
+    commands: {
+      short: { func: () => sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_P]), message: "Ctrl+P" },
+      long:  { func: () => {
+                         sp.SendVKey(vk.LMENU);
+                         sp.Sleep(10);
+                         sp.SendVKey(vk.VK_R);
+                         sp.Sleep(10);
+                         sp.SendVKey(vk.VK_E);
+                       //sp.SendString("е");  // for characters in other languages
+                       },
+               message: "" }
+    }
+  },
+  {
+/* MyHomeLib */
+    patterns: ["myhomelib"],
+    commands: {
+      short: { func: () => {sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_I]); sp.SendVKey(vk.LEFT)}, message: "Ctrl+I" },
+      long:  { func: () => {},                   message: "" }
+    }
+  }
+];
+
+var patternMap  = {};
+var patternList = [];
+for (var i = 0; i < appConfigs2.length; i++) {
+  var entry = appConfigs2[i];
+  for (var j = 0; j < entry.patterns.length; j++) {
+    var p = entry.patterns[j].toLowerCase();
+    patternMap[p] = entry;
+    patternList.push(p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  }
+}
+var patternRegex     = new RegExp(patternList.join("|"));
+var longThresholdSq  = longGestureThreshold * longGestureThreshold;
+
+var displayInfo = new DisplayTextInfo();
+displayInfo.MessageAlignment = 'center';
+displayInfo.Duration         = 800;
+displayInfo.Opacity          = 0.9;
+displayInfo.MessageFont      = new Font('Segoe UI Semibold', 16);
+displayInfo.BackColor        = 'black';
+displayInfo.ForeColor        = 'white';
+
+(function() {
+  var win    = sp.ForegroundWindow();
+  var exeRaw = win.Process.MainModule.ModuleName;
+  var exe    = exeRaw.toLowerCase();
+
+  var m   = exe.match(patternRegex);
+  if (!m) return;
+  var cfg = patternMap[m[0]];
+
+  var isLong = enableLongGesture
+    && action && action.Start && action.End
+    && ((action.End.X - action.Start.X) ** 2
+      + (action.End.Y - action.Start.Y) ** 2
+      > longThresholdSq);
+
+  var cmd = isLong ? cfg.commands.long : cfg.commands.short;
+  cmd.func();
+
+  if (showMessages && cmd.message) {
+    if (action && action.End) {
+      displayInfo.Location = (action.End.X + 20) + "," + (action.End.Y + 20);
+    } else {
+      displayInfo.Location = "100,100";
+    }
+    displayInfo.Message = cmd.message;
+    sp.DisplayText(displayInfo);
+  }
+})();
