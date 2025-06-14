@@ -134,10 +134,15 @@ function LP6_onLongPressTimer() {
         startY:   click.Point.Y,
         prevText: prev
       });
-      sp.CreateTimer(LP6_TIMER_NAME,
-                     LP6_LONG_PRESS_THRESHOLD,
-                     0,
-                     "LP6_onLongPressTimer()");
+      sp.CreateTimer(
+  LP6_TIMER_NAME,
+  LP6_LONG_PRESS_THRESHOLD,
+  0,
+  "if (typeof LP6_onLongPressTimer === 'function') {     \n" +
+  "  try { LP6_onLongPressTimer(); }                     \n" +
+  "  catch (e) { sp.ConsoleError('[LP6] Timer error: ' + e.message); LP6_cleanup(); } \n" +
+  "}"
+);
       LP6_log("timer started");
     }
     // When released - cancel the timer and clear the timer
