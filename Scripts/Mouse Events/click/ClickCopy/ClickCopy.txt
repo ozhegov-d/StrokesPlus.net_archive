@@ -13,7 +13,7 @@ var LP6_ALLOWED_APPS         = [];     // if NOT empty, only these applications
 // “Block list”: the script will NOT run in applications
 // whose executable name contains any string from this array.
 // If DISABLED_APPS = [], it is not blocked anywhere.
-var LP6_DISABLED_APPS        = [];     // ignore these applications
+var LP6_DISABLED_APPS        = ["everything"];     // ignore these applications
 
 // Button used for Long-Press → Copy
 var LP6_COPY_BUTTON          = MouseButtons.Left; // | Left | Right | Middle | XButton1 | XButton2 | Note: Case-sensitive
@@ -103,6 +103,7 @@ function LP6_onLongPressTimer() {
       LP6_log("copied new: " + nt);
       LP6_showHUD(LP6_HUD_COPY);
     } else {
+      LP6_log("buffer unchanged");
       LP6_showHUD(LP6_HUD_UNCHANGED);
     }
   } catch (e) {
