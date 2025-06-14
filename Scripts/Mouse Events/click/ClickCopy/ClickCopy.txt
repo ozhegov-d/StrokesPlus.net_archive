@@ -73,13 +73,11 @@ function LP6_cleanup() {
 // Long hold times
 function LP6_onLongPressTimer() {
   try {
-    // If the button is released, we do nothing
     if (!sp.IsButtonDown(LP6_COPY_BUTTON)) return;
 
     var st = sp.GetStoredObject(LP6_STATE_KEY);
     if (!st) return;
 
-    // Checking the cursor movement
     var cur = sp.GetCurrentMousePoint(),
         dx  = cur.X - st.startX,
         dy  = cur.Y - st.startY;
@@ -88,23 +86,28 @@ function LP6_onLongPressTimer() {
       return;
     }
 
-    // Copy
+    var prev = st.prevText;
+    //copy
     sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
     sp.Sleep(150);
     var nt = clip.GetText() || "";
 
-    // HUD
-    if (nt.trim() !== "" && nt !== st.prevText) {
+    // If after copy buffer is empty - restore old buffer and show HUD_UNCHANGED
+    if (!nt.trim()) {
+      clip.SetText(prev);
+      LP6_showHUD(LP6_HUD_UNCHANGED);
+      return;
+    }
+
+    if (nt !== prev) {
       LP6_log("copied new: " + nt);
       LP6_showHUD(LP6_HUD_COPY);
     } else {
-      LP6_log("buffer unchanged");
       LP6_showHUD(LP6_HUD_UNCHANGED);
     }
   } catch (e) {
     sp.ConsoleError("[LP6] Timer error: " + e.message);
   } finally {
-    // Remove timer and status
     LP6_cleanup();
   }
 }
