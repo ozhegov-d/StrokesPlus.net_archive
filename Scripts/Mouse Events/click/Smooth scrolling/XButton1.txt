@@ -1,0 +1,65 @@
+/*
+Examples of “smoothness”
+Scroll type       INTERVAL  STEPS  Duration   Δ per step   Feel
+Very smooth       16 ms     60     ≈960 ms    ≈Δ/60        “Slow glide”
+Moderate          16 ms     30     ≈480 ms    ≈Δ/30        “Smooth but fast”
+Fast and smooth   10 ms     20     ≈200 ms    ≈Δ/20        “Short but sleek”
+Medium            20 ms     10     ≈200 ms    ≈Δ/10        “Some jerks but quick”
+*/
+
+var DEFAULT_TOTAL_DELTA = -200;  // total offset (negative = down)
+var DEFAULT_STEPS       = 10;    // how many steps to divide this offset
+var DEFAULT_INTERVAL    = 16;    // ms between steps
+var FAST_FACTOR         = 3;     // how many times acceleration when holding the button
+
+// Button to accelerate scroll: "Left", "Middle", or "Right"
+var ACCEL_BUTTON_NAME   = "Left";
+
+// — Application-specific overrides (example) —
+var APP_SCROLL_CONFIG = [
+  { names: ["chrome","firefox","msedge","opera"], totalDelta: -200, steps: 20, interval: 8 },
+  //{ names: ["chrome","firefox","msedge","opera"], totalDelta: -400, steps: 20, interval: 8 },
+  { names: ["notepad"],                           totalDelta: -150, steps: 5,  interval: 30 }
+];
+
+// Timer name
+var TIMER_NAME = "AutoScrollTimer";
+
+;(function(){
+  if (click.Down) {
+    // if a double-click for dragging occurred just before — suppress scrolling (needed for the MoveWindowByClick script)
+    if (sp.GetStoredBool("MW_suppressScroll")) {
+      sp.StoreBool("MW_suppressScroll", false);
+      return;
+    }
+    else {
+    var exe = sp.ForegroundWindow().Process.MainModule.ModuleName.toLowerCase();
+    var cfg = APP_SCROLL_CONFIG.find(function(c){
+      return c.names.some(function(n){ return exe.includes(n); });
+    }) || {};
+
+    // final parameters
+    var TOTAL_DELTA = (cfg.totalDelta !== undefined ? cfg.totalDelta : DEFAULT_TOTAL_DELTA);
+    var STEPS       = (cfg.steps      !== undefined ? cfg.steps      : DEFAULT_STEPS);
+    var INTERVAL    = (cfg.interval   !== undefined ? cfg.interval   : DEFAULT_INTERVAL);
+    var stepDelta   = Math.floor(TOTAL_DELTA / STEPS);
+
+    // restart the timer
+    sp.DeleteTimer(TIMER_NAME);
+    sp.CreateTimer(
+      TIMER_NAME,
+      INTERVAL,
+      1,
+      String.raw`
+        var pt     = sp.GetCurrentMousePoint();
+        var factor = sp.IsButtonDown(MouseButtons.${ACCEL_BUTTON_NAME}) ? ${FAST_FACTOR} : 1;
+        sp.MouseWheel(pt, false, ${stepDelta} * factor);
+      `
+    );
+}
+  }
+  else {
+    // on button release — stop
+    sp.DeleteTimer(TIMER_NAME);
+  }
+})();
