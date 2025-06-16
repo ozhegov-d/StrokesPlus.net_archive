@@ -1,3 +1,22 @@
+### MoveWindowByClick
+
+Move the window by clicking anywhere.
+
+https://github.com/user-attachments/assets/dd1d079b-fc66-40f5-a6bd-f831fc215be3
+
+#### Global Actions > Mouse Events > Click
+
+###### <mark>ver. AnyButton</mark>  
+**Dragging starts instantly** when any mouse button (`Left`/`Right`/`Middle`/`XButton1`/`XButton2`)  
+is pressed anywhere on the window.
+
+###### <mark>ver. special for LeftButton</mark> 
+**Dragging is bound** to the left mouse button anywhere on the window,  
+but only starts after:
+- Holding for **≥ `DELAY_MS`** (default `60 ms`)
+- Cursor movement ≤ **± `STILL_PX`** (e.g. `1 px`)
+
+---------------------------------------------------------------------------------------------------------
 ### GridSnapWindow 
 v3  
 +Long gesture (>240px) → teleport to the next monitor with proportional resizing  
@@ -8,23 +27,6 @@ https://github.com/user-attachments/assets/cafbb0de-561b-4a8e-a077-465ebd22baf2
 ![example](https://github.com/user-attachments/assets/890e46e3-103a-4b83-ad4d-290f2ff749ba)
 
 Zones can be manually assigned (size and position).
-
----------------------------------------------------------------------------------------------------------
-### MoveWindowByCenter
-
-Dragging the window by its center area with just a mouse click.
-
-https://github.com/user-attachments/assets/dd1d079b-fc66-40f5-a6bd-f831fc215be3
-
-#### Global Actions > Mouse Events > Click
-
-To change the mouse button
-if (!sp.IsButtonDown(MouseButtons.Left)) { // | Left | Right | Middle | XButton1 | XButton2 | Note: Case-sensitive
-
-> Keep in mind that if the window you're clicking on is running as administrator, an error will occur if StrokesPlus is not run as administrator.
-
-v2  
-If part of the window extends beyond the screen, the 'center' area shifts to the visible part of the window.
 
 ---------------------------------------------------------------------------------------------------------
 ### QuickSwapWindows
