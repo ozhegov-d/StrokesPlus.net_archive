@@ -1,0 +1,73 @@
+// This ensures the scripts don’t conflict: one handles single clicks, the other handles double clicks
+// If true — window dragging only starts after a rapid double click (used by Smooth scrolling)
+// If false — dragging begins immediately on any single mouse-button press
+var DoubleClick = false;
+var doubleClickThreshold = 500; // ms between clicks
+
+// == Storage ==
+var clickCounter  = sp.GetStoredNumber("MW_clickCounter") || 0;
+
+// Dragging state
+var MoveWindowActive     = false;
+var MoveWindowWnd        = null;
+var MoveWindowMouseStart = null;
+var MoveWindowWinStart   = null;
+
+(function(){
+  if (click.Down) {
+    // Count consecutive clicks
+    var now = new Date().getTime();
+    var lastTime = sp.GetStoredNumber("MW_lastClickTime") || 0;
+    if (now - lastTime <= doubleClickThreshold) {
+      clickCounter++;
+    } else {
+      clickCounter = 1;
+    }
+    sp.StoreNumber("MW_lastClickTime", now);
+    sp.StoreNumber("MW_clickCounter",  clickCounter);
+
+    // If DoubleClick mode is enabled and this isn't yet the second quick click — wait
+    if (DoubleClick && clickCounter < 2) {
+      return;
+    }
+
+    // On the second click — signal auto-scroll to suppress scrolling on this click,
+    // reset the counter, and start dragging
+    if (DoubleClick && clickCounter >= 2) {
+      sp.StoreBool("MW_suppressScroll", true); // signal auto-scroll script to suppress scroll on this click
+      sp.StoreNumber("MW_clickCounter", 0);    // reset the counter
+    }
+
+    if (MoveWindowActive) return;
+
+    var wnd = sp.WindowFromPoint(click.Point, true);
+    if (!wnd || wnd.Maximized) return;
+
+    MoveWindowActive     = true;
+    MoveWindowWnd        = wnd;
+    MoveWindowMouseStart = { X: click.Point.X, Y: click.Point.Y };
+    MoveWindowWinStart   = { X: wnd.Location.X,  Y: wnd.Location.Y  };
+
+    sp.CreateTimer("MoveWindow_Timer", 100, 1, String.raw`
+      try {
+        if (!MoveWindowActive || !MoveWindowWnd) {
+          sp.DeleteTimer("MoveWindow_Timer");
+        } else {
+          var cur = sp.GetCurrentMousePoint();
+          MoveWindowWnd.Location = new Point(
+            MoveWindowWinStart.X + (cur.X - MoveWindowMouseStart.X),
+            MoveWindowWinStart.Y + (cur.Y - MoveWindowMouseStart.Y)
+          );
+        }
+      } catch (e) {
+        sp.DeleteTimer("MoveWindow_Timer");
+      }
+    `);
+  }
+  else {
+    if (MoveWindowActive) {
+      MoveWindowActive = false;
+      sp.DeleteTimer("MoveWindow_Timer");
+    }
+  }
+})();

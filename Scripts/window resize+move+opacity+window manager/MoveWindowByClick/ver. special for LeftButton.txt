@@ -1,0 +1,52 @@
+var DELAY_MS = 100;      // milliseconds to hold before "sticking" (initiating drag)
+var STILL_PX = 1;       // maximum allowed "jitter" (cursor inaccuracy) while holding the button still during DELAY_MS
+var TICK_MS  = 60;      // timer interval in milliseconds
+var MIN_W = 300, MIN_H = 300;   // minimum window size (width and height) for allowing drag movement
+var MAX_W = 1550, MAX_H = 1580; 
+
+(function(){
+  if (click.Down) {
+    if (sp.GetStoredString("WD_S")) return;
+    var wnd = sp.WindowFromPoint(click.Point, true);
+    if (!wnd || wnd.Maximized) return;
+    var cls = wnd.ClassName.toLowerCase();
+    // ignore context menus and tooltip
+    if (cls === "#32768" || cls === "tooltips_class32") return;
+    var w = wnd.Rectangle.Width, h = wnd.Rectangle.Height;
+    if (w < MIN_W || h < MIN_H || w > MAX_W || h > MAX_H) return;
+
+    sp.StoreHandle("WD_H", wnd.HWnd);
+    sp.StoreString("WD_S",[click.Point.X, click.Point.Y,click.Point.X, click.Point.Y,Date.now(), 0].join(":"));
+
+    sp.CreateTimer("WD_T", TICK_MS, 1, String.raw`
+var h=sp.GetStoredHandle("WD_H"),win=sp.WindowFromHandle(h);
+if(!win||!sp.IsButtonDown(MouseButtons.Left)){
+  sp.DeleteTimer("WD_T");sp.DeleteStoredHandle("WD_H");sp.DeleteStoredString("WD_S");
+}else{
+  var s=sp.GetStoredString("WD_S").split(":").map(Number),
+      cur=sp.GetCurrentMousePoint(),
+      cancel=false,changed=false;
+  if(!s[5]){
+    var dt=Date.now()-s[4],
+        still=Math.abs(cur.X-s[0])<=${STILL_PX}&&Math.abs(cur.Y-s[1])<=${STILL_PX};
+    if(dt>=${DELAY_MS}&&still){s[5]=1;s[2]=cur.X;s[3]=cur.Y;changed=true;}
+    else if(!still)cancel=true;
+  }
+  if(!cancel){
+    if(s[5]){
+      var dx=cur.X-s[2],dy=cur.Y-s[3];
+      if(dx||dy){
+        var loc=win.Location;win.Location=new Point(loc.X+dx,loc.Y+dy);
+        s[2]=cur.X;s[3]=cur.Y;changed=true;
+      }
+    }
+    if(changed)sp.StoreString("WD_S",s.join(":"));
+  } else {
+    sp.DeleteTimer("WD_T");sp.DeleteStoredHandle("WD_H");sp.DeleteStoredString("WD_S");
+  }
+}`);
+  }
+  else if (sp.GetStoredString("WD_S")) {
+    sp.DeleteTimer("WD_T");sp.DeleteStoredHandle("WD_H");sp.DeleteStoredString("WD_S");
+  }
+})();
