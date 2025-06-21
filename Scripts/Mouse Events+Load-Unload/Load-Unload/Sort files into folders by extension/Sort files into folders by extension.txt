@@ -1,0 +1,60 @@
+(function(){
+  var folderPath = "C:\\test";   // folder to sort
+  var delayStart = 10000;        // first run after 10 sec
+  //var interval   = 5000;         // repeat every 5 sec
+  var interval = 120 * 60 * 1000; // repeat every 120min
+
+  var timerName  = "AutoSortDownloads";
+
+  var sysIO     = clr.System.IO;
+  var Path      = sysIO.Path;
+  var Directory = sysIO.Directory;
+  var File      = sysIO.File;
+
+  function sortDownloads() {
+    try {
+      var files = Directory.GetFiles(folderPath);
+      files.forEach(function(file){
+
+        var ext = Path.GetExtension(file).substring(1).toLowerCase() || "no_ext";
+        var targetDir = Path.Combine(folderPath, ext);
+        if (!Directory.Exists(targetDir)) {
+          Directory.CreateDirectory(targetDir);
+        }
+
+        var nameOnly  = Path.GetFileNameWithoutExtension(file);
+        var extension = Path.GetExtension(file);
+        var dest = Path.Combine(targetDir, nameOnly + extension);
+
+        // if a file with the same name already exists — append a suffix "(1)", "(2)",...
+        if (File.Exists(dest)) {
+          var counter = 1;
+          do {
+            dest = Path.Combine(
+              targetDir,
+              nameOnly + " (" + counter + ")" + extension
+            );
+            counter++;
+          } while (File.Exists(dest));
+        }
+
+        File.Move(file, dest);
+      });
+    }
+    catch (e) {
+    }
+  }
+
+  this.sortDownloads = sortDownloads;
+
+// Create a timer
+  sp.CreateTimer(timerName, delayStart, interval, `
+    if (typeof sortDownloads === "function") {
+      sortDownloads();
+    } else {
+      sp.DeleteTimer("${timerName}");
+    }
+  `);
+
+  sortDownloads();
+})();
