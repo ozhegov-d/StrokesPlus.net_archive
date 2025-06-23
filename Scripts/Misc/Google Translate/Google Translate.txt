@@ -1,0 +1,171 @@
+// Global HTTP client
+if (typeof __translateHttpClient === "undefined") {
+  //sp.ConsoleLog("🚀 Creating new HttpClient…");
+  var handler = new HttpClientHandler();
+  handler.AutomaticDecompression = host.flags(
+    System.Net.DecompressionMethods.GZip,
+    System.Net.DecompressionMethods.Deflate
+  );
+  __translateHttpClient = new HttpClient(handler);
+} else {
+  //sp.ConsoleLog("♻️ Reusing existing HttpClient");
+}
+
+(function(){
+  // === Settings ===
+var copyPosition = 'down';    // 'up' — buttons above the text; 'down' — buttons below the text
+var enableCopy   = true;      // show Copy button
+var enableSwap   = true;      // show Swap button
+
+  // Copy selected text
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+  sp.Sleep(30);
+  var src = clip.GetText().trim();
+  if (!src) return;
+
+//for example
+//var hasRu = /[А-Яа-яЁё]/.test(src);      // detect Cyrillic
+//var sl    = hasRu ? 'ru'   : 'auto';    // source: 'ru' if Russian detected, otherwise auto-detect
+//var tl    = hasRu ? 'en'   : 'ru';      // target: 'en' when Russian, otherwise 'ru'
+
+var sl = 'auto';
+var tl = 'en';
+
+  // Translate API
+  var url = "https://translate.googleapis.com/translate_a/single"
+          + "?client=gtx&sl=" + sl
+          + "&tl=" + tl
+          + "&dt=t&q=" + encodeURIComponent(src);
+  var raw = __translateHttpClient
+               .GetAsync(url).Result
+               .Content.ReadAsStringAsync().Result;
+  var tr = JSON.parse(raw)[0].map(function(p){ return p[0]; }).join("");
+
+
+// Save the raw translation without line breaks
+ var rawText = tr;
+
+  function wrap(txt, len){
+    var out = [""];
+    txt.split(" ").forEach(function(w){
+      var cur = out[out.length-1];
+      if ((cur + " " + w).trim().length > len)
+        out.push(w);
+      else
+        out[out.length-1] = (cur + " " + w).trim();
+    });
+    return out.join("\n");
+  }
+  var wrapLen = Math.round(20 + 40 * Math.min(1, tr.length / 200));
+  var body    = wrap(tr, wrapLen);
+
+// form
+  var Forms   = clr.System.Windows.Forms;
+  var Drawing = clr.System.Drawing;
+
+  var f = new Forms.Form();
+  f.FormBorderStyle = Forms.FormBorderStyle.None;
+  f.BackColor       = Drawing.Color.Black;
+  f.Opacity         = 0.85;
+  f.TopMost         = true;
+  f.ShowInTaskbar   = false;
+  f.AutoSize        = true;
+  f.AutoSizeMode    = Forms.AutoSizeMode.GrowAndShrink;
+  f.Padding         = new Forms.Padding(10);
+
+  // Метка перевода
+  var lbl = new Forms.Label();
+  lbl.AutoSize     = true;
+  lbl.Text         = body;
+  lbl.ForeColor    = Drawing.Color.White;
+  lbl.Font         = new Drawing.Font("Segoe UI Semibold", 12);
+  f.Controls.Add(lbl);
+
+  // Copy
+  if (enableCopy) {
+    var btnCopy = new Forms.Button();
+    btnCopy.Text      = "Copy";
+    btnCopy.AutoSize  = true;
+    btnCopy.FlatStyle = Forms.FlatStyle.Flat;
+    btnCopy.BackColor = Drawing.Color.White;
+    btnCopy.ForeColor = Drawing.Color.Black;
+    f.Controls.Add(btnCopy);
+    btnCopy.Click.connect(function(){
+      clip.SetText(body);
+      f.Close();
+    });
+  }
+
+  // Swap
+  if (enableSwap) {
+    var btnSwap = new Forms.Button();
+    btnSwap.Text      = "Swap";
+    btnSwap.AutoSize  = true;
+    btnSwap.FlatStyle = Forms.FlatStyle.Flat;
+    btnSwap.BackColor = Drawing.Color.White;
+    btnSwap.ForeColor = Drawing.Color.Black;
+    f.Controls.Add(btnSwap);
+    btnSwap.Click.connect(function(){
+      f.Hide();
+      //clip.SetText(body);
+     clip.SetText(rawText); 
+      sp.Sleep(30);
+      sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]);
+      f.Close();
+    });
+  }
+
+  var pad = f.Padding.All;
+  var y   = pad;
+  if (copyPosition === 'up') {
+    var x = pad;
+    if (enableCopy) { btnCopy.Location = new Drawing.Point(x, y); x += btnCopy.PreferredSize.Width + 5; }
+    if (enableSwap) { btnSwap.Location = new Drawing.Point(x, y); }
+    y += Math.max(
+      enableCopy ? btnCopy.PreferredSize.Height : 0,
+      enableSwap ? btnSwap.PreferredSize.Height : 0
+    ) + 5;
+    lbl.Location = new Drawing.Point(pad, y);
+  } else {
+    lbl.Location = new Drawing.Point(pad, y);
+    y += lbl.PreferredSize.Height + 5;
+    var x = pad;
+    if (enableCopy) { btnCopy.Location = new Drawing.Point(x, y); x += btnCopy.PreferredSize.Width + 5; }
+    if (enableSwap) { btnSwap.Location = new Drawing.Point(x, y); }
+  }
+
+  var dragging = false, sx = 0, sy = 0;
+  function md(s,e){ if(e.Button===Forms.MouseButtons.Left){ dragging=true; sx=e.X; sy=e.Y; } }
+  function mm(s,e){ if(dragging){ var p=f.Location; f.Location=new Drawing.Point(p.X+e.X-sx, p.Y+e.Y-sy); } }
+  function mu(s,e){ if(e.Button===Forms.MouseButtons.Left) dragging=false; }
+
+  var ctrls = [f,lbl];
+  if (enableCopy) ctrls.push(btnCopy);
+  if (enableSwap) ctrls.push(btnSwap);
+  ctrls.forEach(function(c){
+    c.MouseDown.connect(md);
+    c.MouseMove.connect(mm);
+    c.MouseUp.connect(mu);
+    c.DoubleClick.connect(()=>f.Close());
+  });
+
+  f.KeyPreview = true;
+  f.KeyDown.connect((s,e)=>{ if(e.KeyCode===Forms.Keys.Escape) f.Close(); });
+  f.Deactivate.connect(()=>f.Close());
+
+  f.Shown.connect(function(){
+    f.BringToFront(); f.Activate();
+    try{ sp.WindowFromHandle(f.Handle).Activate(); }catch(e){}
+  });
+
+  var pt = sp.GetCurrentMousePoint();
+  f.StartPosition = Forms.FormStartPosition.Manual;
+
+var offsetY = wrapLen < 30
+  ? -40      // short
+  : -150;    // long
+
+f.Location = new Drawing.Point(pt.X + 20, pt.Y + offsetY);
+
+  Forms.Application.Run(f);
+})();
