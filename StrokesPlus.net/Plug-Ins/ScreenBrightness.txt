@@ -1,0 +1,11 @@
+//Simple class to adjust the brightness of your screen. Note: This only works if your screen supports brightness adjustment!
+//https://github.com/JeroenvO/screen-brightness
+
+//Decrease by 10 percent
+ScreenBrightness.Adjust("10-");
+
+//Increase by 10 percent
+ScreenBrightness.Adjust("10+");
+
+//Set to 50 percent
+ScreenBrightness.Adjust("50%");

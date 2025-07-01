@@ -1,0 +1,16 @@
+var startimage = clip.GetImage();
+sp.SendModifiedVKeys([vk.LSHIFT,vk.LWIN], [vk.VK_S]);
+
+sp.Sleep(10);
+for(i=0; i< 6000; i++) {
+    //ScreenClippingHost
+    sp.Sleep(500);
+    var wnd = sp.WindowsFromTitlePartial("screenshot");
+    var currimage = clip.GetImage();
+    if(i > 0 && wnd.Count() === 0 && clip.ContainsImage()) {
+
+        //sp.DisplayImage(clip.GetImage(), true);
+        ImageWithMenu.Show(clip.GetImage(), action.Start, 0);
+        break;
+    }
+}

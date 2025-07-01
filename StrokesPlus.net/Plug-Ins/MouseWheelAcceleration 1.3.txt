@@ -1,0 +1,20 @@
+//This plug-in will enable mouse wheel acceleration, so scrolling the mouse wheel quickly will amplify the distance of the scrolling when you scroll fast, or scroll at the normal speed when you scroll slowly.
+
+It supports a few properties to adjust the timing, multiplier/division values, and count cap (from this post https://hail2u.net/blog/coding/autohotkey-accelerate-wheel-scroll.html)
+
+I set my timeout (ResetMilliseconds) to 40 milliseconds so it doesn't start to scroll too fast unless I scroll fast.
+The other values shown above are their defaults, so you don't need to include them.
+
+I put the above code in my Load tab.
+
+Note that this binds to the asynchronous mouse event, so it does not interfere with the mouse wheel event (nor will it consume it), but I only send additional mouse wheel events if the wheelCount is greater than 1, so a single wheel scroll doesn't always send an extra one.
+
+P.S. You might need to right-click the DLL and mark it as safe/unblock if you used Windows to extract the zip file.
+
+IMPORTANT: You must check Options > Advanced > Enable Mouse Hook Event Subscription to allow the plug-in to subscribe to mouse events.
+
+
+MouseWheelAcceleration.ResetMilliseconds = 40;
+MouseWheelAcceleration.WheelCountCap = 40;
+MouseWheelAcceleration.WheelCountDivide = 8
+MouseWheelAcceleration.WheelCountMultiplier = 3

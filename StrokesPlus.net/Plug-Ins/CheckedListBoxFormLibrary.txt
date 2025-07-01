@@ -1,0 +1,42 @@
+//Checked List Box Window - New Window for S+Net
+
+var form = new CheckedListBoxFormLibrary().GetForm();
+
+form.Text = "new title";
+form.label1.Text = "new name";
+form.button1.Text = "Ok";
+form.button2.Text = "Cancel";
+form.button3.Text = "Toggle Selection";
+form.checkedListBox1.Items.Add("A");
+form.checkedListBox1.Items.Add("B");
+form.checkedListBox1.Items.Add("C");
+
+// Changes the selection mode from single click to double-click (default is single click)
+//form.checkedListBox1.CheckOnClick = false;
+
+var result = form.ShowDialog();
+
+if(result.ToString() == "Cancel") {
+    sp.MessageBox("You clicked Cancel", "Cancel");
+
+} else if(result.ToString() == "OK") {
+
+    var allItemsCount = form.checkedListBox1.Items.Count; // how many items is in checkedListBox1
+    var selItemsCount = form.checkedListBox1.CheckedItems.Count; // how many items are selected
+
+    sp.MessageBox("All items: " + allItemsCount + "\nAll selected items: " + selItemsCount, "OK");
+
+    // SHOW INDEX, TITLE AND STATE OF ONLY SELECTED ITEMS
+    var itemChecked = form.checkedListBox1.CheckedItems;
+    var indexChecked = form.checkedListBox1.CheckedIndices;
+    for (i = 0; i < itemChecked.Count; i++) {
+        sp.MessageBox("Index: " + indexChecked[i] + "\nTitle: " + itemChecked[i] + "\nState: " + form.checkedListBox1.GetItemCheckState(indexChecked[i]).ToString(), "SEL ITEMS i=" + i);
+    }
+
+    // SHOW INDEX, TITLE AND STATE OF ALL ITEMS
+    var item = form.checkedListBox1.Items;
+    for (i = 0; i < form.checkedListBox1.Items.Count; i++) {
+        // index number is the same as "i"
+        sp.MessageBox("Index: " + i + "\nTitle: " + item[i] + "\nState: " + form.checkedListBox1.GetItemCheckState(i).ToString(), "ALL ITEMS i=" + i);
+    }
+}

@@ -1,0 +1,10 @@
+//Simple plug-in to get the keyboard layout value (integer), e.g. 1033 is US English
+
+Note the values listed are in hex, but this function returns an int, so US English = 0x00000409 (hex) = 1033 (int)
+
+//Keyboard Layout Values
+https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values?view=windows-11
+
+Example script:
+var kb = new Keyboard();
+sp.MessageBox(kb.GetCurrentKeyboardLayout(), "Keyboard Layout");

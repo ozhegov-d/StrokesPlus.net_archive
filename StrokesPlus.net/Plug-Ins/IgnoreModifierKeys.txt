@@ -1,0 +1,7 @@
+Ignores all other actions with Alt so as not to interfere with other hotkeys or mouse functions.
+
+S+ Settings > Global Actions > Load/Unload > Load script
+IgnoreModifierKeysWatcher.IgnoreAlt = true;
+
+Options - Advanced - Enable Keyboard Hook Event Subscription 
+
