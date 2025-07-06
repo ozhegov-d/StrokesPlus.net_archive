@@ -1,0 +1,250 @@
+(function(){
+//var _startTime = Date.now(); 
+  var ENABLE_LOGS        = false;                    
+  var OPENROUTER_API_KEY = "sk-or-v1-your key"; // api key
+  
+//fast 
+var MODEL_ID            = "google/gemma-3-27b-it:free";
+//var MODEL_ID            = "google/gemma-3-12b-it:free";
+//var MODEL_ID            = "google/gemma-3n-e4b-it:free";
+//var MODEL_ID            = "mistralai/mistral-7b-instruct:free";
+//var MODEL_ID            = "mistralai/mistral-nemo:free";
+//var MODEL_ID            = "mistralai/mistral-small-3.2-24b-instruct:free";
+//var MODEL_ID            = "mistralai/devstral-small:free";
+//var MODEL_ID            = "qwen/qwen2.5-vl-72b-instruct:free"; 
+//var MODEL_ID            = "qwen/qwen3-30b-a3b:free";
+//var MODEL_ID            = "nvidia/llama-3.3-nemotron-super-49b-v1:free";
+//var MODEL_ID            = "cognitivecomputations/dolphin3.0-mistral-24b:free";
+//var MODEL_ID            = "thudm/glm-4-32b:free"; //GLM-4-32B-0414 is a 32B bilingual (Chinese-English) 
+//var MODEL_ID            = "nousresearch/deephermes-3-llama-3-8b-preview:free";
+
+//slow
+//var MODEL_ID            = "deepseek/deepseek-r1-distill-llama-70b:free";
+//var MODEL_ID            = "qwen/qwen3-235b-a22b:free";  
+//var MODEL_ID            = "qwen/qwen3-32b:free";   // рассуждающая
+//var MODEL_ID            = "qwen/qwen3-8b:free";
+//var MODEL_ID            = "deepseek/deepseek-r1-0528-qwen3-8b:free";
+//var MODEL_ID            = "thudm/glm-z1-32b:free";
+
+//var MODEL_ID            = "openrouter/cypher-alpha:free";
+//var MODEL_ID            = "mistralai/mistral-small-3.2-24b-instruct:free";
+//var MODEL_ID            = "google/gemini-2.0-flash-exp:free";
+
+//dont work yet
+//var MODEL_ID            = "microsoft/mai-ds-r1:free";
+//var MODEL_ID            = "meta-llama/llama-4-maverick:free";
+//var MODEL_ID            = "meta-llama/llama-4-scout:free";
+
+
+//var PROMPT_TEMPLATE    = "просто переведи:";
+var PROMPT_TEMPLATE    = "translate text only:";
+
+  // ====================
+   // Dictionary of Colors
+  var Drawing = clr.System.Drawing;
+  var LOG_COLORS = {
+    Info:    Drawing.Color.LightGray,
+    Debug:   Drawing.Color.Cyan,
+    Warning: Drawing.Color.Yellow,
+    Error:   Drawing.Color.Red,
+    Result:  Drawing.Color.LimeGreen
+  };
+
+  function log(level, msg){
+    if (!ENABLE_LOGS) return;
+
+    // Changing the color for special messages.
+    var col;
+    if (level === "Debug" && msg.startsWith("Creating HttpClient")) {
+      col = Drawing.Color.Orange;                // Creating HttpClient 
+    } else if (level === "Debug" && msg.includes("♻️ Reusing existing HttpClient")) {
+      col = Drawing.Color.LimeGreen;             // Reusing existing HttpClient
+    } else if (level === "Info" && msg.startsWith("HTTP status: ")) {
+      var status = msg.split(": ")[1];
+      col = (status === "OK") ? Drawing.Color.LimeGreen : Drawing.Color.Red;  // OK green, otherwise red.
+    } else {
+      col = LOG_COLORS[level] || Drawing.Color.White;
+    }
+
+    sp.ConsoleLog(msg, level, col);
+  }
+
+  log("Info", "=== START SCRIPT ===");
+
+  // 1) Copy
+  log("Debug", "Copying selected text…");
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+  sp.Sleep(100);
+  var src = clip.GetText().trim();
+  //log("Debug", "Clipboard text: «" + src + "»");
+  if (!src) {
+    log("Warning", "No text → exit");
+    sp.MessageBox("No text to translate", "Error");
+
+    log("Info", "=== END SCRIPT ===");
+    return;
+  }
+
+  // 2) Prompt
+  var prompt = PROMPT_TEMPLATE + src;
+  log("Debug", "Final prompt: «" + prompt + "»");
+
+  // 3) HttpClient
+  if (typeof __translateHttpClient === "undefined") {
+    log("Debug", "Creating HttpClient…");
+    var handler = new HttpClientHandler();
+    handler.AutomaticDecompression = host.flags(
+      System.Net.DecompressionMethods.GZip,
+      System.Net.DecompressionMethods.Deflate
+    );
+    __translateHttpClient = new HttpClient(handler);
+    __translateHttpClient.DefaultRequestHeaders.Authorization =
+      new clr.System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OPENROUTER_API_KEY);
+  } else {
+    log("Debug", "♻️ Reusing existing HttpClient");
+  }
+
+  // 4) JSON body
+  var jsonBody = JSON.stringify({
+    model:    MODEL_ID,
+    messages: [{ role: "user", content: prompt }]
+  });
+  log("Debug", "JSON body: " + jsonBody);
+
+  // 5) Send POST
+  var rawResponse;
+  try {
+    log("Debug", "Sending POST…");
+    var content = new clr.System.Net.Http.StringContent(
+      jsonBody,
+      clr.System.Text.Encoding.UTF8,
+      "application/json"
+    );
+    var resp = __translateHttpClient
+                .PostAsync("https://openrouter.ai/api/v1/chat/completions", content)
+                .Result;
+    //  status
+    log("Info", "HTTP status: " + resp.StatusCode.ToString());
+
+    rawResponse = resp.Content.ReadAsStringAsync().Result;
+    var trimmed = rawResponse.trim();
+    log("Debug", "Raw response: " + trimmed);
+
+  } catch (e) {
+    log("Error", "Request error: " + e);
+    sp.MessageBox("Request error:\n" + e, "⛔ Error");
+    log("Info", "=== END SCRIPT ===");
+    return;
+  }
+  // 6) Parse
+  var translation;
+  try {
+    var jobj = JSON.parse(rawResponse);
+    translation = jobj.choices[0].message.content.trim();
+    log("Result", "Parsed translation: «" + translation + "»");
+  } catch (e) {
+    log("Error", "Parse error: " + e);
+    sp.MessageBox("Parsing error:\n" + rawResponse, "⛔ Error");
+    log("Info", "=== END SCRIPT ===");
+    return;
+  }
+
+  // 7) Wrap + form
+  var rawText = translation;
+  function wrap(txt, len){
+    var out = [""];
+    txt.split(" ").forEach(function(w){
+      var cur = out[out.length-1];
+      if ((cur + " " + w).trim().length > len) out.push(w);
+      else out[out.length-1] = (cur + " " + w).trim();
+    });
+    return out.join("\n");
+  }
+  var wrapLen = Math.round(20 + 40 * Math.min(1, translation.length / 200));
+  var body = wrap(translation, wrapLen);
+
+  var Forms = clr.System.Windows.Forms;
+  var f = new Forms.Form();
+  f.FormBorderStyle = Forms.FormBorderStyle.None;
+  f.TopMost         = true;
+  f.ShowInTaskbar   = false;
+  f.BackColor       = Drawing.Color.Black;
+  f.Opacity         = 0.85;
+  f.AutoSize        = true;
+  f.AutoSizeMode    = Forms.AutoSizeMode.GrowAndShrink;
+  f.Padding         = new Forms.Padding(10);
+
+  f.Shown.connect(function(){
+    f.BringToFront();
+    f.Activate();
+  });
+
+  var lbl = new Forms.Label();
+  lbl.AutoSize  = true;
+  lbl.Text      = body;
+  lbl.ForeColor = Drawing.Color.White;
+  lbl.Font      = new Drawing.Font("Segoe UI Semibold", 12);
+  f.Controls.Add(lbl);
+
+  var btnCopy = new Forms.Button();
+  btnCopy.Text      = "Copy";
+  btnCopy.AutoSize  = true;
+  btnCopy.FlatStyle = Forms.FlatStyle.Flat;
+  btnCopy.BackColor = Drawing.Color.White;
+  btnCopy.ForeColor = Drawing.Color.Black;
+  f.Controls.Add(btnCopy);
+
+  var btnSwap = new Forms.Button();
+  btnSwap.Text      = "Swap";
+  btnSwap.AutoSize  = true;
+  btnSwap.FlatStyle = Forms.FlatStyle.Flat;
+  btnSwap.BackColor = Drawing.Color.White;
+  btnSwap.ForeColor = Drawing.Color.Black;
+  f.Controls.Add(btnSwap);
+
+  btnCopy.Click.connect(function(){
+    clip.SetText(body);
+    f.Close();
+  });
+  btnSwap.Click.connect(function(){
+    f.Hide();
+    clip.SetText(rawText);
+    sp.Sleep(30);
+    sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]);
+    f.Close();
+  });
+
+  var pad = f.Padding.All, y = pad;
+  lbl.Location    = new Drawing.Point(pad, y);
+  y += lbl.PreferredSize.Height + 5;
+  btnCopy.Location = new Drawing.Point(pad, y);
+  btnSwap.Location = new Drawing.Point(pad + btnCopy.PreferredSize.Width + 5, y);
+
+  var dragging=false, sx=0, sy=0;
+  function md(s,e){ if(e.Button===Forms.MouseButtons.Left){ dragging=true; sx=e.X; sy=e.Y; } }
+  function mm(s,e){ if(dragging){ var p=f.Location; f.Location=new Drawing.Point(p.X+e.X-sx, p.Y+e.Y-sy); } }
+  function mu(s,e){ if(e.Button===Forms.MouseButtons.Left) dragging=false; }
+  [f,lbl,btnCopy,btnSwap].forEach(function(c){
+    c.MouseDown.connect(md);
+    c.MouseMove.connect(mm);
+    c.MouseUp.connect(mu);
+    c.DoubleClick.connect(()=>f.Close());
+  });
+
+  f.KeyPreview = true;
+  f.KeyDown.connect((s,e)=>{ if(e.KeyCode===Forms.Keys.Escape) f.Close(); });
+  f.Deactivate.connect(()=>f.Close());
+
+  var pt = sp.GetCurrentMousePoint();
+  f.StartPosition = Forms.FormStartPosition.Manual;
+  var offsetY = wrapLen < 30 ? -40 : -150;
+  f.Location = new Drawing.Point(pt.X + 20, pt.Y + offsetY);
+
+  Forms.Application.Run(f);
+
+//  var _endTime = new Date().getTime();
+//  var _elapsed = _endTime - _startTime;
+//  log("Info", "⏱ Total elapsed: " + _elapsed + " ms");
+
+  log("Info", "=== END SCRIPT ===");
+})();
