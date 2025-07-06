@@ -27,6 +27,9 @@ var TIMER_NAME = "AutoScrollTimer";
 
 ;(function(){
   if (click.Down) {
+    sp.StoreBool("LongScrollAbort", true); // for stop LongScroll
+    sp.StoreBool("LongScrollActive", false);
+
     // if a double-click for dragging occurred just before — suppress scrolling (needed for the MoveWindowByClick script)
     if (sp.GetStoredBool("MW_suppressScroll")) {
       sp.StoreBool("MW_suppressScroll", false);
