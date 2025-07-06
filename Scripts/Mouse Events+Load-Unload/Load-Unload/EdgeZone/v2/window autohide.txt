@@ -1,0 +1,129 @@
+var AM_LOG_ENABLED = false;           // log
+var POLL_MS        = 50;              // cursor polling, ms
+var AUTO_MIN_DELAY = 500;             // minimize delay, ms
+var ALLOWED_PROCS  = {                   
+  notepad:0,
+  xnview:1,
+  everything64:1
+};
+function amLog(msg) {              
+    if (AM_LOG_ENABLED) sp.ConsoleLog(msg, "AutoMin");
+}
+function rootWindow(pt){
+  var w = sp.WindowFromPoint(pt, true);
+  while (w && w.ParentSymmetric) w = w.ParentSymmetric;
+  return (w && w.Visible && w.Movable) ? w : null;
+}
+function getExeNameSafe(win){
+  try {
+    return win.Process.ProcessName.toLowerCase();
+  } catch(e){
+    return '';
+  }
+}
+function buildAllowedSet(obj){
+    return new Set(Object.keys(obj).filter(k => obj[k]));
+}
+
+let ALLOWED_SET = buildAllowedSet(ALLOWED_PROCS);
+
+var state = { allowedH: 0, countdownActive: false };
+var initialFore = sp.ForegroundWindow();
+var initialHwnd = (initialFore && initialFore.IsValid())
+                    ? host.cast(nint, initialFore.HWnd)
+                    : 0;
+amLog("HWND: " + initialHwnd.toString(16));
+
+sp.StoreObject("AutoMinState", state);
+try { sp.DeleteTimer("AutoMinPoll"); }      catch(e){}
+try { sp.DeleteTimer("AutoMinCountdown"); } catch(e){}
+
+function startCountdown(hwnd, title){
+    if(state.countdownActive) return;
+    state.countdownActive = true;
+    amLog(`⏳ ${AUTO_MIN_DELAY} ms → ${title}`);
+
+    var origWin = sp.WindowFromHandle(new IntPtr(hwnd));
+    var origPid = origWin && origWin.IsValid() ? origWin.Process.Id : null;
+
+    sp.CreateTimer("AutoMinCountdown", AUTO_MIN_DELAY, 1, `
+
+      try {
+//          // 1) ESC to close menu, if it was open // for example xnview just closes on esc
+//          try {
+//            //  sp.SendVKeyDown(vk.ESCAPE);
+//          } catch(e){}
+
+//          // 2) wait
+//          sp.Sleep(30);
+
+          // 3) minimize foreground window of the same process
+          var fg = sp.ForegroundWindow();
+          if (fg && fg.IsValid() &&
+              fg.Process.Id === ${origPid} &&
+              !fg.Minimized)
+          {
+             sp.Sleep(30);
+              try{ fg.SendMessageObj(0x0112,0xF020,0); }catch(e){}
+              //fg.Minimize();
+//              sp.ConsoleLog(
+//                "Minimize FG → " + fg.Title +
+//                " | HWND: " + host.cast(nint, fg.HWnd),
+//                "AutoMin"
+//              );
+
+//sp.ConsoleLog(
+//  "Minimize FG → " + fg.Title +
+//  " | HWND: " + host.cast(nint, fg.HWnd) +
+//  " | PID: " + fg.Process.Id,
+//  "AutoMin"
+//);
+
+          }
+      } finally {
+          sp.DeleteTimer("AutoMinCountdown");
+          var s = sp.GetStoredObject("AutoMinState");
+          s.countdownActive = false;
+          sp.StoreObject("AutoMinState", s);
+      }
+    `);
+}
+
+function cancelCountdown(){
+  if (!state.countdownActive) return;
+  try { sp.DeleteTimer("AutoMinCountdown"); } catch(e){}
+  state.countdownActive = false;
+  amLog("✖ cancel");
+}
+
+function autoMinPoll(){
+  var pt = sp.GetCurrentMousePoint();
+  var w  = rootWindow(pt);
+
+  if (!w) {
+    if (state.allowedH) startCountdown(state.allowedH, "(lost)");
+  } else {
+    var h = w && w.IsValid()
+          ? host.cast(nint, w.HWnd)
+          : 0;
+    var exe = getExeNameSafe(w);
+    if (ALLOWED_SET.has(exe)) {
+      if (state.allowedH !== h) {
+        state.allowedH = h;
+        cancelCountdown();
+        amLog(`✔ ${w.Title} | HWND: ${h}`);
+      }
+    } else if (state.allowedH) {
+      startCountdown(
+        state.allowedH,
+        sp.WindowFromHandle(new IntPtr(state.allowedH)).Title
+      );
+      state.allowedH = 0;
+    }
+  }
+
+  sp.StoreObject("AutoMinState", state);
+}
+
+sp.CreateTimer("AutoMinPoll", 0, POLL_MS, "autoMinPoll()");
+amLog(`Auto-Minimize Lite loaded  (poll ${POLL_MS} ms)`);
