@@ -4,11 +4,27 @@
 
 https://github.com/user-attachments/assets/177065b5-e91e-4f36-bd26-13cfb8851ca6
 
+#### v2.1
+> Activate window immediately without flashing by simulating an Alt key press
+
 #### v2
 > +Now finds all visible windows (using plugin instead of sp.AllApplications)  
 > +improved performance  
 > +separate simple window autohide script
+---
 
+
+for Hot Keys
+> activateProcess({name:'notepad', title:''});
+
+> activateProcess([  
+   { name: 'notepad',    title: '' },   
+   { name: 'aimp', title: '' }   
+]);
+
+> activateProcess({ run: 'C:\\\\test\\\\Telegram\\\\Telegram.exe' }); 
+
+---
 ##### 1. Activating or minimizing already running windows 
 
 > { enabled: true, from: 0, to: 15, process: { name: "chrome", title: "" }},  
