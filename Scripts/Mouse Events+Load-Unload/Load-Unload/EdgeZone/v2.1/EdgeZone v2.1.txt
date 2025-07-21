@@ -1,0 +1,478 @@
+﻿const helper = new Win();
+
+// Configuration
+const CONFIG = {
+    edgeZoneSize: 1, // activation zone (in pixels)
+    logs: false,
+
+    displays: {display1: {enabled: true,     // enable/disable first monitor (true/false)
+    areas:{     top: true,     // top area
+                bottom: true,  // bottom area
+                left: true,    // left area
+                right: true    // right area
+}},
+    display2: {enabled: false,    // enable/disable second monitor
+    areas:{     top: true,     // top area
+                bottom: true,  // bottom area
+                left: false,   // left area
+                right: true    // right area
+}}}};
+
+/*
+████████╗ ██████╗ ██████╗         ██╗
+╚══██╔══╝██╔═══██╗██╔══██╗       ███║
+   ██║   ██║   ██║██████╔╝ ████╗ ╚██║
+   ██║   ██║   ██║██╔═══╝  ╚═══╝  ██║
+   ██║   ╚██████╔╝██║             ██║
+   ╚═╝    ╚═════╝ ╚═╝             ╚═╝
+*/const displayConfig = {displays: {display1: {top: {areas: [
+
+//{ enabled: true, from: 0, to: 15, process: { run: "C:\\Telegram\\Telegram.exe", title: "" }},
+//{ enabled: true, from: 0, to: 15, process: { name: "telegram", title: "" }},
+
+{ enabled: true, from: 0, to: 20, process: { name: "chrome", title: "" }},
+                 
+{ enabled: true, from: 40, to: 60, process: { name: "everything", title: "" }},
+
+//{ enabled: true, from: 40, to: 60, process: [
+//{ name: "everything", title: "" },
+//{ name: "notepad", title: "" }  // sets as active window
+//]},
+
+//{ enabled: true, from: 21, to: 40, sendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);sp.SendVKey(vk.TAB);sp.SendVKey(vk.TAB);sp.SendVKey(vk.TAB);" },
+//{ enabled: true, from: 40, to: 60, sendKeys: "sp.SendVKey(vk.F11);" }, 
+
+//IMPORTANT: Specific conditions (with title) must come BEFORE general ones (without title).
+//For example: first { title: "test" }, then { title: "" }.
+//{ enabled: true, from: 0, to: 10, actions: [
+//{ whenProcess: { name: "chrome" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_1]);" }, // if the process is chrome then Ctrl+1
+//{ whenProcess: { name: "notepad" , title: "test" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);" }, // if the process is notepad and the title is test then Ctrl+F
+//{ whenProcess: { name: "notepad" , title: "" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_A]);" }, // if notepad process and there is no title (for all notepad windows) Ctrl+A
+//{ default: true, doProcess: { name: "strokesplus", title: "" }} // if the window is not chrome or notepad, then the strokeplus window will open.
+//]},
+
+]},
+/*
+██╗     ███████╗███████╗████████╗        ██╗
+██║     ██╔════╝██╔════╝╚══██╔══╝       ███║
+██║     █████╗  █████╗     ██║    ████╗ ╚██║
+██║     ██╔══╝  ██╔══╝     ██║    ╚═══╝  ██║
+███████╗███████╗██║        ██║           ██║
+╚══════╝╚══════╝╚═╝        ╚═╝           ╚═╝
+*/left: {areas: [
+
+//{ enabled: true, from: 0, to: 10, actions: [
+//{ whenProcess: { name: "chrome" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_1]);" },   // if the process is chrome then Ctrl+1
+//{ default: true, doProcess: { name: "", title: "" }}, // if any other process is simply ignored
+//]},
+
+//{ enabled: true, from: 11, to: 25, actions: [
+//{ whenProcess: { name: "chrome" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_2]);" }, 
+//{ default: true, doProcess: { name: "chrome", title: "" }},
+//]},
+
+//{ enabled: true, from: 26, to: 35, actions: [
+//{ whenProcess: { name: "chrome" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_3]);" }, 
+//{ default: true, doProcess: { name: "chrome", title: "" }},
+//]},
+
+{ enabled: true, from: 40, to: 60, process: { name: "strokesplus", title: "settings" }},
+{ enabled: true, from: 61, to: 100, process: { name: "strokesplus", title: "console" }},
+
+]},
+/*
+██████╗ ██╗ ██████╗ ██╗  ██╗████████╗        ██╗
+██╔══██╗██║██╔════╝ ██║  ██║╚══██╔══╝       ███║
+██████╔╝██║██║  ███╗███████║   ██║    ████╗ ╚██║
+██╔══██╗██║██║   ██║██╔══██║   ██║    ╚═══╝  ██║
+██║  ██║██║╚██████╔╝██║  ██║   ██║           ██║
+╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝           ╚═╝
+*/right: {areas: [
+//{ enabled: true, from: 41, to: 70, process: { name: "notepad", title: "" }},
+//{ enabled: true, from: 0, to: 40, process: { name: "notepad", title: "__" }},
+
+]}, 
+/*
+██████╗  ██████╗ ████████╗████████╗ ██████╗ ███╗   ███╗        ██╗
+██╔══██╗██╔═══██╗╚══██╔══╝╚══██╔══╝██╔═══██╗████╗ ████║       ███║
+██████╔╝██║   ██║   ██║      ██║   ██║   ██║██╔████╔██║ ████╗ ╚██║
+██╔══██╗██║   ██║   ██║      ██║   ██║   ██║██║╚██╔╝██║ ╚═══╝  ██║
+██████╔╝╚██████╔╝   ██║      ██║   ╚██████╔╝██║ ╚═╝ ██║        ██║
+╚═════╝  ╚═════╝    ╚═╝      ╚═╝    ╚═════╝ ╚═╝     ╚═╝        ╚═╝
+*/ bottom: { areas: [
+
+{ enabled: true, from: 0, to: 10, process: { name: "explorer", title: "" }},
+{ enabled: true, from: 33, to: 66, process: { name: "mpc-hc64", title: "" }},
+{ enabled: true, from: 67, to: 80, process: { name: "steamwebhelper", title: "" }},                  
+{ enabled: true, from: 81, to: 100, process: { name: "aimp", title: "" }}
+//{ enabled: true, from: 81, to: 100, process: { run: "C:\\AIMP.exe", title: "" }}
+
+]},},
+/*
+████████╗ ██████╗ ██████╗        ██████╗  
+╚══██╔══╝██╔═══██╗██╔══██╗       ╚════██╗
+   ██║   ██║   ██║██████╔╝ ████╗  █████╔╝
+   ██║   ██║   ██║██╔═══╝  ╚═══╝ ██╔═══╝ 
+   ██║   ╚██████╔╝██║            ███████╗
+   ╚═╝    ╚═════╝ ╚═╝            ╚══════╝
+*/display2: {top: {areas: [
+
+//{ enabled: true, from: 0, to: 15, process: { run: "C:\\Telegram\\Telegram.exe", title: "" }},
+//{ enabled: true, from: 0, to: 15, process: { name: "telegram", title: "" }},
+
+{ enabled: true, from: 0, to: 20, process: { name: "chrome", title: "" }},
+                 
+{ enabled: true, from: 40, to: 60, process: { name: "everything", title: "" }},
+
+//{ enabled: true, from: 40, to: 60, process: [
+//{ name: "everything", title: "" },
+//{ name: "notepad", title: "" }  // sets as active window
+//]},
+
+//{ enabled: true, from: 21, to: 40, sendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);" },
+//{ enabled: true, from: 40, to: 60, sendKeys: "sp.SendVKey(vk.F11);" }, 
+
+//IMPORTANT: Specific conditions (with title) must come BEFORE general ones (without title).
+//For example: first { title: "test" }, then { title: "" }.
+//{ enabled: true, from: 0, to: 10, actions: [
+//{ whenProcess: { name: "chrome" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_1]);" }, // if the process is chrome then Ctrl+1
+//{ whenProcess: { name: "notepad" , title: "test" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);" }, // if the process is notepad and the title is test then Ctrl+F
+//{ whenProcess: { name: "notepad" , title: "" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_A]);" }, // if notepad process and there is no title (for all notepad windows) Ctrl+A
+//{ default: true, doProcess: { name: "strokesplus", title: "" }} // if the window is not chrome or notepad, then the strokeplus window will open.
+//]},
+
+]},
+/*
+██╗     ███████╗███████╗████████╗       ██████╗ 
+██║     ██╔════╝██╔════╝╚══██╔══╝       ╚════██╗
+██║     █████╗  █████╗     ██║    ████╗  █████╔╝
+██║     ██╔══╝  ██╔══╝     ██║    ╚═══╝ ██╔═══╝ 
+███████╗███████╗██║        ██║          ███████╗
+╚══════╝╚══════╝╚═╝        ╚═╝          ╚══════╝
+*/left: {areas: [
+
+]},
+/*
+██████╗ ██╗ ██████╗ ██╗  ██╗████████╗        ██████╗ 
+██╔══██╗██║██╔════╝ ██║  ██║╚══██╔══╝        ╚════██╗
+██████╔╝██║██║  ███╗███████║   ██║    ████╗   █████╔╝
+██╔══██╗██║██║   ██║██╔══██║   ██║    ╚═══╝  ██╔═══╝ 
+██║  ██║██║╚██████╔╝██║  ██║   ██║           ███████╗
+╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝           ╚══════╝
+*/right: {areas: [
+
+//{ enabled: true, from: 0, to: 40, process: { name: "notepad", title: "123" }},
+//{ enabled: true, from: 41, to: 70, process: { name: "notepad", title: "" }},
+
+]},                                
+/*
+██████╗  ██████╗ ████████╗████████╗ ██████╗ ███╗   ███╗        ██████╗ 
+██╔══██╗██╔═══██╗╚══██╔══╝╚══██╔══╝██╔═══██╗████╗ ████║        ╚════██╗
+██████╔╝██║   ██║   ██║      ██║   ██║   ██║██╔████╔██║ ████╗   █████╔╝
+██╔══██╗██║   ██║   ██║      ██║   ██║   ██║██║╚██╔╝██║ ╚═══╝  ██╔═══╝ 
+██████╔╝╚██████╔╝   ██║      ██║   ╚██████╔╝██║ ╚═╝ ██║        ███████╗
+╚═════╝  ╚═════╝    ╚═╝      ╚═╝    ╚═════╝ ╚═╝     ╚═╝        ╚══════╝
+*/bottom: { areas: [
+
+{ enabled: true, from: 0, to: 10, process: { name: "explorer", title: "" }},
+{ enabled: true, from: 33, to: 66, process: { name: "mpc-hc64", title: "" }},
+{ enabled: true, from: 67, to: 80, process: { name: "steamwebhelper", title: "" }},                  
+{ enabled: true, from: 81, to: 100, process: { name: "aimp", title: "" }}
+//{ enabled: true, from: 81, to: 100, process: { run: "C:\\AIMP.exe", title: "" }}
+ 
+]},
+}}};
+// grab all screens (property, not method)
+const screens = Screen.AllScreens;
+
+// Pre-compute and cache displayData for each screen 
+// key matches screen.DeviceName as returned from Screen.FromPoint
+const displayDataMap = {};
+for (let i = 0; i < screens.Length; i++) {
+  const screen = screens[i];
+  const m = screen.DeviceName.match(/DISPLAY(\d+)/i);
+  if (!m) continue;
+  const dk = `display${m[1]}`;
+  // skip if display is disabled in CONFIG.displays
+if (!CONFIG.displays[dk] || !CONFIG.displays[dk].enabled) continue;displayDataMap[screen.DeviceName] = {config: displayConfig.displays[dk],enabledAreas: CONFIG.displays[dk].areas,displayKey: dk};
+}
+
+ function getDisplayConfig(screen) {
+   return displayDataMap[screen.DeviceName] || null;}
+
+// build pixel-based zones once
+const pixelZones = {};
+for (let i = 0; i < screens.Length; i++) {
+  const screen = screens[i];
+  const m = screen.DeviceName.match(/DISPLAY(\d+)/i);
+  if (!m) continue;
+  const dk = `display${m[1]}`;
+  // disabled displays are never cached
+  if (!CONFIG.displays[dk]?.enabled) continue;
+  const cfg = displayConfig.displays[dk];
+  const enabledAreas = CONFIG.displays[dk].areas;
+  const b = screen.Bounds;
+  pixelZones[dk] = {
+    top:    enabledAreas.top    ? cfg.top.areas   .map(a => ({ fromPx: Math.round(a.from * b.Width  / 100), toPx: Math.round(a.to   * b.Width  / 100) })) : [],
+    bottom: enabledAreas.bottom ? cfg.bottom.areas.map(a => ({ fromPx: Math.round(a.from * b.Width  / 100), toPx: Math.round(a.to   * b.Width  / 100) })) : [],
+    left:   enabledAreas.left   ? cfg.left.areas  .map(a => ({ fromPx: Math.round(a.from * b.Height / 100), toPx: Math.round(a.to   * b.Height / 100) })) : [],
+    right:  enabledAreas.right  ? cfg.right.areas .map(a => ({ fromPx: Math.round(a.from * b.Height / 100), toPx: Math.round(a.to   * b.Height / 100) })) : []
+  };}
+
+ // Function for logging, which is executed only if logs: true
+function log_edge(message, type = 'Info', color = null) {
+    if (!CONFIG.logs) return;
+    if (color) {
+        sp.ConsoleLog(message, type, color);
+    } else {
+        sp.ConsoleLog(message, type);}}
+
+function logError(message, type = 'Error') {
+    if (!CONFIG.logs) return;
+    sp.ConsoleError(message, type);}
+
+const FRAME_MS   = 8;  
+const sw         = clr.System.Diagnostics.Stopwatch.StartNew();
+let lastFrameTs = 0;   // last frame time (MS)
+let lastZoneKey = null;
+
+function activateArea(area) {
+    try {
+        if (area.actions) {
+            // Get information about the current window once
+            let currentWindow = sp.ForegroundWindow();
+            let currentProcessName = "";
+            let currentTitle = "";
+            
+            try {
+                currentProcessName = currentWindow.Process.MainModule.ModuleName.toLowerCase();
+                currentTitle = currentWindow.Title.toLowerCase();
+            } catch(e) {
+                // Ignore errors when getting information about the window
+            }
+            
+            // First we check if the process and the header match without calling findWindow
+            let defaultAction = null;
+            
+            // Going through all the actions
+            for (let action of area.actions) {
+                if (action.whenProcess) {
+                    let processNameMatch = action.whenProcess.name.toLowerCase();
+                    let titleMatch = action.whenProcess.title ? action.whenProcess.title.toLowerCase() : "";
+                    
+                    // Direct check of process name and header
+                    if (currentProcessName.includes(processNameMatch) && 
+                        (!titleMatch || currentTitle.includes(titleMatch))) {
+                        
+                        // If you find a match, perform the action
+                        if (action.doSendKeys) {
+                            eval(action.doSendKeys);
+                            CONFIG.logs && sp.ConsoleLog(`Activated process-specific keys: ${action.doSendKeys}`, 'KeyAction', System.Drawing.Color.Gold);
+                        }
+                        if (action.doProcess) {
+                            activateProcess(action.doProcess);
+                        }
+                        return;
+                    }
+                } else if (action.default) {
+                    // Save the default action, but do not execute it immediately
+                    defaultAction = action;
+                }
+            }           
+            // If we have reached this point, it means that no suitable conditions were found
+            // Execute the default action, if any
+            if (defaultAction) {
+                if (defaultAction.doSendKeys) {
+                    eval(defaultAction.doSendKeys);
+                    CONFIG.logs && sp.ConsoleLog(`Activated default keys: ${defaultAction.doSendKeys}`, 'KeyAction');
+                }
+                if (defaultAction.doProcess) {
+                    activateProcess(defaultAction.doProcess);
+                }
+            }
+        } else {
+            // Old logic for backwards compatibility
+            if (area.process) {
+                activateProcess(area.process);
+            }
+            if (area.sendKeys) {
+                eval(area.sendKeys);
+                CONFIG.logs && sp.ConsoleLog(`Activated keys: ${area.sendKeys}`, 'KeyAction');
+            }
+        }
+    } catch(e) {
+        CONFIG.logs && sp.ConsoleError('Error in activateArea: ' + e.message, 'Error');
+    }
+}
+
+function isAtScreenEdge(mousePos, bounds) {
+    const edge = CONFIG.edgeZoneSize;
+    return { isLeft: mousePos.X <= bounds.Left + edge,isRight: mousePos.X >= bounds.Right - edge,isTop: mousePos.Y <= bounds.Top + edge,isBottom: mousePos.Y >= bounds.Bottom - edge};}
+
+function isInEdgeZone(mousePos, bounds, side, zonePx) {
+  const edge = CONFIG.edgeZoneSize;
+  switch (side) {
+    case 'top': return mousePos.Y <= bounds.Top + edge && mousePos.X >= bounds.Left + zonePx.fromPx && mousePos.X <= bounds.Left + zonePx.toPx;
+    case 'bottom': return mousePos.Y >= bounds.Bottom - edge && mousePos.X >= bounds.Left + zonePx.fromPx && mousePos.X <= bounds.Left + zonePx.toPx;
+    case 'left': return mousePos.X <= bounds.Left + edge && mousePos.Y >= bounds.Top + zonePx.fromPx && mousePos.Y <= bounds.Top + zonePx.toPx;
+    case 'right': return mousePos.X >= bounds.Right - edge && mousePos.Y >= bounds.Top + zonePx.fromPx && mousePos.Y <= bounds.Top + zonePx.toPx;
+    default: return false;}}
+
+function getActiveZone(mouseLocation, screen, displayData, edges) {
+  if (!displayData) return null;
+  const b = screen.Bounds;
+  if (!edges) edges = isAtScreenEdge(mouseLocation, b);
+  if (!edges.isTop && !edges.isBottom && !edges.isLeft && !edges.isRight) {
+    return null;
+  }
+  // get prepared zones by display key
+  const zones = pixelZones[displayData.displayKey];
+
+  // auxiliary side check
+  const trySide = (sideName) => {
+    const list = zones[sideName];
+    if (!list || !displayData.enabledAreas[sideName]) return null;
+    for (let i = 0; i < list.length; i++) {
+      if (isInEdgeZone(mouseLocation, b, sideName, list[i])) {
+        return `${displayData.displayKey}:${sideName}:${i}`;   // ← key string
+      }}
+    return null;};
+  if (edges.isTop)    { const z = trySide('top');    if (z) return z; } if (edges.isBottom) { const z = trySide('bottom'); if (z) return z; }
+  if (edges.isLeft)   { const z = trySide('left');   if (z) return z; } if (edges.isRight)  { const z = trySide('right');  if (z) return z; }
+  return null;}
+
+
+function activateProcess(processConfig)
+{
+    const cfgs = Array.isArray(processConfig) ? processConfig : [processConfig];
+    const exeNameFromPath = p =>
+        p.split(/[\\/]/).pop().replace(/\.[^.]+$/, '').toLowerCase();
+
+    CONFIG.logs && log_edge(
+        `→ activateProcess start: ${JSON.stringify(cfgs.map(c => c.name || c.run || '?'))}`, 'Perf');
+
+    // find windows 
+    const handles = [];
+    const cfgWithoutWindows = [];          // cfg, where nothing was found
+
+    for (const cfg of cfgs) {
+        // 1) get process name
+        const procName = cfg.name
+                       ? cfg.name.toLowerCase()
+                       : (cfg.run ? exeNameFromPath(cfg.run) : "");
+        const title    = cfg.title || "";
+
+        // 2)  if name is present - search for windows
+        if (procName) {
+            CONFIG.logs && log_edge(`  • FindWindows for "${procName}" (title="${title}")`, 'Perf');
+            const infos = helper.FindWindows(procName, title);
+            CONFIG.logs && log_edge(`    → FindWindows returned ${infos.Length}`, 'Perf');
+
+            if (infos.Length > 0) {
+                for (let i = 0; i < infos.Length; i++)
+                    handles.push(infos[i].Handle);
+            } else {
+                cfgWithoutWindows.push(cfg);   // for RunProgram
+            }
+        } else {
+            cfgWithoutWindows.push(cfg);       // no name, we will run
+        }}
+
+    // if no windows found - run programs
+    if (handles.length === 0) {
+        for (const cfg of cfgWithoutWindows) if (cfg.run) {
+            CONFIG.logs && log_edge(`  • RunProgram "${cfg.run}"`, 'Perf');
+            sp.RunProgram(cfg.run,     // fileName
+                          '',          // arguments
+                          'open',      // verb
+                          'normal',    // windowstyle
+                          true,        // useShellExecute
+                          false,       // noWindow
+                          false);      // waitForExit
+        }
+        return;                         // first call - launch only
+    }
+    // — activate / minimize found windows
+    const fgHandle  = sp.ForegroundWindow().HWnd;
+    const anyActive = handles.some(h => h.Equals(fgHandle));
+
+    CONFIG.logs && log_edge(`  • ${handles.length} handle(s) anyActive=${anyActive}`, 'Perf');
+
+    if (!anyActive) {
+    for (const h of handles) {
+        if (!h.Equals(fgHandle))
+            forceActivate(sp.WindowFromHandle(h));
+    }
+} else {
+    for (const h of handles)
+        sp.WindowFromHandle(h).Minimize();
+}}
+
+// Activate window immediately without flashing by simulating an Alt key press
+function forceActivate(win) {
+    sp.SendVKey(vk.MENU); //alt       
+    sp.Sleep(5);
+    win.Activate();}
+
+// Disabling the old handler when reloading the script
+let oldHandler = sp.GetStoredObject("mouseMoveEvent");
+if (oldHandler && oldHandler.GetType().FullName.includes('EventConnection')) {
+    oldHandler.disconnect();
+    sp.DeleteStoredObject("mouseMoveEvent");
+}
+// Initialization in the latest engine
+if(__spEngineWrapper.Engine.Name == sp.EngineList().Last().Engine.Name) {
+    CONFIG.logs && log_edge('Initializing in last engine: ' + __spEngineWrapper.Engine.Name, 'Init');
+
+let lastMouseX = -1, lastMouseY = -1;
+const MIN_DELTA_PX = 5;
+
+var mouseMoveEvent = MouseHook.OnMouseHookMoveEventAsync.connect(
+function (sender, ev) {
+    try {
+        // 1) time throttling 
+        const now = sw.ElapsedMilliseconds;
+        if (now - lastFrameTs < FRAME_MS) return;
+        lastFrameTs = now;
+
+        // 2) delta throttling
+        const x = ev.Location.X, y = ev.Location.Y;
+        if (Math.abs(x - lastMouseX) < MIN_DELTA_PX && Math.abs(y - lastMouseY) < MIN_DELTA_PX)
+            return;
+        lastMouseX = x; lastMouseY = y;
+
+        //  3) early return: cursor not at edge
+        const scr  = Screen.FromPoint(ev.Location);
+        if (!scr) return;
+        const b    = scr.Bounds, e = CONFIG.edgeZoneSize;
+        const edge = {isLeft:   x <= b.Left  + e, isRight:  x >= b.Right - e,isTop:    y <= b.Top   + e, isBottom: y >= b.Bottom- e};
+        if (!edge.isLeft && !edge.isRight && !edge.isTop && !edge.isBottom) {
+    lastZoneKey = null;           // ← exceeded edge: reset to zero
+    return;}
+
+        // 4) config display
+        const dispData = getDisplayConfig(scr);
+        if (!dispData) return;
+
+        // 5) determine active zone
+        const zoneKey = getActiveZone(ev.Location, scr, dispData, edge);
+ if (!zoneKey || zoneKey === lastZoneKey) return;
+ lastZoneKey = zoneKey;
+
+ // parse key → get side and idx
+const parts = zoneKey.split(':');          // ["display1","top","1"]
+const side  = parts[1];
+const idx   = parseInt(parts[2], 10);
+
+activateArea(dispData.config[side].areas[idx]);                              
+
+if (CONFIG.logs)
+    sp.ConsoleLog(`Zone: ${parts[0]} ${side}[${idx}]`,  'Zone', System.Drawing.Color.Olive);}
+    catch (ex) {
+        CONFIG.logs && sp.ConsoleError('Mouse handler error: ' + ex.message, 'Error');}
+});
+sp.StoreObject("mouseMoveEvent", mouseMoveEvent);
+    CONFIG.logs && log_edge('Mouse handler initialized', 'Init');
+} else {
+    CONFIG.logs && log_edge('Skipping initialization in non-last engine: ' + __spEngineWrapper.Engine.Name, 'Init');
+}
