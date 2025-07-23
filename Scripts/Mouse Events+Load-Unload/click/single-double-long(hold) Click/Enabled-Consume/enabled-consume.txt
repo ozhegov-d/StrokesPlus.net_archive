@@ -1,0 +1,128 @@
+var ENABLE_SINGLE = true;   // single click
+var ENABLE_DOUBLE = true;   // double click
+var ENABLE_HOLD   = true;   // long (hold) click
+
+var SHORT_MS      = 200;     // threshold for a "short" click
+var DOUBLE_GAP_MS = 200;     // interval between clicks for a double click
+var HOLD_MS       = 600;     // hold duration for the hold action (ms)
+var LOG           = false;    // logs
+// =============================
+
+// --- ДЕЙСТВИЯ ---
+function SingleAction() { sp.SendVKey(vk.F5); }                            // single
+function DoubleAction() { sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_W]); } // double
+function HoldAction()   { sp.SendVKey(vk.F3); }                            // hold
+// ----------------
+
+function log(m){ if (LOG) sp.ConsoleLog(m, "ClickModes"); }
+function err(m){ if (LOG) sp.ConsoleError(m, "ClickModes"); }
+
+// ===== DOWN =====
+if (click.Down) {
+    var now = Date.now();
+
+    sp.StoreBool("cm_pressing",  true);
+    sp.StoreBool("cm_hold_done", false);
+
+    sp.StoreNumber("cm_down_ts", now);
+
+    // ---- instant Hold through a timer ----
+    sp.DeleteTimer("CM_HoldTimer");
+    if (ENABLE_HOLD) {
+        sp.CreateTimer("CM_HoldTimer", HOLD_MS, 0, `
+            try {
+                var pressing = sp.GetStoredBool("cm_pressing")  || false;
+                var done     = sp.GetStoredBool("cm_hold_done") || false;
+                if (pressing && !done) {
+                    HoldAction();
+                    sp.StoreBool("cm_hold_done", true);
+
+                    // Reset single/double
+                    sp.DeleteTimer("CM_SingleTimer");
+                    sp.StoreNumber("cm_click_cnt", 0);
+
+                    ${LOG ? 'sp.ConsoleLog("→ HoldAction (instant)", "ClickModes");' : ''}
+                }
+            } catch(ex) {
+                ${LOG ? 'sp.ConsoleError("CM_HoldTimer: " + ex.message, "ClickModes");' : ''}
+            } finally {
+                sp.DeleteTimer("CM_HoldTimer");
+            }
+        `);
+    }
+}
+
+// ===== UP =====
+if (!click.Down) {
+    sp.StoreBool("cm_pressing", false);
+    sp.DeleteTimer("CM_HoldTimer");
+
+    var ts   = sp.GetStoredNumber("cm_down_ts") || 0;
+    var nowU = Date.now();
+
+    if (ts) {
+        var dt       = nowU - ts;
+        var holdDone = sp.GetStoredBool("cm_hold_done") || false;
+
+        log("UP dt=" + dt);
+
+        if (!holdDone) {
+            // fallback HOLD (If the timer did not have time to work)
+            if (dt >= HOLD_MS && ENABLE_HOLD) {
+                HoldAction();
+                log("→ HoldAction() on UP");
+            }
+            // short → single/double
+            else if (dt <= SHORT_MS) {
+                var lastShort = sp.GetStoredNumber("cm_last_short") || 0;
+                var cnt       = sp.GetStoredNumber("cm_click_cnt")  || 0;
+
+                cnt = (nowU - lastShort <= DOUBLE_GAP_MS) ? (cnt + 1) : 1;
+
+                sp.StoreNumber("cm_last_short", nowU);
+                sp.StoreNumber("cm_click_cnt",  cnt);
+
+                log("short candidate, cnt=" + cnt);
+
+                if (cnt === 1) {
+                    // We are waiting for the second click
+                    sp.DeleteTimer("CM_SingleTimer");
+                    sp.CreateTimer("CM_SingleTimer", DOUBLE_GAP_MS, 0, `
+                        try {
+                            var c = sp.GetStoredNumber("cm_click_cnt") || 0;
+                            if (c === 1) {
+                                if (${ENABLE_SINGLE}) {
+                                    SingleAction();
+                                    ${LOG ? 'sp.ConsoleLog("→ SingleAction()", "ClickModes");' : ''}
+                                }
+                            }
+                        } catch(ex) {
+                            ${LOG ? 'sp.ConsoleError("CM_SingleTimer: " + ex.message, "ClickModes");' : ''}
+                        } finally {
+                            sp.DeleteTimer("CM_SingleTimer");
+                            sp.StoreNumber("cm_click_cnt", 0);
+                        }
+                    `);
+                } else if (cnt === 2) {
+                    // Double click
+                    sp.DeleteTimer("CM_SingleTimer");
+                    if (ENABLE_DOUBLE) {
+                        DoubleAction();
+                        log("→ DoubleAction()");
+                    } else {
+                        log("double detected but disabled");
+                    }
+                    sp.StoreNumber("cm_click_cnt", 0);
+                }
+            } else {
+                log("ignored (dt between SHORT_MS and HOLD_MS)");
+            }
+        }
+    } else {
+        log("No DOWN ts");
+    }
+
+    // Cleaning
+    sp.DeleteStoredNumber("cm_down_ts");
+    sp.StoreBool("cm_hold_done", false);
+}
