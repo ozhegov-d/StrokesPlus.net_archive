@@ -1,0 +1,66 @@
+var ENABLE_SINGLE = true;  // single click
+var ENABLE_DOUBLE = true;  // double click
+
+var GAP_MS   = 200;  // max interval between clicks for a double click
+var MOVE_PX  = 15;   // allowed mouse movement for a single click
+var LOG      = false; // logs
+// =====================
+
+function log(m){ if (LOG) sp.ConsoleLog(m, "ClickCombo"); }
+function err(m){ if (LOG) sp.ConsoleError(m, "ClickCombo"); }
+
+if (click.Down) {
+    var now  = Date.now();
+    var last = sp.GetStoredNumber("cc_last") || 0;
+    var cnt  = sp.GetStoredNumber("cc_cnt")  || 0;
+
+    // if we fit into GAP — increment counter, otherwise start from 1
+    cnt = (now - last <= GAP_MS) ? cnt + 1 : 1;
+
+    sp.StoreNumber("cc_last", now);
+    sp.StoreNumber("cc_cnt",  cnt);
+
+    if (cnt === 1) {
+        // first click: remember the point and start the single-click timer
+        sp.StorePoint("cc_pt", click.Point);
+
+        sp.DeleteTimer("CC_FireTimer");
+        sp.CreateTimer("CC_FireTimer", GAP_MS, 0, `
+    try {
+        var c   = sp.GetStoredNumber("cc_cnt")  || 0;
+        var pt0 = sp.GetStoredPoint("cc_pt");
+        var cur = sp.GetCurrentMousePoint();
+        var d2  = (pt0) ? Math.pow(cur.X - pt0.X, 2) + Math.pow(cur.Y - pt0.Y, 2) : 999999;
+
+        ${LOG ? 'sp.ConsoleLog("Timer fire: cnt=" + c + " d2=" + d2, "ClickCombo");' : ''}
+
+        if (c === 1 && d2 <= ${MOVE_PX} * ${MOVE_PX}) {
+            if (${ENABLE_SINGLE}) {
+                sp.SendVKey(vk.F5); // F5
+                ${LOG ? 'sp.ConsoleLog("(single)", "ClickCombo");' : ''}
+            }
+        }
+    } catch(ex) {
+        ${LOG ? 'sp.ConsoleError("CC_FireTimer: " + ex.message, "ClickCombo");' : ''}
+    } finally {
+        sp.DeleteTimer("CC_FireTimer");
+        sp.StoreNumber("cc_cnt", 0);
+    }
+`);
+
+        log("First click. cnt=1");
+    }
+    else if (cnt === 2) {
+        // double click
+        sp.DeleteTimer("CC_FireTimer");
+        if (ENABLE_DOUBLE) {
+            sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_W]); // ctrl-w
+            log("(double)");
+        } else {
+            log("double detected but disabled");
+        }
+        sp.StoreNumber("cc_cnt", 0);
+    } else {
+        log("cnt=" + cnt + " (ignored)");
+    }
+}
