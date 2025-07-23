@@ -23,7 +23,7 @@ function HoldAction()   { sp.SendVKey(vk.F3); }                            // ho
 
 Now you can assign any action to a single click and to a double click (or turn them off).  
 By default, a single click sends F5 and a double click sends Ctrl+W.  
-You can’t make a long gesture because it’s ‘button down only.  
+You can’t make a long (hold) click because it’s ‘button down only.  
 
 > var ENABLE_SINGLE = true; &nbsp;  // single click  
 var ENABLE_DOUBLE = true;  // double click  
