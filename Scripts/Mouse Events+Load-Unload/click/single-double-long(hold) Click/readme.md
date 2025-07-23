@@ -15,7 +15,9 @@ function DoubleAction() { sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_W]); } // do
 function HoldAction()   { sp.SendVKey(vk.F3); }                            // hold  
 ---
 #### Enabled (button Down only)
-#### If XButton1 is your stroke button, you can suppress the Back action with AHK v2.  
+#### If XButton1 is your stroke button, you can suppress the Back action with AHK v2. 
+ > You can remove StrokesPlus from startup and keep only this AHK script (it will launch first and then start StrokesPlus).  
+ otherwise it won’t work.  
 <img width="724" height="40" alt="enabled (button Down only)" src="https://github.com/user-attachments/assets/6016b3b1-c155-4c27-9105-0869430eb550" />  
 
 
