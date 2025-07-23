@@ -1,5 +1,5 @@
 
-#### Enabled-consume
+#### Enabled-Consume
 <img width="302" height="37" alt="enabled-consume" src="https://github.com/user-attachments/assets/52bf93d4-f470-426d-be34-39b382260245" />
 
 > var ENABLE_SINGLE = true; &nbsp;&nbsp;  // single click  
@@ -13,7 +13,7 @@ var HOLD_MS       = 600;   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp
 > function SingleAction() { sp.SendVKey(vk.F5); }                          // single  
 function DoubleAction() { sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_W]); } // double  
 function HoldAction()   { sp.SendVKey(vk.F3); }                            // hold  
-
+---
 #### Enabled (button Down only)
 #### If XButton1 is your stroke button, you can suppress the Back action with AHK v2.  
 <img width="724" height="40" alt="enabled (button Down only)" src="https://github.com/user-attachments/assets/6016b3b1-c155-4c27-9105-0869430eb550" />  
