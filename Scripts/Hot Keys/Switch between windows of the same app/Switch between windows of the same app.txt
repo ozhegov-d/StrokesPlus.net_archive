@@ -1,0 +1,115 @@
+// ====== CONFIG ======
+var DIR = +1;                 // +1 = next, -1 = prev
+var SORT_BY_HANDLE = true; /*
+'false' — iterate in the same order as returned by sp.AllApplications().
+Typically closer to the current z-order (the “natural” focus-switching order).
+'true'  — sort by numeric HWND. Stable and deterministic, but may not match visual order/focus.
+*/
+var ONLY_VISIBLE = true;      // true = cycle only visible windows
+var INCLUDE_MINIMIZED = false;// true = include minimized windows
+var SHOW_TOASTS = true;       // show toasts (“No other windows”, etc.)
+var LOGS = false;             // log
+
+// ====== Toast (use global if exists) ======
+if (typeof displayMessage !== 'function') {
+  var info = new DisplayTextInfo();
+  info.MessageAlignment = 'center';
+  info.Duration = 500;
+  info.Opacity = 0.9;
+  info.MessageFont = new Font('Segoe UI Semibold', 18);
+  info.BackColor = 'black';
+  info.ForeColor = 'white';
+  info.FadeSteps = 16;
+
+  function displayMessage(m){
+    if (!SHOW_TOASTS || !m) return;
+
+    // pick the screen of the foreground window (multi-monitor aware)
+    var fw = sp.ForegroundWindow();
+    var scr;
+    try {
+      scr = System.Windows.Forms.Screen.FromHandle(fw.HWnd);
+    } catch (_) {
+      scr = System.Windows.Forms.Screen.PrimaryScreen;
+    }
+
+    // center within the screen's working area (taskbar-safe)
+    var area = scr.WorkingArea; // has .Left/.Top/.Width/.Height
+    var w = Math.min(500, Math.max(200, m.length * 20));
+    var h = 100;
+    var x = ((area.Width  - w) / 2 | 0) + area.Left;
+    var y = ((area.Height - h) / 2 | 0) + area.Top;
+
+    info.Message = m;
+    info.Location = x + "," + y;
+    sp.DisplayText(info);
+  }
+}
+
+// ====== Minimal activateWindow ======
+function activateWindow(w){
+  try{
+    var restored = false;
+    if (w.Minimized) { w.Restore(); sp.Sleep(50); restored = true; }
+    w.Activate();
+    var ok = sp.ForegroundWindow().HWnd.ToInt64() === w.HWnd.ToInt64();
+    if (ok) return true;
+    if (!restored && w.Minimized) { w.Restore(); sp.Sleep(50); }
+    sp.Sleep(50); w.Activate();
+    return sp.ForegroundWindow().HWnd.ToInt64() === w.HWnd.ToInt64();
+  }catch(e){ if (LOGS) sp.ConsoleError(e.message,'HK'); return false; }
+}
+
+// ====== Switch among windows of the same process ======
+function handleWindowSwitching(previousActiveWindow, direction, opts) {
+  direction = (direction === -1) ? -1 : +1;
+  opts = opts || {};
+  var onlyVisible     = (typeof opts.onlyVisible === 'boolean') ? opts.onlyVisible : ONLY_VISIBLE;
+  var includeMin      = (typeof opts.includeMinimized === 'boolean') ? opts.includeMinimized : INCLUDE_MINIMIZED;
+  var sortByHandleOpt = (typeof opts.sortByHandle === 'boolean') ? opts.sortByHandle : SORT_BY_HANDLE;
+
+  if (!previousActiveWindow) return 'No active window';
+
+  var all   = sp.AllApplications();
+  var mod   = previousActiveWindow.Process.MainModule.ModuleName;
+  var modLo = (mod ? mod.toLowerCase() : "");
+  var curH  = previousActiveWindow.HWnd.ToInt64();
+
+  var seen = {};
+  var arr  = [];
+
+  for (var i = 0; i < all.Length; i++) {
+    try {
+      var w = all[i];
+      var wMod = w.Process.MainModule.ModuleName; if (!wMod) continue;
+      if (wMod.toLowerCase() !== modLo) continue;
+      if (onlyVisible && !w.Visible) continue;
+      if (w.Parent && w.Parent.ToInt64 && w.Parent.ToInt64() !== 0) continue; // top-level only
+      if (!includeMin && w.Minimized) continue;
+
+      var h = w.HWnd.ToInt64();
+      if (seen[h]) continue; // de-dup
+      seen[h] = 1;
+
+      arr.push({ w: w, h: h, t: w.Title });
+    } catch (_) {}
+  }
+
+  if (arr.length <= 1) return 'No other windows';
+
+  if (sortByHandleOpt) {
+    arr.sort(function(a, b) { return a.h - b.h; }); // stable deterministic order
+  } // else: keep enum order from sp.AllApplications()
+
+  var idx = 0;
+  for (var k = 0; k < arr.length; k++) { if (arr[k].h === curH) { idx = k; break; } }
+
+  var next = (idx + direction + arr.length) % arr.length;
+  return activateWindow(arr[next].w) ? '' : 'Failed to switch';
+}
+
+
+// ====== Run ======
+var prev = sp.ForegroundWindow();
+var msg  = handleWindowSwitching(prev, DIR, { onlyVisible: ONLY_VISIBLE, includeMinimized: INCLUDE_MINIMIZED , sortByHandle: SORT_BY_HANDLE });
+if (msg) displayMessage(msg);
