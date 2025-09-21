@@ -31,7 +31,7 @@ There are only two states: paste or scroll the page to the top
 
 https://github.com/user-attachments/assets/a17a7c5a-7fda-4b6b-9acd-385654811520
 
-
+---------------------------------------------------------------------------------------------------------
 
 ### Minimize-Return
 
@@ -66,7 +66,6 @@ This will still activate the window under your gesture, but will be ignored by t
 https://github.com/user-attachments/assets/a7ef9a92-b964-4507-b56d-e76aa5caa341
 
 
-
 **Minimize**
 + short gesture - minimizing a single window
 + long gesture - all windows of one process 
@@ -82,7 +81,7 @@ If the window has the same HWnd (and it should be restored), then sp.LastApplica
 https://github.com/user-attachments/assets/753058d4-5b75-4de0-a20e-e06383c07207
 
 
-
+---------------------------------------------------------------------------------------------------------
 
 ### Quick Close/Re-Open
 
@@ -99,6 +98,7 @@ Long gesture - menu for restoring programs
 
 https://github.com/user-attachments/assets/7593ad56-a9f4-4001-9963-6eab5fb22b95
 
+---------------------------------------------------------------------------------------------------------
 ### Deepl+Esc
 Works only for DeepL for Windows
 
@@ -109,6 +109,7 @@ You need to change the settings by setting your hotkeys and check the Capture te
 
 https://github.com/user-attachments/assets/ce7b1791-0962-43c2-a39d-0cdf3c525628
 
+---------------------------------------------------------------------------------------------------------
 ### Forward-Back
 **Forward**
 
@@ -124,6 +125,10 @@ Short gesture not from a link and with no selected text on the page performs the
 Long gesture switches the tab if text is not selected 
 + It also works in any application: the browser opens and searches
 
+v2.1  
++now handles both `C:\\...` and `C:/...`  
++magnet links support  
++notification when a file or folder is missing  
 v2  
 +Opens URLs directly (e.g. reddit.com → opens in browser instead of performing a search)  
 +Opens registry paths in RegEdit (e.g. HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run)  
@@ -135,6 +140,8 @@ v2
 + short gesture - Back
 + long gesture - Previous tab
 
+2.1   
+Added a bottom zone: if the app has another window, it will be switched to; if not, the long-gesture from APP_CONFIGS runs instead.  
 v2  
 +switching windows of one process in a circle  
 +APP_CONFIGS  
@@ -142,7 +149,7 @@ v2
 
 https://github.com/user-attachments/assets/61a68d8b-8f52-455e-9ee3-6d83823b6a7d
 
-
+---------------------------------------------------------------------------------------------------------
 ### Max or Restore+Everything
 Everything is a program for fast file searching on your compute
 
@@ -152,7 +159,7 @@ Everything is a program for fast file searching on your compute
 
 https://github.com/user-attachments/assets/2b5577a2-e0fd-49e3-89a8-c65a5df5401c
 
-
+---------------------------------------------------------------------------------------------------------
 ### Search on the page
 
 + short gesture - next match
