@@ -1,0 +1,304 @@
+// === Settings ===
+var enableUrlOpen       = true;  // open URLs directly instead of searching (e.g., reddit.com)
+var enableRegeditOpen   = true;  // open registry paths in regedit (HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run)
+var msc_cpl_open        = true;  // launch .msc/.cpl consoles or control panels (devmgmt.msc, main.cpl)
+var enableMagnetOpen    = true;  // open magnet links via system default handler
+
+var enableFilePathOpen  = true;  // open files/folders from clipboard paths (%PROGRAMFILES% or %USERPROFILE%\AppData\ or C:\Temp)
+
+var useRunPath          = false;  // true: use external file manager from RunPath; false: use Explorer/system
+//var RunPath           = "C:\\TOTALCMD\\TOTALCMD64.EXE";
+//var RunPath           = "C:\\XYplorer\\XYplorer.exe";
+
+var forbidBatCmd        = false; // true → do NOT launch .bat/.cmd directly (open parent instead)
+var enableConsoleLog    = false; // console log
+
+var IO = clr.System.IO;
+
+// === Toast UI ===
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'center';
+info.Duration         = 500;
+info.Opacity          = 0.9;
+info.MessageFont      = new Font('Segoe UI Semibold', 20);
+info.BackColor        = 'black';
+info.ForeColor        = 'white';
+info.FadeSteps        = 18;
+
+function displayMessage(msg) {
+  info.Message = msg;
+  var screen = System.Windows.Forms.Screen.PrimaryScreen;
+  var w = Math.min(500, Math.max(200, msg.length * 20)), h = 100;
+  var x = action.Start.X + 7, y = action.Start.Y - 150;
+  if (x + w > screen.Bounds.Width)  x = screen.Bounds.Width - w - 10;
+  if (y + h > screen.Bounds.Height) y = screen.Bounds.Height - h - 10;
+  if (x < 0) x = 10; if (y < 0) y = 10;
+  info.Location = `${x},${y}`;
+  sp.DisplayText(info);
+}
+
+function log(msg, tag) { if (enableConsoleLog) sp.ConsoleLog(msg, tag || "Gesture"); }
+
+// === Clipboard read ===
+function readClipboard() {
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+  sp.Sleep(20);
+  return clip.GetText() || "";
+}
+
+// ─ helpers ─
+function pathExists(p){ try { return IO.File.Exists(p) || IO.Directory.Exists(p); } catch(_) { return false; } }
+function dirExists(p){  try { return IO.Directory.Exists(p); } catch(_) { return false; } }
+function fileExists(p){ try { return IO.File.Exists(p); } catch(_) { return false; } }
+function hasExt(p){     try { return (IO.Path.GetExtension(p) || "").length > 0; } catch(_) { return false; } }
+function nearestExistingDir(p){
+  try {
+    // if file → use its parent; if dir → walk up until existing
+    var di = dirExists(p) ? new IO.DirectoryInfo(p)
+                          : (new IO.FileInfo(p)).Directory;
+    while (di && !di.Exists) di = di.Parent;
+    return di && di.Exists ? di.FullName : null;
+  } catch(_){ return null; }
+}
+function openFolder(folderPath){
+  if (useRunPath) {
+    var U = (RunPath || "").toUpperCase();
+    if (U.includes("TOTALCMD")) {
+      sp.RunProgram(RunPath, `/O /T /L="${folderPath}"`, "open", "normal", true, false, false);
+    } else {
+      sp.RunProgram(RunPath, `"${folderPath}"`, "open", "normal", true, false, false);
+    }
+  } else {
+    sp.RunProgram(folderPath, "", "open", "normal", true, false, false);
+  }
+}
+
+// === Validation helpers ===
+function isUrl(s) {
+  var lo = s.toLowerCase(), ban = ['.msc','.cpl','.bat','.cmd','.lnk','.exe'];
+  for (var b of ban) if (lo.endsWith(b)) return false;
+  return /^(https?:\/\/)?(localhost(:\d+)?|[a-z0-9]+(?:[-.][a-z0-9]+)*\.[a-z]{2,})(:\d{1,5})?(\/.*)?$/i.test(s);
+}
+function isRegistryPath(t) {
+  return /^(HKEY_LOCAL_MACHINE|HKLM|HKEY_CURRENT_USER|HKCU|HKEY_CLASSES_ROOT|HKCR|HKEY_CURRENT_CONFIG|HKCC|HKU)(\\[^\\\/:*?"<>|]*)*$/i.test(t);
+}
+function isFilePath(t) {
+  return /^(?:[A-Za-z]:[\\\/]|\\\\[^\\\/:*?"<>|\r\n]+[\\\/][^\\\/:*?"<>|\r\n]+)(?:[^\\\/:*?"<>|\r\n]+[\\\/]?)*$/.test(t);
+}
+function isMscFile(t) { return /^[^\\\/ :]+\.(msc)$/i.test(t); }
+function isCplFile(t) { return /^[^\\\/ :]+\.(cpl)$/i.test(t); }
+function isMagnetLink(t) {return /^magnet:\?xt=urn:btih:[A-Za-z0-9]{20,}/i.test(t);}
+
+// === Save original clipboard content ===
+var originalClipboardContent = clip.GetText();
+var wasClipboardEmpty        = !originalClipboardContent;
+
+// === Gesture info ===
+sp.MouseMove(action.Start);
+sp.StoreBool("LongScrollAbort", true);
+sp.StoreBool("LongScrollActive", false);
+
+// === Distance & search profile ===
+sp.Sleep(10);
+var distance     = Math.hypot(action.End.X - action.Start.X, action.End.Y - action.Start.Y)|0;
+var searchPrefix = distance < 160
+                      ? 'https://www.google.com/search?q='
+                   : distance < 360
+                     ? 'https://www.google.com/search?tbm=isch&q='      // >160 <360
+                     : 'https://www.youtube.com/results?search_query='; // >360
+
+// === App context ===
+var fg        = sp.ForegroundWindow();
+var exeName   = fg.Process.MainModule.ModuleName.toLowerCase();
+var isBrowser = /chrome|firefox|msedge|opera|brave|vivaldi/.test(exeName);
+var isAud     = exeName.includes("audition"); //for adobe audition (END)
+var cursor    = sp.GetCurrentMouseCursor();
+
+// === New clipboard content ===
+var newClipboardContent = isAud ? "" : readClipboard();
+var trimmed     = newClipboardContent.trim();
+var normalized  = normalizeFsPath(trimmed);
+var handled     = false;
+
+// shared precomputed
+var origTrim        = (originalClipboardContent || "").trim();
+var expanded        = clr.System.Environment.ExpandEnvironmentVariables(normalized);
+var trimmedNotSame  = (trimmed !== "" && trimmed !== origTrim);
+
+// ─────────────────────────────────────────────────────────────
+// 1) Cursor is Hand
+// ─────────────────────────────────────────────────────────────
+if (cursor === "Hand") {
+  if (!isBrowser && trimmedNotSame) {
+    sp.RunProgram(searchPrefix + encodeURIComponent(trimmed), "", "open", "normal", true, false, false);
+  } else {
+    if (distance > 200) {
+      sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]);
+      displayMessage("Next tab➪");
+    } else {
+      sp.MouseClick(action.Start, MouseButtons.Middle, true, true);
+      sp.MouseMove(action.End);
+    }
+  }
+  handled = true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 2) .msc / .cpl launch
+// ─────────────────────────────────────────────────────────────
+if (!handled && msc_cpl_open) {
+  if (isMscFile(trimmed) && trimmedNotSame) {
+    sp.RunProgram(trimmed, "", "open", "normal", true, false, false);
+    handled = true;
+  }
+  else if (isCplFile(trimmed) && trimmedNotSame) {
+    sp.RunProgram("control.exe", trimmed, "open", "normal", false, false, true);
+    //displayMessage("🧩 .CPL Control Panel");
+    handled = true;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 3) URL / Regedit / File / Search
+// ─────────────────────────────────────────────────────────────
+if (!handled) try {
+// Magnet
+if (enableMagnetOpen && isMagnetLink(trimmed) && trimmedNotSame) {
+  sp.RunProgram(trimmed, "", "open", "normal", true, false, true);
+  handled = true;
+}
+  // URL
+  else if (enableUrlOpen && isUrl(trimmed) && trimmedNotSame) {
+    if (!/^https?:\/\//i.test(trimmed)) trimmed = "https://" + trimmed;
+    sp.RunProgram(trimmed, "", "open", "normal", true, false, false);
+    handled = true;
+  }
+  // Regedit
+  else if (enableRegeditOpen && isRegistryPath(trimmed) && trimmedNotSame) {
+    // update regedit last key and relaunch
+    var cmd = `/c reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Applets\\Regedit"` +
+              ` /v LastKey /t REG_SZ /d "${trimmed}" /f`;
+    sp.RunProgram("cmd.exe", cmd, "open", "hidden", true, false, true);
+    sp.RunProgram("regedit.exe", "", "open", "normal", true, false, false);
+    handled = true;
+
+    // Alternative (if S+ runs as admin), open and paste path directly:
+    // clip.SetText(trimmed);
+    // sp.RunProgram("regedit.exe","","open","normal",true,false,false);
+    // sp.Sleep(200);
+    // sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_L]); sp.Sleep(50);
+    // sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]); sp.Sleep(50);
+    // sp.SendVKey(vk.RETURN);
+  }
+  // File / Folder
+  else if (
+    enableFilePathOpen &&
+    normalized !== origTrim &&                // allow action when normalization changed slashes
+    isFilePath(expanded)
+  ) {
+    log("Clipboard→Path: " + expanded, "Path");
+
+    var existsDir  = dirExists(expanded);
+    var existsFile = fileExists(expanded);
+
+    if (existsDir || existsFile) {
+      if (existsDir) {
+        // folder exists → open it
+        openFolder(expanded);
+      } else {
+        // file exists
+        if (useRunPath) {
+          // external FM usually doesn't open the file → open its parent
+          var parent = (new IO.FileInfo(expanded)).Directory;
+          if (parent && parent.Exists) openFolder(parent.FullName);
+          else displayMessage("file not found ↯");
+        } else {
+          // SAFE MODE for .bat/.cmd without return
+          var lo = expanded.toLowerCase();
+          if (forbidBatCmd && (lo.endsWith(".bat") || lo.endsWith(".cmd"))) {
+            var parent = (new IO.FileInfo(expanded)).Directory;
+            if (parent && parent.Exists) {
+              openFolder(parent.FullName);
+              displayMessage("Blocked .bat/.cmd (safe mode)", 1200);
+            } else {
+              displayMessage("file not found ↯", 1400);
+            }
+            handled = true;
+          } else {
+            // open via default file association
+            sp.RunProgram(expanded, "", "open", "normal", true, false, false);
+          }
+        }
+      }
+    } else {
+      // path doesn't exist → decide by shape (file vs folder) and open nearest existing parent
+      var looksLikeFile = hasExt(expanded) && !expanded.endsWith("\\");
+      var ned = nearestExistingDir(expanded);
+
+      displayMessage(looksLikeFile ? "file not found ↯" : "Folder not found ↯");
+      if (ned) openFolder(ned);
+    }
+
+    handled = true;
+  }
+  // Search fallback
+  else if (trimmedNotSame) {
+    if (isBrowser) {
+      sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_T]); sp.Sleep(50);
+      sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_L]); sp.Sleep(50);
+      clip.SetText(searchPrefix + encodeURIComponent(trimmed));
+      sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]); sp.Sleep(90);
+      sp.SendVKey(vk.RETURN);
+    } else {
+      sp.RunProgram(searchPrefix + encodeURIComponent(trimmed), "", "open", "normal", true, false, false);
+      //displayMessage("🔎 Search outside browser");
+    }
+    handled = true;
+  }
+} catch(e) {
+  sp.ConsoleWarning("Clipboard parse error: " + e.message, "ParseClipboard");
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4) Gesture navigation
+// ─────────────────────────────────────────────────────────────
+if (!handled) {
+  var msg = "";
+  if (isAud) {
+    if (distance > 200) { sp.SendVKey(vk.END); msg = "➪"; }
+  } else {
+    if (distance > 200) { sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]); msg = "Next tab➪"; }
+    else               { sp.SendVKey(vk.BROWSER_FORWARD); msg = "Forward"; }
+  }
+  if (msg) displayMessage(msg);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5) Restore original clipboard
+// ─────────────────────────────────────────────────────────────
+if (wasClipboardEmpty) clip.Clear(); else clip.SetText(originalClipboardContent);
+
+// === Path normalization ===
+function normalizeFsPath(raw) {
+  if (!raw) return "";
+  let s = raw.trim();
+
+  // strip surrounding quotes/backticks if copied from code
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1);
+  }
+
+  // unify slashes
+  s = s.replace(/\//g, "\\");
+
+  // collapse duplicate backslashes, but keep UNC prefix intact
+  if (s.startsWith("\\\\")) {
+    s = "\\\\" + s.slice(2).replace(/\\{2,}/g, "\\");
+  } else {
+    s = s.replace(/\\{2,}/g, "\\");
+  }
+
+  // trim trailing whitespace
+  s = s.replace(/\s+$/, "");
+  return s;
+}
