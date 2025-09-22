@@ -42,7 +42,7 @@ function log(msg, tag) { if (enableConsoleLog) sp.ConsoleLog(msg, tag || "Gestur
 // === Clipboard read ===
 function readClipboard() {
   sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
-  sp.Sleep(20);
+  sp.Sleep(70);
   return clip.GetText() || "";
 }
 
@@ -302,3 +302,4 @@ function normalizeFsPath(raw) {
   s = s.replace(/\s+$/, "");
   return s;
 }
+
