@@ -275,7 +275,7 @@ if (logs) {
             if (logs) {
                 sp.ConsoleLog(`Restoring minimized window: ${window.Title}`, 'Debug');
             }
-            window.Restore();
+            window.Activate();
             sp.Sleep(50);
             restored = true;
         }
@@ -294,7 +294,7 @@ if (logs) {
             if (logs) {
                 sp.ConsoleLog(`First activation attempt failed, restoring minimized window and retrying...`, 'Debug');
             }
-            window.Restore();
+            window.Activate();
             sp.Sleep(50);
         } else if (logs) {
             sp.ConsoleLog(`First activation attempt failed, retrying...`, 'Debug');
@@ -411,5 +411,6 @@ if (bottomOverride) {
         message = "Back";
     }
 }
+
 
 displayMessage(message);
