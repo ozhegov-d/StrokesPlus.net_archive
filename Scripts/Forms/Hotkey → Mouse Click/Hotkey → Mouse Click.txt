@@ -1,0 +1,3498 @@
+var Forms   = forms.System.Windows.Forms;
+var Drawing = drawing.System.Drawing;
+var Thread  = clr.System.Threading.Thread;
+var STA     = clr.System.Threading.ApartmentState;
+var IO      = clr.System.IO;
+
+var LOG_ON1 = false;
+var log = LOG_ON1? (t)=>sp.ConsoleLog("[PANEL] "+t, "DBG"): ()=>{};
+
+// ─── Closing the form ───
+var hotkeyCtrl  = false;                     // Ctrl
+var hotkeyShift = false;                     // Shift
+var hotkeyAlt   = false;                     // Alt
+var hotkeyKey   = Forms.Keys.Oemtilde;       // By default ~
+//var hotkeyKey   = Forms.Keys.T;  
+
+var PANELS = [ // The default panels
+    new PanelDef("p1","1", 5,   5  ), //  id:"p1", text:"1", dx:0, dy:0
+    new PanelDef("p2","2", 160, 120),
+    new PanelDef("p3","3", 320, 240)
+];
+
+var PANEL_DEF_SIZE = { w: 25, h: 25 }; // Sizes of panels
+//var PANEL_DEF_SIZE = { w: 35, h: 35 }; // Sizes of panels
+
+// click delay (default)
+var DEFAULT_DELAY_SINGLE_MS = 0;   // Single click
+var DEFAULT_DELAY_CHAIN_MS  = 100; // With clicks in a chain
+var DEFAULT_DELAY_HOVER_MS  = 100; // "HOVER"
+var DELAY_SINGLE_MS = DEFAULT_DELAY_SINGLE_MS;
+var DELAY_CHAIN_MS  = DEFAULT_DELAY_CHAIN_MS;
+var DELAY_HOVER_MS  = DEFAULT_DELAY_HOVER_MS;
+
+// --- helpers ---
+var HANDLE = (function(){
+  var weakCache = new WeakMap();
+  var strongCache = new Map();
+  var byIdCache = new Map();
+  var zeroPtr = clr.System.IntPtr.Zero;
+  var hitsWeak = 0;
+  var hitsStrong = 0;
+  var hitsId = 0;
+  // Weakcache: Hold the link to live Systemwindow/Form Objects (GC is reset).
+  // Strongcache: numerical/string hwnd, live before the script is restarted or handle.clear ().
+  // Byidcache: ID64 map → The last info so that different objects with the same HWND do not produce records.
+
+  function describe(value, info){
+    if (!LOG_ON1) return "";
+    try {
+      var parts = [];
+      if (info && info.hex) parts.push(info.hex);
+      if (value && value.ExecutableName) parts.push("exe=" + ("" + value.ExecutableName).toLowerCase());
+      if (value && value.Title) {
+        var tt = ("" + value.Title).trim();
+        if (tt) parts.push('title="' + tt + '"');
+      }
+      return parts.length ? (" " + parts.join(" ")) : "";
+    } catch(_) {
+      return info && info.hex ? (" " + info.hex) : "";
+    }
+  }
+
+  function toPtr(value){
+    try{
+      if (!value) return zeroPtr;
+      if (value.Handle !== undefined) return host.cast(clr.System.IntPtr, value.Handle);
+      if (value.HWnd   !== undefined) return host.cast(clr.System.IntPtr, value.HWnd);
+      return host.cast(clr.System.IntPtr, value);
+    }catch(_){ return zeroPtr; }
+  }
+
+  function stableKey(value){
+    try{
+      if (value === null || value === undefined) return 0;
+      if (typeof value === "number" || typeof value === "string") return value;
+      var ptr = toPtr(value);
+      if (!ptr || ptr.Equals(zeroPtr)) return 0;
+      return ptr.ToInt64();
+    }catch(_){ return 0; }
+  }
+
+  function build(value){
+    var ptr = toPtr(value);
+    var id64 = 0;
+    try { id64 = ptr ? ptr.ToInt64() : 0; } catch(_){ id64 = 0; }
+    return {
+      ptr : ptr,
+      id64: id64,
+      hex : id64 ? ("0x" + id64.toString(16)) : "<null>"
+    };
+  }
+
+  function cached(value){
+    var key = stableKey(value);
+    if (key && byIdCache.has(key)) {
+      var infoKey = byIdCache.get(key);
+      if (LOG_ON1) {
+        hitsId++;
+        if (hitsId % 50 === 1) log("[HANDLE.cache] hit-id " + key.toString(16));
+      }
+      return infoKey;
+    }
+    if (value !== null && value !== undefined) {
+      var isObject = (typeof value === "object") || (typeof value === "function");
+      var store = isObject ? weakCache : strongCache;
+      if (store.has(value)) {
+        var infoCached = store.get(value);
+        if (LOG_ON1) {
+          if (isObject) {
+            hitsWeak++;
+            if (hitsWeak % 25 === 1) log("[HANDLE.cache] hit" + describe(value, infoCached));
+          } else {
+            hitsStrong++;
+            if (hitsStrong % 25 === 1) log("[HANDLE.cache] hit" + describe(value, infoCached));
+          }
+        }
+        if (key) byIdCache.set(key, infoCached);
+        return infoCached;
+      }
+    }
+    var info = build(value);
+    if (value !== null && value !== undefined) {
+      var isObjectStore = (typeof value === "object") || (typeof value === "function");
+      if (isObjectStore) weakCache.set(value, info);
+      else strongCache.set(value, info);
+    }
+    if (key) {
+      byIdCache.set(key, info);
+    }
+    if (LOG_ON1) log("[HANDLE.cache] add" + describe(value, info));
+    return info;
+  }
+
+  function clear(value){
+    if (value === null || value === undefined) return;
+    var key = stableKey(value);
+    if (key) byIdCache.delete(key);
+    var isObject = (typeof value === "object") || (typeof value === "function");
+    (isObject ? weakCache : strongCache).delete(value);
+  }
+
+  return {
+    ptr : function(value){ return cached(value).ptr; },
+    id64: function(value){ return cached(value).id64; },
+    hex : function(value){ return cached(value).hex; },
+    ptrRaw: toPtr,
+    clear: clear
+  };
+})();
+function topInfoAtPoint(pt){
+  try{
+    var p  = new Drawing.Point(pt.X||pt.x, pt.Y||pt.y);
+    var w  = sp.WindowFromPoint(p, true);
+    var top= _topLevelOf(w);
+    return {
+      childH: HANDLE.id64(w),
+      topH  : HANDLE.id64(top),
+      topT  : (top && top.Title ? (""+top.Title).trim() : ""),
+      topObj: top
+    };
+  }catch(_){ return {childH:0, topH:0, topT:"", topObj:null}; }
+}
+function setLockedBaseApp(appId, baseWnd){
+  try {
+    var info = HANDLE.id64(baseWnd);
+    if (info) {
+      LOCKED_BASE_BY_APP.set(appId, baseWnd);
+    } else {
+      LOCKED_BASE_BY_APP.delete(appId);
+    }
+  } catch(_) {}
+}
+function getLockedBaseApp(appId){
+  try{
+    var v = LOCKED_BASE_BY_APP.get(appId);
+    if (!v) return null;
+    if (v.Handle || v.HWnd || v.Location) return v;
+    var ptr = HANDLE.ptr(v);
+    if (!ptr || !HANDLE.id64(v)) return null;
+    return sp.WindowFromHandle(ptr);
+  }catch(_){ return null; }
+}
+
+function bumpTopMost(frm){
+  try{
+    if (!frm || frm.IsDisposed) return;
+    frm.TopMost = false; frm.TopMost = true;
+  }catch(_){}
+}
+
+function forceTopMost(frm){
+  try{
+    if (!frm || frm.IsDisposed) return;
+    var h = host.cast(clr.System.IntPtr, frm.Handle);
+    WinZ.SetWindowPos(
+      h, WinZ.HWND_TOPMOST,
+      0, 0, 0, 0,
+      WinZ.SWP_NOMOVE | WinZ.SWP_NOSIZE | WinZ.SWP_NOACTIVATE | WinZ.SWP_SHOWWINDOW | WinZ.SWP_NOSENDCHANGING
+    );
+  }catch(_){}
+}
+
+function ensureOverlayTop(){
+  if (OVERLAY && !OVERLAY.IsDisposed && OVERLAY.Visible){
+    bumpTopMost(OVERLAY);
+    forceTopMost(OVERLAY);
+  }
+}
+var LAST_HWND  = 0;
+var LAST_RECT  = null;
+var LAST_APP   = null;
+var ACTIVE_APP = null;  
+var OVERLAY    = null;
+var MOVE_IN_PROGRESS = false;
+
+var PERSIST_PANELS = false; 
+var COLORED_PANELS = false;  // Different colors for panels (True/False)
+
+// Function for obtaining panel color
+function getPanelColor(panelId) {
+  if (!COLORED_PANELS) return Drawing.Brushes.Black;
+  
+  // We extract the number of the panel from ID
+  var match = /^p(\d+)(?:_\d+)?$/.exec(panelId);
+  if (!match) return Drawing.Brushes.Black;
+  
+  var panelNum = parseInt(match[1], 10);
+  
+  // Color palette for panels
+  var colors = [
+    Drawing.Brushes.Red,           // p1 - Red
+    Drawing.Brushes.Blue,          // p2 - Blue
+    Drawing.Brushes.Green,         // p3 - Green
+    Drawing.Brushes.Orange,        // p4 - Orange
+    Drawing.Brushes.Purple,        // p5 - Purple
+    Drawing.Brushes.Yellow,        // p6 - Yellow
+    Drawing.Brushes.Cyan,          // p7 - Cyan
+    Drawing.Brushes.Magenta,       // p8 - Magenta
+    Drawing.Brushes.Lime,          // p9 - Lime
+    Drawing.Brushes.Pink,          // p10 - Pink
+    Drawing.Brushes.Gold,          // p11 - Gold
+    Drawing.Brushes.Silver,        // p12 - Silver
+    Drawing.Brushes.Turquoise,     // p13 - Turquoise
+    Drawing.Brushes.Coral,         // p14 - Coral
+    Drawing.Brushes.Indigo,        // p15 - Indigo
+    Drawing.Brushes.Violet         // p16 - Violet 
+  ];
+  
+  return colors[(panelNum - 1) % colors.length] || Drawing.Brushes.Black;
+}
+
+// === OVERLAY-ONLY ===
+var OPEN_IDS = new Set();       // which ID are now "open" on overwhelming
+var OWNER_BY_ID = new Map();    // id -> appId ("_global" Or specificexe)
+
+var BASE_DIR   = Forms.Application.StartupPath;
+var STATE_FILE = IO.Path.Combine(BASE_DIR, "panels_state.json");
+
+var clickMode = 1; 
+var globalClickMode = 1; // Default click mode for global mode
+
+var BTN_BY_KEY = new Map(); 
+var REL = new Map();   // key: gKey(appId, panelId) -> {dx, dy} 
+var CHAIN = new Map(); // "p1" -> ["p1_1","p1_2",...]
+var HOVER_RETURN = new Map(); 
+
+var POS   = new Map(); // id → {x,y}
+var REG   = new Map(); // id → {frm, menuItems}
+
+var FORM_APP = new Map(); 
+var APP_CLICK = new Map(); 
+var PANEL_DELAY = new Map();
+var TITLE_SCOPES = new Map(); 
+var AB_ENABLED = new Map();  
+var IGNORE_CLICKS_BY_APP = new Map();     // Ignore clicks for a specific exe
+
+// --- pin/freeze (Do not jump) ---
+var FREEZE_BY_APP = new Map();        
+var LOCKED_BASE_BY_APP = new Map();   
+var LAST_TOP_BY_APP = new Map(); 
+
+var TOGGLE = new Map(); 
+var TOGGLE_IDX = new Map();
+
+// Temporary "freeze" for the lifetime of the form.
+// holds the counter of the forms; If there was no frieze to the form, we will remove it when closing the last form.
+var TEMP_FRZ = new Map(); // appId -> { forms:Set<Form>, was:boolean }
+
+var USE_GLOBAL_CLICK = false;
+
+var INHERIT_EXE_CHAINS_TO_TITLE = true; 
+var AUTO_SEED_TITLE_FROM_OPEN = true; 
+
+var IS_MULTI_CAPTURE = false;
+var NO_MOVE_PANELS   = false;
+var IS_CHAIN_PLAYING = false;
+var PANELS_INACTIVE_AFTER_RESET = false;  // The panels are inactive after reset
+
+var __overlayDragging = false;
+var __regionSuspended = false;
+
+function suspendOverlayRegion(on){
+  var frm = OVERLAY;
+  if (!frm || frm.IsDisposed) return;
+  if (on) {
+    try {
+      var old = frm.Region;
+      frm.Region = null;       
+      if (old) old.Dispose(); 
+    } catch(_){}
+    __regionSuspended = true;
+  } else {
+    __regionSuspended = false;
+    rebuildOverlayRegion();   
+  }
+}
+if (typeof globalThis.__batch !== 'number') globalThis.__batch = 0;
+
+function batchUpdate(fn){
+  globalThis.__batch++;
+  try { fn(); }
+  finally {
+    globalThis.__batch--;
+    if (globalThis.__batch === 0){
+      rebuildOverlayRegion();
+      if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Invalidate();
+      // We copy several batches in one conservation
+      requestSave();
+    }
+  }
+}
+var AUTO_PAD_X = 0;               
+var AUTO_PAD_Y = 0;    
+
+var __RUNNING = false;
+try {
+  var __th = sp.GetStoredObject("PAN_UI_THREAD");
+  __RUNNING = !!(__th && __th.IsAlive);
+} catch(_){}
+
+function panelLabel(id){
+  // "p1_2" -> We are looking for a description; If not, we build "1.2"
+  var def = PANELS.find(p=>p.id===id);
+  if (def && def.text) return def.text;
+
+  if (id.indexOf('_')>0) {
+    var root = id.split('_')[0];  // p1
+    var n    = parseInt(id.split('_')[1],10)||1;
+    return root.slice(1) + "." + n; // "1.2"
+  }
+  return id.replace(/^p/,""); // "p3" -> "3"
+}
+function setPanelText(panelId, newText){
+  var def = PANELS.find(p=>p.id===panelId);
+  if (!def) return;
+  if (def.text === newText) return;
+  def.text = newText;
+  invalidatePanelSize(panelId);
+  invalidatePanelRect(ownerOf(panelId), panelId);
+}
+function ownerOf(id){
+  return overlayState.getOwner(id, USE_GLOBAL_CLICK ? "_global" : (ACTIVE_APP || getActiveAppId()));
+}
+var STR_FMT = (function(){
+  var f = new Drawing.StringFormat();
+  f.Alignment = Drawing.StringAlignment.Center;
+  f.LineAlignment = Drawing.StringAlignment.Center;
+  return f;
+})();
+
+var PANEL_RECT_CACHE = new Map(); // key composed of appId|panelId|hwndId
+var PANEL_SIZE_CACHE = new Map(); // key: panelId -> {w,h,label}
+function _sizeCacheKey(panelId){ return panelId || ""; }
+function _rectCacheKey(appId, panelId, baseWnd){
+  var id64 = baseWnd ? HANDLE.id64(baseWnd) : 0;
+  return appId + "|" + panelId + "|" + id64;
+}
+function invalidatePanelSize(panelId){
+  try { PANEL_SIZE_CACHE.delete(_sizeCacheKey(panelId)); } catch(_){ }
+}
+function invalidatePanelRect(appId, panelId){
+  try {
+    var prefix = appId + "|" + panelId + "|";
+    for (const key of PANEL_RECT_CACHE.keys()) {
+      if (key.indexOf(prefix) === 0) PANEL_RECT_CACHE.delete(key);
+    }
+  } catch(_){ }
+}
+
+function _getPanelSize(panelId){
+  var key = _sizeCacheKey(panelId);
+  var cached = PANEL_SIZE_CACHE.get(key);
+  if (cached) return cached;
+  try {
+    var lbl = panelLabel(panelId); // "3", "3.3", "1.2" и т.п.
+    var s   = Forms.TextRenderer.MeasureText(lbl, globalThis.UI_FONT);
+    var w   = Math.max(PANEL_DEF_SIZE.w, s.Width  + AUTO_PAD_X);
+    var h   = Math.max(PANEL_DEF_SIZE.h, s.Height + AUTO_PAD_Y);
+    var info = { w:w, h:h, label: lbl };
+    PANEL_SIZE_CACHE.set(key, info);
+    return info;
+  } catch(_) {
+    return { w:PANEL_DEF_SIZE.w, h:PANEL_DEF_SIZE.h, label: panelLabel(panelId) };
+  }
+}
+
+function rebuildOverlayRegion(){
+  var frm = OVERLAY;
+  if (!frm || frm.IsDisposed || __overlayDragging) return;
+
+  var newR = new Drawing.Region(new Drawing.Rectangle(0,0,0,0));
+  for (const id of OPEN_IDS) {
+    var owner = ownerOf(id);
+    var base  = isGlobalApp(owner) ? null : currentTopWndForApp(owner);
+    var rc    = panelRect(owner, id, base);
+    newR.Union(new Drawing.Rectangle(rc.x, rc.y, rc.w, rc.h));
+  }
+
+  var old = null;
+  try {
+    old = frm.Region;
+    frm.Region = newR;
+  } finally {
+    try { if (old) old.Dispose(); } catch(_){}
+  }
+}
+// Calculate the rectangle of the panel taking into account REL/POS and base
+function panelRect(appId, panelId, baseWnd){
+  var cacheKey = _rectCacheKey(appId, panelId, baseWnd);
+  var cached = PANEL_RECT_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  const kScoped = isGlobalApp(appId) ? null : gKey(appId, panelId, baseWnd);
+  const kApp    = isGlobalApp(appId) ? null : (appId + ":" + panelId);
+
+  const rel = kScoped && REL.get(kScoped) || (!isGlobalApp(appId) && REL.get(kApp)) || null;
+  const pos = kScoped && POS.get(kScoped)|| (!isGlobalApp(appId) && POS.get(kApp)) || (isGlobalApp(appId) ? POS.get(panelId) : null);
+ 
+  const S = _getPanelSize(panelId);
+
+  var result;
+  if (rel && baseWnd && baseWnd.Location) {
+    result = { x: baseWnd.Location.X + rel.dx, y: baseWnd.Location.Y + rel.dy, w:S.w, h:S.h };
+  } else if (pos) {
+    result = { x: pos.x, y: pos.y, w: pos.w || S.w, h: pos.h || S.h };
+  } else {
+    const def = PANELS.find(p=>p.id===panelId);
+    const dx = def?def.dx:0, dy=def?def.dy:0;
+    const b = Forms.Screen.PrimaryScreen.Bounds;
+    const baseX = (baseWnd && baseWnd.Location ? baseWnd.Location.X : Math.round((b.Width - S.w)/2));
+    const baseY = (baseWnd && baseWnd.Location ? baseWnd.Location.Y : Math.round((b.Height - S.h)/2));
+    result = { x: baseX + dx, y: baseY + dy, w:S.w, h:S.h };
+  }
+  PANEL_RECT_CACHE.set(cacheKey, result);
+  return result;
+}
+
+// Update POS/REL for ID in the current Scope
+function setPanelPos(appId, panelId, x, y, baseWnd){
+  if (isGlobalApp(appId)) {
+    overlayState.setPos(panelId, { x:x, y:y });
+    PANEL_RECT_CACHE.delete(_rectCacheKey(appId, panelId, null));
+    return;
+  }
+  const kScoped = gKey(appId, panelId, baseWnd, 1) || gKey(appId, panelId, baseWnd) || (appId+":"+panelId);
+  overlayState.setPos(kScoped, { x:x, y:y });
+  invalidatePanelRect(appId, panelId);
+  if (baseWnd && baseWnd.Location) {
+    var bx = baseWnd.Location.X;
+    var by = baseWnd.Location.Y;
+    if (Math.abs(bx) > 10000 || Math.abs(by) > 10000) {
+      if (LOG_ON1) log("[WARN] skip REL update (base off-screen) " + panelId + " bx=" + bx + " by=" + by);
+      return;
+    }
+    overlayState.setRel(kScoped, { dx: x - bx, dy: y - by });
+    invalidatePanelRect(appId, panelId);
+  }
+}
+function followBaseWindow(baseWnd){
+  try { stopFollow(); } catch(_){ }
+  try {
+    if (!baseWnd) return;
+    var basePtr = HANDLE.ptr(baseWnd);
+    if (basePtr && basePtr.ToInt64()) startFollow(basePtr);
+  } catch(_){ }
+}
+function freezePanelsForApp(appId, baseWnd){
+  if (!appId) return;
+  FREEZE_BY_APP.set(appId, true);
+  if (baseWnd) setLockedBaseApp(appId, baseWnd);
+  requestSave();
+  syncOverlay(appId, baseWnd);
+}
+function unfreezePanelsForApp(appId){
+  if (!appId) return;
+  FREEZE_BY_APP.delete(appId);
+  LOCKED_BASE_BY_APP.delete(appId);
+  requestSave();
+  syncOverlay(appId, null);
+}
+// general UI-font
+if (!globalThis.UI_FONT)
+  globalThis.UI_FONT = new Drawing.Font("Segoe UI", 10, Drawing.FontStyle.Bold);
+
+function AutoFreezeForForm(appId, baseWnd, frm, setNow){
+  try{
+    if (!appId || USE_GLOBAL_CLICK || !frm || frm.IsDisposed) return;
+
+    let st = TEMP_FRZ.get(appId);
+    if (!st){
+      st = { forms: new Set(), was: !!FREEZE_BY_APP.get(appId) };
+      TEMP_FRZ.set(appId, st);
+    }
+    st.forms.add(frm);
+
+    // by default we turn on the freeze immediately; Send Setnow = FALSE if you want
+    // only "get attached" to the form.
+    if (setNow !== false){
+      freezePanelsForApp(appId, baseWnd);
+    }
+    var off = function(){
+      try{
+        const s = TEMP_FRZ.get(appId);
+        if (s) s.forms.delete(frm);
+        const empty = !s || s.forms.size === 0;
+
+        if (empty){
+          TEMP_FRZ.delete(appId);
+          // If there was no frieze form before the opening of the form, we take it off
+          if (!s || !s.was){
+            unfreezePanelsForApp(appId);
+          }
+        }
+      }catch(e){ sp.ConsoleError("[AutoFreezeForForm.off] " + e.message); }
+
+      try { frm.FormClosed.disconnect(off); } catch(_){}
+      try { frm.Disposed.disconnect(off); } catch(_){}
+    };
+
+    frm.FormClosed.connect(off);
+    frm.Disposed.connect(off);
+  }catch(e){
+    sp.ConsoleError("[AutoFreezeForForm] " + e.message);
+  }
+}
+// ---- DEBUG formatters (For log) ----
+function _ptStr(p){ if(!p) return "<null>"; var X=p.X??p.x, Y=p.Y??p.y; return "(" + X + "," + Y + ")"; }
+function _szStr(s){ if(!s) return "<null>"; var W=s.Width??s.w, H=s.Height??s.h; return "[" + W + "x" + H + "]"; }
+function _rectStr(r){ if(!r) return "<null>"; return "{L="+r.left+",T="+r.top+",R="+r.right+",B="+r.bottom+"}"; }
+function _wndStr(w){
+  if(!w) return "<null>";
+  var exe="",title="",loc=null,hw="";
+  try{ exe=(w.ExecutableName||"").toLowerCase(); }catch(_){}
+  try{ title=(w.Title||"").trim(); }catch(_){}
+  try{ loc=w.Location; }catch(_){}
+  try{ hw=hwndHex(w.Handle||w); }catch(_){}
+  return 'exe='+exe+' title="'+title+'" hwnd='+hw+' loc='+_ptStr(loc);
+}
+function scopeModeFor(appId){
+  if (USE_GLOBAL_CLICK) return 0;     
+  var fw = sp.ForegroundWindow();
+  return titleMatches(appId, fw) ? 1 : 0;  // 1 = Title-scope only when coincided
+}
+function getHoverReturn(key){
+  // by default True, if there is no record
+  return HOVER_RETURN.has(key) ? !!HOVER_RETURN.get(key) : true;
+}
+function togglePanels() {
+if (LOG_ON1) log("[HOTKEY] togglePanels fired");
+
+  var th = null;
+  try { th = sp.GetStoredObject("PAN_UI_THREAD"); } catch(_){}
+  var overlayVisible = !!(OVERLAY && !OVERLAY.IsDisposed && OVERLAY.Visible);
+
+      if ((th && th.IsAlive) || overlayVisible) {
+    // Turn off completely
+    closeAllPanels();       // Inside will cause shutdownUiThread()
+  } else {
+    // Turn on again - We activate the panels when opening
+    PANELS_INACTIVE_AFTER_RESET = false;
+    startUiThread();
+  }
+}
+function openOverlayNow(baseWndOpt, forcedAppId){
+  var fw    = sp.ForegroundWindow();
+  var fwExe = "";
+  try { fwExe = (fw && (fw.ExecutableName||"")).toLowerCase(); } catch(_){}
+  var ourFW = false;
+  try { ourFW = isOurPanelHwnd(fw && fw.Handle) || fwExe === "strokesplus.net.exe"; } catch(_){}
+
+    // If the focus is not our overlays and this is a living exe, we will update Active_App
+    // Important: with a forced update of the owner, do not touch Active_App
+  if (!forcedAppId) {
+    if (!ourFW && fwExe) ACTIVE_APP = fwExe;
+  }
+
+  var appForPick = USE_GLOBAL_CLICK ? "" : (forcedAppId || ACTIVE_APP || getActiveAppId());
+
+  var firstHostWnd = USE_GLOBAL_CLICK
+    ? null
+    : (baseWndOpt || baseWndForApp(appForPick) || (ourFW ? LAST_TOP_BY_APP.get(appForPick) : fw));
+
+  var modeNow = USE_GLOBAL_CLICK
+    ? 0
+    : ((baseWndOpt && titleMatches(appForPick, baseWndOpt)) ? 1 : scopeModeFor(appForPick));
+
+  var scopeIdNow = USE_GLOBAL_CLICK ? null : gScopeId(firstHostWnd, appForPick, 1);
+
+  // Choose which panels to show (taking into account Scope)
+  const defs = pickPanelDefsFor(appForPick, modeNow, DEFAULT_PANELS, scopeIdNow);
+
+  // We set the positions of the squares
+  OPEN_IDS.clear();
+  for (const def of defs) {
+    var owner = USE_GLOBAL_CLICK ? "_global" : (forcedAppId || appForPick);
+    var base  = isGlobalApp(owner) ? null : firstHostWnd;
+    var rc    = panelRect(owner, def.id, base);
+    overlayState.addPanel(owner, def.id, {
+      x: rc.x,
+      y: rc.y,
+      baseWnd: base
+    });
+  }
+  // Show/update overwhelming without interception of the focus if it does not yet see
+  ensureOverlay();
+  if (OVERLAY && !OVERLAY.IsDisposed) {
+    rebuildOverlayRegion();
+    if (!OVERLAY.Visible) showNoAct(OVERLAY);  
+    OVERLAY.Invalidate();
+    ensureOverlayTop();  
+  }
+}
+function refreshOverlayFor(appId){
+  try{
+    var base = USE_GLOBAL_CLICK
+      ? null
+      : (currentTopWndForApp(appId)
+         || baseWndForApp(appId)
+         || guessBaseFromPanels(appId)
+         || sp.ForegroundWindow());
+
+    if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = false;
+
+    openOverlayNow(base, appId); // We reopard the desired Appid, do not touch Active_App
+    rebuildOverlayRegion();
+
+    if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = true;
+    ensureOverlayTop();   
+    // Restart follow so that REL is updated when the window moves
+    try {
+      stopFollow();
+      var basePtr = HANDLE.ptr(base);
+      if (basePtr && basePtr.ToInt64()) startFollow(basePtr);
+    } catch(_){ }
+  } catch(_){}
+}
+function isOurPanelHwnd(raw){
+  try{
+    var ip = HANDLE.ptr(raw);
+
+    if (OVERLAY && !OVERLAY.IsDisposed) {
+      var oh = host.cast(clr.System.IntPtr, OVERLAY.Handle);
+      if (ip.Equals(oh)) return true;
+    }
+  }catch(_){ }
+  return false;
+}
+function dbgBase(appId, baseWnd, ctx){
+  try{
+    var ex="", ti="", scT=gScopeId(baseWnd, appId, 1), scH=gScopeId(baseWnd, appId, 2);
+    try{ ex=(baseWnd && (baseWnd.ExecutableName||"")).toLowerCase(); }catch(_){}
+    try{ ti=(baseWnd && (baseWnd.Title||"")).trim(); }catch(_){}
+    if (LOG_ON1) log(`[DBG.${ctx}] app=${appId} baseExe=${ex} title="${ti}" scT=${scT||'-'} scH=${scH||'-'}`);
+  }catch(_){}
+}
+function registerToggleHotkey() {
+  // Do not duplicate
+  var hkExisting = sp.GetStoredObject("HOTKEY_UI");
+  if (hkExisting) {
+    if (LOG_ON1) log("[HOTKEY] already registered");
+    return;
+  }
+  // Modifiers
+  let modMask = (hotkeyAlt   ? 0x0001 : 0)
+              | (hotkeyCtrl  ? 0x0002 : 0)
+              | (hotkeyShift ? 0x0004 : 0);
+  const VK = host.cast(clr.System.UInt32, hotkeyKey);
+  try {
+    const hk = new HotKeyHost();
+    const id = hk.Add(
+      host.cast(clr.System.UInt32, modMask),
+      VK,
+      host.del(clr.System.Action, togglePanels)
+    );
+    // Store the host and ID itself
+    sp.StoreObject("HOTKEY_UI", hk);
+    sp.StoreObject("HOTKEY_UI_ID", id);
+
+    if (LOG_ON1) log(`[HOTKEY] id=${id} mod=0x${modMask.toString(16)} key=${hotkeyKey.ToString()}`);
+  } catch (e) {
+    sp.ConsoleError("[HOTKEY] registration failed: " + e.message);
+  }
+}
+function unregisterToggleHotkey() {
+  try {
+    var hk = sp.GetStoredObject("HOTKEY_UI");
+    var id = sp.GetStoredObject("HOTKEY_UI_ID");
+    if (hk && id != null && hk.Remove) hk.Remove(id);
+    if (hk && hk.Dispose) hk.Dispose();
+  } catch(_) {}
+  try { sp.DeleteStoredObject("HOTKEY_UI"); } catch(_) {}
+  try { sp.DeleteStoredObject("HOTKEY_UI_ID"); } catch(_) {}
+}
+function registerToggleHotkeyOnThisThread(storeSuffix) {
+  let modMask = (hotkeyAlt?1:0) | (hotkeyCtrl?2:0) | (hotkeyShift?4:0);
+  const VK = host.cast(clr.System.UInt32, hotkeyKey);
+  const hk = new HotKeyHost();
+  const id = hk.Add(
+    host.cast(clr.System.UInt32, modMask),
+    VK,
+    host.del(clr.System.Action, togglePanels)
+  );
+  sp.StoreObject("HOTKEY_UI"+(storeSuffix?("_"+storeSuffix):""), hk);
+  sp.StoreObject("HOTKEY_UI_ID"+(storeSuffix?("_"+storeSuffix):""), id);
+}
+function withModsTempUp(action, opts){
+  const restore = !!(opts && opts.restore);
+  const mods = [vk.LSHIFT, vk.RSHIFT, vk.LCONTROL, vk.RCONTROL, vk.LMENU, vk.RMENU];
+  const released = [];
+  mods.forEach(k => { if (sp.IsKeyDown(k)) { sp.SendVKeyUp(k); released.push(k); } });
+  let res = false;
+  try { res = !!action(); }
+  finally {
+    if (restore) released.forEach(k => { try{ sp.SendVKeyDown(k); }catch(_){ } });
+  }
+  return res;
+}
+function shouldStartFollow() {
+  // Follow is needed only when the window is dragging
+  return !(USE_GLOBAL_CLICK || IS_MULTI_CAPTURE || NO_MOVE_PANELS);
+}
+function topWndForScope(rawHwnd){
+  return sp.ForegroundWindow();
+}
+function _scopePrefix(appId, baseWndOpt){
+  if (USE_GLOBAL_CLICK) return "";
+  // If we were given BaseWndOpt and it coincides with the heading-we force title-scope
+  if (baseWndOpt) {
+    var frag = titleMatches(appId, baseWndOpt);
+    if (frag) return appId + ":t:" + frag;
+  }
+  // Otherwise, as before
+  var mode = scopeModeFor(appId);
+  if (mode === 1 || mode === 2) {
+    var sid = gScopeId(baseWndOpt || sp.ForegroundWindow(), appId, mode);
+    if (sid) return appId + ":" + sid;
+  }
+  return appId;
+}
+function _sameExe(w, appId){
+  try { return !!w && ((w.ExecutableName||"").toLowerCase() === (appId||"").toLowerCase()); }
+  catch(_){ return false; }
+}
+function _topLevelOf(w){
+  if (!w) return null;
+  try { return (w.FirstMoveableParent || w.RootWindow || w) || null; } catch(_){ return w; }
+}
+function baseWndForApp(appId){
+  // 0) If there is already assigned and alive, we will return it
+  try {
+    var locked = getLockedBaseApp(appId);
+    if (locked && _sameExe(locked, appId)) return locked;
+  } catch(_){}
+
+  // 1) Foreground
+  var fw = sp.ForegroundWindow();
+  var cand = _topLevelOf(fw);
+  if (_sameExe(cand, appId)) return cand;
+
+  // 2) The last famous Top-Level from Khukov
+  var known = LAST_TOP_BY_APP.get(appId);
+  if (_sameExe(known, appId)) return known;
+
+  return null;
+}
+
+function guessBaseFromPanels(appId){
+  var pts = [];
+  for (const [panelId, rec] of REG){
+    var frm = rec && rec.frm;
+    if (!frm || frm.IsDisposed) continue;
+    if ((FORM_APP.get(frm)||getActiveAppId()) !== appId) continue;
+    var rel = REL.get(appId + ":" + panelId);
+    if (!rel) continue;
+    pts.push({ x: frm.Location.X - rel.dx, y: frm.Location.Y - rel.dy });
+  }
+  if (!pts.length) return null;
+  var sx=0, sy=0; for (const pt of pts){ sx+=pt.x; sy+=pt.y; }
+  var avgX = Math.round(sx/pts.length), avgY = Math.round(sy/pts.length);
+  return { Location: new Drawing.Point(avgX, avgY), Size: new Drawing.Size(0,0) };
+}
+function gScopeId(baseWnd, appId, forceMode){
+  return ScopeKey.makeScopeId(appId, baseWnd, forceMode);
+}
+
+function isGlobalApp(appId){
+  return USE_GLOBAL_CLICK || appId === "_global" || !appId;
+}
+
+function getTitleList(appId){
+  var arr = TITLE_SCOPES.get(appId);
+  return Array.isArray(arr) ? arr.slice() : [];
+}
+function setTitleList(appId, arr){
+  TITLE_SCOPES.set(appId, (arr||[]).filter(s => typeof s === "string" && s.trim().length>0));
+}
+function titleMatches(appId, wnd){
+  try {
+    var t = (wnd && (wnd.Title || "")).trim();
+    if (!t) return null;
+    var lo = t.toLowerCase();
+
+    var list = TITLE_SCOPES.get(appId);
+    if (!list || !list.length) return null;
+
+    var best = null, bestLen = -1, bestIdx = 1e9;
+
+    for (let i = 0; i < list.length; i++){
+      const p = list[i];
+      var trimmed = (p || "").trim();
+      if (!trimmed) continue;
+
+      var pl = trimmed.toLowerCase();
+
+      // 1) If the fragment is evenly equal to the entire heading, we immediately give it
+      if (lo === pl) return trimmed;
+
+      // 2) the usual "contains", but select the longest
+      var pos = lo.indexOf(pl);
+      if (pos >= 0){
+        var len = trimmed.length;
+        if (len > bestLen || (len === bestLen && i < bestIdx)) {
+          best = trimmed; bestLen = len; bestIdx = i;
+        }
+      }
+    }
+    return best;
+  } catch(_){}
+  return null;
+}
+
+function setPanelsVisible(appId, visible){
+  try { if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = !!visible; } catch(_){}
+}
+function gKey(appId, panelId, baseWnd, forceMode){
+  return ScopeKey.makePanelKey(appId, panelId, baseWnd, forceMode);
+}
+function chainKey(appId, rootId, baseWndOpt){
+  return ScopeKey.makeChainKey(appId, rootId, baseWndOpt);
+}
+
+function chainGroupIds(appId, anyId, baseWndOpt){
+  var root = (""+anyId).split("_")[0];           // p1_2 → p1
+  var ck = chainKey(appId, root, baseWndOpt);     // Accounting the current SCOPE
+  var seq = CHAIN.get(ck) || [];
+  var seen = {}; var out = [];
+  [root].concat(seq).forEach(function(id){
+    if (!seen[id]) { seen[id] = 1; out.push(id); }
+  });
+  return out;
+}
+
+function chainSetSafe(key, arr){
+  // Completely cut off any keys with: h:
+  if (typeof key === "string" && key.indexOf(":h:") >= 0) {
+    // Let's try to drop it to the level of EXE (App: Root)
+    try {
+      var parts = key.split(":"); // We expect App, H, Hex, Root
+      if (parts.length >= 4) key = parts[0] + ":" + parts[3];
+      else return; //If the format is unexpected, we just don't write
+    } catch(_) { return; }
+  }
+  CHAIN.set(key, Array.isArray(arr) ? arr.slice() : []);
+}
+
+function __toggleOn(appOwner, rootId, baseWnd){
+  if (USE_GLOBAL_CLICK || appOwner === "_global") return !!TOGGLE.get(rootId);
+  var sc = gScopeId(baseWnd, appOwner, 1); 
+  var k  = sc ? (appOwner + ":" + sc + ":" + rootId) : (appOwner + ":" + rootId);
+  return !!TOGGLE.get(k);
+}
+
+function startFollow(rawHwnd){
+  if (IS_CHAIN_PLAYING) return; 
+  if (!shouldStartFollow()) return;
+  if (isOurPanelHwnd(rawHwnd)) return;
+
+  try {
+    var handleInfo = HANDLE.ptr(rawHwnd);
+    if (!handleInfo || handleInfo.Equals(clr.System.IntPtr.Zero)) return;
+
+    var wnd = sp.WindowFromHandle(handleInfo);
+    if (!wnd) return;
+    var top = _topLevelOf(wnd) || wnd;
+    var topHandle = HANDLE.ptr(top);
+    if (!topHandle || topHandle.Equals(clr.System.IntPtr.Zero)) return;
+
+    var ex = (top && top.ExecutableName || "").toLowerCase();
+    if (!ex || ex === "strokesplus.net.exe") return;
+
+    LAST_HWND = topHandle;
+    LAST_RECT = getWindowRect(top);
+    LAST_APP = ACTIVE_APP || getActiveAppId();
+  } catch(_) {}
+}
+function stopFollow(){
+  LAST_RECT = null;
+  LAST_HWND = 0;
+  LAST_APP = null;
+  MOVE_IN_PROGRESS = false;
+}
+function getActiveAppId () {
+    const wnd = sp.ForegroundWindow();
+    if (!wnd) return "_unknown";
+
+    try   { return (wnd.ExecutableName || "").toLowerCase(); }
+    catch { return "_unknown"; } 
+}
+function PanelDef(id, text, dx, dy) {
+    this.id   = id;
+    this.text = text;
+    this.dx   = dx;
+    this.dy   = dy;
+}
+PanelDef.prototype.defaultText = function () {
+    return this.text || this.id.slice(1);
+};
+function calcCenteredLocation(idx, count, sz, scr, margin){
+    const totalW = count * sz.w + (count - 1) * margin;
+    const x0     = Math.round((scr.w - totalW) / 2);
+    return {
+        x: x0 + idx * (sz.w + margin),
+        y: Math.round((scr.h - sz.h) / 2)
+    };
+}
+function nextSiblingIdForApp(appId, rootId, baseWndOpt) {
+  var isGlob = (USE_GLOBAL_CLICK || appId === "_global" || !appId);
+  var used = new Set();
+
+  // 1) Employed numbers from a chain
+  var seq = isGlob
+    ? (CHAIN.get(rootId) || [])
+    : (function(){
+         var base = baseWndOpt || currentTopWndForApp(appId);
+         var sc   = gScopeId(base, appId, 1);
+         var ck   = sc ? (appId + ":" + sc + ":" + rootId) : (appId + ":" + rootId);
+         return CHAIN.get(ck) || [];
+       })();
+
+  seq.forEach(function(id){
+    var m = /^.+_(\d+)$/.exec(id);
+    if (m) used.add(parseInt(m[1], 10));
+  });
+
+  // 2) Let's take into account the open panels
+  try {
+    OPEN_IDS.forEach(function(id){
+      if (id.indexOf(rootId + "_") === 0) {
+        var m = /^.+_(\d+)$/.exec(id);
+        if (m) used.add(parseInt(m[1], 10));
+      }
+    });
+  } catch(_) {}
+
+  // 3) only for non-global: we get numbers from POS to the same Scope
+  if (!isGlob) {
+    POS.forEach(function(_, k) {
+      if (typeof k !== "string") return;
+      var base = baseWndOpt || currentTopWndForApp(appId);
+      var sc   = gScopeId(base, appId, 1);
+      if (sc) {
+        if (k.indexOf(appId + ":") === 0 && k.indexOf(":" + sc) > 0) {
+          var child = k.split(":")[1] || "";
+          if (child.indexOf(rootId + "_") === 0) {
+            var m = /^.+_(\d+)$/.exec(child);
+            if (m) used.add(parseInt(m[1], 10));
+          }
+        }
+      } else if (k.indexOf(appId + ":" + rootId + "_") === 0) {
+        var idpart = k.split(":")[1] || "";
+        var m = /^.+_(\d+)$/.exec(idpart);
+        if (m) used.add(parseInt(m[1], 10));
+      }
+    });
+  }
+  var i = 1; while (used.has(i)) i++;
+  return rootId + "_" + i;
+}
+function childLabel(parentId, n) {
+    var base = parentId.slice(1);   // "p1" -> "1"
+    return base + "." + n;          // "1.1", "1.2", ...
+}
+function getDelayForPanel(appId, panelId, baseWnd){
+  var kScoped = gKey(appId, panelId, baseWnd);
+  var kApp    = appId + ":" + panelId;
+
+  if (PANEL_DELAY.has(kScoped)) return PANEL_DELAY.get(kScoped);
+  if (PANEL_DELAY.has(kApp))    return PANEL_DELAY.get(kApp);
+
+  return (typeof DELAY_CHAIN_MS === "number" ? DELAY_CHAIN_MS : DEFAULT_DELAY_CHAIN_MS);
+}
+function ensureOverlay(){
+  if (OVERLAY && !OVERLAY.IsDisposed) return OVERLAY;
+
+  var frm = new Forms.Form();
+  frm.Name = "PANELS_OVERLAY";
+  frm.FormBorderStyle = Forms.FormBorderStyle.None;
+  frm.ShowInTaskbar   = false;
+  frm.TopMost         = true;
+  frm.StartPosition   = Forms.FormStartPosition.Manual;
+
+  var b = Forms.Screen.PrimaryScreen.Bounds;
+  frm.Bounds = b;
+
+  frm.BackColor       = Drawing.Color.Magenta;
+  frm.TransparencyKey = frm.BackColor;
+  try { frm.DoubleBuffered = false; } catch(_){}
+
+  function listOpen(){ return Array.from(OPEN_IDS); }
+  function rectById(id){
+    var owner = ownerOf(id);
+    var base  = isGlobalApp(owner) ? null : currentTopWndForApp(owner);
+    return panelRect(owner, id, base);
+  }
+  function idAt(pt){
+    var ids = listOpen();
+    for (var i=ids.length-1;i>=0;i--){ 
+      var id = ids[i], r = rectById(id);
+      if (pt.X >= r.x && pt.X < r.x+r.w && pt.Y >= r.y && pt.Y < r.y+r.h) return id;
+    }
+    return null;
+  }
+  frm.Paint.connect(function(_, e){
+  var g = e.Graphics;
+  try { g.Clear(OVERLAY.BackColor); } catch(_){}
+
+  var pen   = Drawing.Pens.White;
+  var ftxt  = Drawing.Brushes.White;
+
+  var baseCache = new Map();
+  function baseForOwner(owner){
+    if (baseCache.has(owner)) return baseCache.get(owner);
+    var b = isGlobalApp(owner) ? null : currentTopWndForApp(owner);
+    baseCache.set(owner, b);
+    return b;
+  }
+  var ids = Array.from(OPEN_IDS);
+  for (const id of ids) {
+    var owner = OWNER_BY_ID.get(id) || (USE_GLOBAL_CLICK ? "_global" : (ACTIVE_APP || getActiveAppId()));
+
+    var rc = (__overlayDragging && id === dragId && dragRect)
+      ? dragRect
+      : (function(){
+          var b = baseForOwner(owner);
+          return panelRect(owner, id, b);
+        })();
+
+    var rect = new Drawing.Rectangle(rc.x, rc.y, rc.w, rc.h);
+    var brush = getPanelColor(id);
+    g.FillRectangle(brush, rect);
+    g.DrawRectangle(pen, rect.X, rect.Y, rect.Width-1, rect.Height-1);
+    var label = panelLabel(id);
+    g.DrawString(label, globalThis.UI_FONT, ftxt,
+      new Drawing.RectangleF(rect.X, rect.Y, rect.Width, rect.Height), STR_FMT);
+  }
+});
+  // drag 
+var dragId=null, dragStart=null, dragRect=null, dragOrigRect=null;
+var dragOwner=null, dragBase=null;
+
+frm.MouseDown.connect(function(_, e){
+  if (e.Button !== Forms.MouseButtons.Left) return;
+  var pt = new Drawing.Point(e.X, e.Y);
+  dragId = idAt(pt);
+  if (!dragId) return;
+
+  __overlayDragging = true;
+  dragStart    = new Drawing.Point(e.X, e.Y);
+  dragOrigRect = rectById(dragId);
+  dragRect     = { x: dragOrigRect.x, y: dragOrigRect.y, w: dragOrigRect.w, h: dragOrigRect.h };
+
+  dragOwner = OWNER_BY_ID.get(dragId) || (USE_GLOBAL_CLICK ? "_global" : (ACTIVE_APP || getActiveAppId()));
+  dragBase  = isGlobalApp(dragOwner) ? null : currentTopWndForApp(dragOwner);
+
+  try { var old = frm.Region; frm.Region = null; if (old) old.Dispose(); } catch(_){}
+});
+
+frm.MouseMove.connect(function(_, e){
+  if (!dragId) return;
+
+  var oldRect = new Drawing.Rectangle(dragRect.x, dragRect.y, dragRect.w, dragRect.h);
+
+  var dx = e.X - dragStart.X;
+  var dy = e.Y - dragStart.Y;
+
+  var nx = dragOrigRect.x + dx;
+  var ny = dragOrigRect.y + dy;
+
+setPanelPos(dragOwner, dragId, nx, ny, dragBase);
+
+  dragRect.x = nx; dragRect.y = ny;
+  var newRect = new Drawing.Rectangle(nx, ny, dragRect.w, dragRect.h);
+  var union   = Drawing.Rectangle.Union(oldRect, newRect);
+  try { frm.Invalidate(union, true); } catch(_){}
+});
+
+frm.MouseUp.connect(function(_, e){
+  if (e.Button === Forms.MouseButtons.Left) {
+  dragId = null; dragStart = null; dragRect = null; dragOrigRect = null;
+  dragOwner = null; dragBase = null; 
+  __overlayDragging = false;
+  //  Panels activated after move
+  if (PANELS_INACTIVE_AFTER_RESET) {
+    PANELS_INACTIVE_AFTER_RESET = false;
+    if (LOG_ON1) log("[DRAG] Panels activated after move");
+  }
+  requestSave();
+  rebuildOverlayRegion();
+  if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Invalidate();
+  return;
+}
+  if (e.Button === Forms.MouseButtons.Right) {
+    var pt = new Drawing.Point(e.X, e.Y);
+    var id = idAt(pt);
+    if (id) {
+      var owner = ownerOf(id);
+      var def = PANELS.find(p=>p.id===id) || {id:id,text:id.replace(/^p/,""),dx:0,dy:0};
+      var cms = buildContextMenuForPanelOverlay(def, owner);
+      cms.Show(frm.PointToScreen(pt));
+    }
+  }
+});
+  OVERLAY = frm;
+  showNoAct(frm);
+  ensureOverlayTop(); 
+  return frm;
+}
+function buildContextMenuForPanelOverlay(def, appId) {
+var cms = new Forms.ContextMenuStrip();
+
+var miSettings = new Forms.ToolStripMenuItem("Settings");
+var miReset = new Forms.ToolStripMenuItem(USE_GLOBAL_CLICK ? "Reset panels (to default) for GLOBAL mode…" : "Reset panels (to default) for this exe…");
+miReset.Click.connect(function () {
+  resetPanelsToDefaults(USE_GLOBAL_CLICK ? "_global" : appId); // reset for global mode or this exe
+});
+miSettings.DropDownItems.Add(miReset);
+
+// ——— Colored Panels ————
+var miColoredPanels = new Forms.ToolStripMenuItem("Colored panels");
+miColoredPanels.CheckOnClick = true;
+miColoredPanels.Checked = COLORED_PANELS;
+miColoredPanels.Click.connect(function () {
+  COLORED_PANELS = !COLORED_PANELS;
+  requestSave();
+  if (OVERLAY && !OVERLAY.IsDisposed) {
+    OVERLAY.Invalidate();
+  }
+});
+
+miSettings.DropDownItems.Add(miColoredPanels);
+
+// ——— Ignore clicks for this exe ———
+  var miIgnoreClicks = new Forms.ToolStripMenuItem("Ignore clicks for this exe");
+  function syncIgnoreClicks(){ miIgnoreClicks.Checked = !!IGNORE_CLICKS_BY_APP.get(appId); }
+  syncIgnoreClicks();
+  miIgnoreClicks.Click.connect(function(){
+    try{
+      var ignored = !!IGNORE_CLICKS_BY_APP.get(appId);
+      if (!ignored){
+        IGNORE_CLICKS_BY_APP.set(appId, true);
+        if (LOG_ON1) log("[IGNORE] Clicks disabled for " + appId);
+      } else {
+        IGNORE_CLICKS_BY_APP.delete(appId);
+        if (LOG_ON1) log("[IGNORE] Clicks enabled for " + appId);
+      }
+      requestSave();
+      syncIgnoreClicks();
+    }catch(e){ sp.ConsoleError("[IgnoreClicks] "+e.message); }
+  });
+  miIgnoreClicks.Enabled = !USE_GLOBAL_CLICK;
+  miSettings.DropDownItems.Add(miIgnoreClicks);
+
+  // В глобальном режиме — disabled и не clickable
+  miIgnoreClicks.Enabled = !USE_GLOBAL_CLICK;
+
+  // ——— Global regime ————
+  if (!globalThis._MI_GLOBALS) globalThis._MI_GLOBALS = [];
+  function syncAllGlobals(){ globalThis._MI_GLOBALS.forEach(mi => mi.Checked = USE_GLOBAL_CLICK); }
+  var miGlobal = new Forms.ToolStripMenuItem("Global mode");
+  globalThis._MI_GLOBALS.push(miGlobal); syncAllGlobals();
+  miGlobal.Click.connect(function () {
+  // current active window before switching
+  var fw = sp.ForegroundWindow();
+  var fwExe = '';
+  try { fwExe = (fw && (fw.ExecutableName || '')).toLowerCase(); } catch (_) {}
+
+  // Switch once
+  var newVal = !USE_GLOBAL_CLICK;
+  USE_GLOBAL_CLICK = newVal;
+  syncAllGlobals();
+  requestSave();
+
+  // Gray/non -clicked text for "Headings" items
+  miTitleAdd.Enabled    = !newVal;
+  miTitleManage.Enabled = !newVal;
+
+  if (fwExe) ACTIVE_APP = fwExe;
+
+  if (newVal) {
+    // Entrance to global mode
+    clickMode = globalClickMode; // Use saved global click mode
+    try { var cb = sp.GetStoredObject("fgHookCb"); if (cb) ForegroundHook.Stop(cb); } catch (_) {}
+    try { stopFollow(); } catch (_) {}
+
+    if (!globalHasAnyState()) {
+      // First entrance - Scatter P1/P2/P3 in the center
+      seedGlobalDefaultsCentered(DEFAULT_PANELS);
+    }
+    openOverlayNow(null);
+    try { rebuildOverlayRegion(); } catch (_) {}
+  } else {
+    // Exit from the global mode → Return to per-app
+    try {
+      var cb2 = sp.GetStoredObject("fgHookCb");
+      if (cb2) ForegroundHook.Start(cb2);
+    } catch (_) {}
+
+    refreshOverlayFor(ACTIVE_APP);
+  }
+});
+  // ——— Click mode (1/2/3) ———
+  var miClick    = new Forms.ToolStripMenuItem("Click");
+  var miHidden   = new Forms.ToolStripMenuItem("Invisible (SendInput)");
+  var miPost     = new Forms.ToolStripMenuItem("Virtual (PostMessage)");
+
+  var modeApp = USE_GLOBAL_CLICK ? clickMode : (APP_CLICK.get(appId) || 1);
+  miHidden.Checked = (modeApp===1);
+  miPost.Checked   = (modeApp===3);
+
+  miHidden.Click.connect(function(){ 
+    if (USE_GLOBAL_CLICK) {
+      clickMode = 1;
+      globalClickMode = 1;
+    } else {
+      APP_CLICK.set(appId,1);
+    }
+    requestSave(); 
+  });
+  miPost.Click.connect(function(){   
+    if (USE_GLOBAL_CLICK) {
+      clickMode = 3;
+      globalClickMode = 3;
+    } else {
+      APP_CLICK.set(appId,3);
+    }
+    requestSave(); 
+  });
+
+  // ——— Mouse button/Hover and cursor return ———
+  function currKeyForBtn(){
+    if (USE_GLOBAL_CLICK) return def.id;
+    var base = currentTopWndForApp(appId);
+    return gKey(appId, def.id, base, 1) || (appId + ":" + def.id);
+  }
+  var miLeft  = new Forms.ToolStripMenuItem("Left mouse button");
+  var miRight = new Forms.ToolStripMenuItem("Right mouse button");
+  var miHover = new Forms.ToolStripMenuItem("Just hover (no click)");
+  var miHoverReturn = new Forms.ToolStripMenuItem("Return cursor back");
+
+  function syncBtn(){
+    var k = currKeyForBtn();
+    var btn = BTN_BY_KEY.has(k) ? BTN_BY_KEY.get(k) : 0;
+    miLeft.Checked = (btn===0); miRight.Checked=(btn===1); miHover.Checked=(btn===-1);
+    miHoverReturn.Checked = getHoverReturn(k);
+  }
+  syncBtn();
+
+  miLeft.Click.connect(function(){  BTN_BY_KEY.set(currKeyForBtn(),0); requestSave(); });
+  miRight.Click.connect(function(){ BTN_BY_KEY.set(currKeyForBtn(),1); requestSave(); });
+  miHover.Click.connect(function(){ BTN_BY_KEY.set(currKeyForBtn(),-1); requestSave(); });
+  miHoverReturn.Click.connect(function(){
+    var k=currKeyForBtn(); HOVER_RETURN.set(k, !getHoverReturn(k)); requestSave(); syncBtn();
+  });
+
+  // ——— delay ———
+  var miPanelDelay = new Forms.ToolStripMenuItem("");
+  function currentPanelDelayMs(){
+    try{
+      var base = getLockedBaseApp(appId) || currentTopWndForApp(appId);
+      var kScoped = gKey(appId, def.id, base);
+      var kApp = appId + ":" + def.id;
+      if (PANEL_DELAY.has(kScoped)) return PANEL_DELAY.get(kScoped);
+      if (PANEL_DELAY.has(kApp))    return PANEL_DELAY.get(kApp);
+    }catch(_){}
+    return (typeof DELAY_CHAIN_MS === "number" ? DELAY_CHAIN_MS : DEFAULT_DELAY_CHAIN_MS);
+  }
+  function syncPanelDelayLabel(){ miPanelDelay.Text = "Delay after click: " + currentPanelDelayMs() + " ms"; }
+  syncPanelDelayLabel();
+  miPanelDelay.Click.connect(function(){
+    try{
+      var base=getLockedBaseApp(appId)||currentTopWndForApp(appId);
+      var kScoped=gKey(appId,def.id,base);
+      var kApp=appId+":"+def.id;
+      var cur=currentPanelDelayMs();
+      var ib=new InputBoxInfo();
+      ib.Title="Click delay (for panel "+def.text+")";
+      ib.Message="Enter delay in milliseconds (0–10000)";
+      ib.AllowDirectInput=true;
+      ["0","10","20","50","100","150","200","300","500","1000","2000","5000","10000"].forEach(s=>ib.Items.Add(s));
+      ib.SelectedValue=(""+cur);
+      var res=sp.InputBox(ib); if(res==null) return;
+      var n=parseInt(res,10); if(isNaN(n)) return; if(n<0)n=0; if(n>10000)n=10000;
+      if (USE_GLOBAL_CLICK) PANEL_DELAY.set(def.id,n); else PANEL_DELAY.set(kScoped,n);
+      requestSave(); syncPanelDelayLabel();
+    }catch(e){ sp.ConsoleError("[PanelDelay] "+e.message); }
+  });
+
+  miClick.DropDownItems.Add(miHidden);
+  miClick.DropDownItems.Add(miPost);
+  miClick.DropDownItems.Add(new Forms.ToolStripSeparator());
+  miClick.DropDownItems.Add(miLeft);
+  miClick.DropDownItems.Add(miRight);
+  miClick.DropDownItems.Add(miHover);
+  miClick.DropDownItems.Add(new Forms.ToolStripSeparator());
+  miClick.DropDownItems.Add(miHoverReturn);
+  miClick.DropDownItems.Add(new Forms.ToolStripSeparator());
+  miClick.DropDownItems.Add(miPanelDelay);
+
+  // ——— Titles (Add/Manage) ———
+  var miTitleAdd = new Forms.ToolStripMenuItem("Add title fragment…");
+  miTitleAdd.Click.connect(function(){
+  try{
+    var base = baseWndForApp(appId) || guessBaseFromPanels(appId);
+if (!base) {
+  var fw = sp.ForegroundWindow();
+  try {
+    if (fw && (fw.ExecutableName||"").toLowerCase() === (appId||"").toLowerCase()) base = fw;
+  } catch(_){}
+}
+    dbgBase(appId, base, "TitleAdd.begin");
+
+    var curTitle=""; try{ curTitle=(base && (base.Title||"")).trim(); }catch(_){}
+
+    var ib=new InputBoxInfo();
+    ib.Title="Add title fragment";
+    ib.Message="Enter new fragment.";
+    ib.AllowDirectInput=true;
+
+    if (curTitle){ ib.Items.Add(curTitle); ib.SelectedValue=curTitle; }
+    getTitleList(appId).forEach(s=>{ if(s && s!==curTitle) ib.Items.Add(s); });
+
+    var res=sp.InputBox(ib); if(res==null) return;
+    var s=(""+res).trim(); if(!s) { if (LOG_ON1) log("[TitleAdd] Empty line - cancellation"); return; }
+
+    var list=getTitleList(appId);
+    var exists = list.some(x=>(x||"").toLowerCase()===s.toLowerCase());
+    if(!exists){
+      list.push(s); setTitleList(appId, list); requestSave();
+
+// We sit only root pn from EXE to the new Title-Scope
+seedTitleScopeFromOpen(appId, base);
+
+// Switch to this scope and redraw
+try { if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = false; } catch(_){}
+openOverlayNow(base, appId);
+try { rebuildOverlayRegion(); } catch(_){}
+try { if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = true; } catch(_){}
+
+try {
+  ACTIVE_APP = appId;
+  stopFollow();
+  var basePtr = HANDLE.ptr(base);
+  if (basePtr && basePtr.ToInt64()) startFollow(basePtr);
+} catch(_){ }
+      var sc = gScopeId(base, appId, 1); // "t:<frag>"
+      if (LOG_ON1) {
+        var wrote=0;
+        var logMessages = [];
+        for (const panelId of OPEN_IDS) {
+          var k=gKey(appId, panelId, base, 1);
+          if (k){ wrote++; logMessages.push(`[TitleAdd] +POS/REL for ${panelId} @ ${k}`); }
+        }
+        if (logMessages.length > 0) {
+          logMessages.forEach(msg => log(msg));
+        }
+        log(`[TitleAdd] Added "${s}", scope=${sc||'-'}, Panels recorded: ${wrote}`);
+      }
+    } else {
+      if (LOG_ON1) log(`[TitleAdd] "${s}" Already on the list - Seed anyway`);
+
+try { if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = false; } catch(_) {}
+openOverlayNow(base, appId);
+try { rebuildOverlayRegion(); } catch(_) {}
+try { if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = true; } catch(_) {}
+
+try {
+  ACTIVE_APP = appId;
+  stopFollow();
+  var basePtr2 = HANDLE.ptr(base);
+  if (basePtr2 && basePtr2.ToInt64()) startFollow(basePtr2);
+} catch(_){ }
+
+    }
+  }catch(e){ sp.ConsoleError("[TitleAdd] "+e.message); }
+});
+  var miTitleManage = new Forms.ToolStripMenuItem("Titles (Manage)");
+  miTitleManage.DropDownOpening.connect(function(){
+    miTitleManage.DropDownItems.Clear();
+    var list=getTitleList(appId);
+    if (!list.length){ var mi=new Forms.ToolStripMenuItem("(empty list)"); mi.Enabled=false; miTitleManage.DropDownItems.Add(mi); return; }
+    list.forEach(function(titleFrag, idx){
+      var miFrag=new Forms.ToolStripMenuItem('"'+titleFrag+'"');
+      var miEdit=new Forms.ToolStripMenuItem("Edit…");
+      miEdit.Click.connect(function(){
+        try{
+          var ib=new InputBoxInfo(); ib.Title="Edit title fragment"; ib.Message="New value:"; ib.AllowDirectInput=true;
+          ib.Items.Add(titleFrag); ib.SelectedValue=titleFrag;
+          var res=sp.InputBox(ib); if(res==null) return;
+          var s=(""+res).trim(); if(!s || s===titleFrag) return;
+          var arr=getTitleList(appId); if(idx>=0&&idx<arr.length) arr[idx]=s;
+          setTitleList(appId, arr); renameTitleScopeState(appId, titleFrag, s); requestSave(); openOverlayNow(currentTopWndForApp(appId), appId);
+}catch(e){ sp.ConsoleError("[TitleEdit] "+e.message); }
+      });
+      var miDel=new Forms.ToolStripMenuItem("Delete…");
+      miDel.Click.connect(function(){
+        try{
+          if(!sp.Confirm('Delete fragment "'+titleFrag+'"?', "Delete")) return;
+          var arr=getTitleList(appId); if(idx>=0&&idx<arr.length) arr.splice(idx,1);
+         setTitleList(appId, arr); purgeTitleScopeState(appId, titleFrag); pruneOrphanChildren(appId); requestSave(); openOverlayNow(currentTopWndForApp(appId), appId);
+        }catch(e){ sp.ConsoleError("[TitleDel] "+e.message); }
+      });
+      miFrag.DropDownItems.Add(miEdit); miFrag.DropDownItems.Add(miDel);
+      miTitleManage.DropDownItems.Add(miFrag);
+    });
+  });
+
+// in global mode — disabled and not clickable
+miTitleAdd.Enabled    = !USE_GLOBAL_CLICK;
+miTitleManage.Enabled = !USE_GLOBAL_CLICK;
+
+  // ——— Freeze (fix on the current window for exe) ———
+  var miFreeze = new Forms.ToolStripMenuItem("Lock panels to the current window");
+  function syncFreeze(){ miFreeze.Checked = !!FREEZE_BY_APP.get(appId); }
+  syncFreeze();
+  miFreeze.Enabled = !USE_GLOBAL_CLICK;
+  miFreeze.Click.connect(function(){
+  try{
+    var locked = !!FREEZE_BY_APP.get(appId);
+    if (!locked){
+      var base = baseWndForApp(appId) || guessBaseFromPanels(appId) || sp.ForegroundWindow();
+
+      // Auto-sniff when closing Overlay, but without immediate inclusion:
+      AutoFreezeForForm(appId, base, OVERLAY, false);
+
+      // We turn on the frieze as before:
+      freezePanelsForApp(appId, base);
+
+    } else {
+      // manual release — Without waiting for closing the form
+      unfreezePanelsForApp(appId);
+    }
+    syncOverlay(appId, base);
+    syncFreeze();
+  }catch(e){ sp.ConsoleError("[Freeze] "+e.message); }
+});
+
+  var miChain = new Forms.ToolStripMenuItem("Chain");
+
+  var miMulti = new Forms.ToolStripMenuItem("Multi-click…");
+  miMulti.Click.connect(function(){
+    try{
+      var parentId = def.id.split('_')[0];
+      var ib=new InputBoxInfo(); ib.Title="Multi-click…"; ib.Message="How many clicks to remember?"; ib.AllowDirectInput=true; ib.Items.Add("2"); ib.Items.Add("3"); ib.Items.Add("4"); ib.SelectedValue="2";
+      var res=sp.InputBox(ib); if(res==null) return;
+      var n=parseInt(res,10); if(!n||n<1) n=1;
+      setPanelsVisible(appId,false); 
+      startMultiClick(appId, parentId, n);
+    }catch(e){ sp.ConsoleError("[Multi] "+e.message); }
+  });
+
+  var miToggle = new Forms.ToolStripMenuItem("Toggle (A/B/…) on click");
+  miToggle.CheckOnClick = false;
+  miChain.DropDownOpening.connect(function(){
+  try{
+    var owner = appId;
+    var base  = currentTopWndForApp(owner);
+    var root  = (def.id+"").split("_")[0];
+    miToggle.Checked = __toggleOn(owner, root, base);
+  }catch(e){
+    try { miToggle.Checked = false; } catch(_){}
+    if (LOG_ON1) log("[CHAIN.DropDownOpening] " + e.message);
+  }
+});
+  miToggle.Click.connect(function(){
+    try{
+      var owner = appId;
+      var base  = currentTopWndForApp(owner);
+      var root  = (def.id+"").split("_")[0];
+      var sc = gScopeId(base, owner, 1);
+      var k = (USE_GLOBAL_CLICK||owner==="_global") ? root : (sc ? (owner+":"+sc+":"+root) : (owner+":"+root));
+      var newState = !TOGGLE.get(k);
+      if (newState) TOGGLE.set(k,true); else TOGGLE.delete(k);
+      requestSave();
+    }catch(e){ sp.ConsoleError("[Toggle] "+e.message); }
+  });
+
+  var miAddStep = new Forms.ToolStripMenuItem("+ Next panel (sequential execution)");
+  miAddStep.Click.connect(function(){
+  try{
+    batchUpdate(function(){
+      var rootId = (def.id+"").split("_")[0];
+      var base   = currentTopWndForApp(appId);
+      var newId  = nextSiblingIdForApp(appId, rootId, base);
+      var n      = parseInt(newId.split("_")[1],10);
+      var lbl    = childLabel(rootId, n);
+      var childDef = PANELS.find(p=>p.id===newId);
+      if(!childDef){ childDef={id:newId,text:panelLabel(newId),dx:0,dy:0}; PANELS.push(childDef); }
+
+      var rc = panelRect(appId, def.id, base);
+      var x = rc.x + rc.w + 12, y = rc.y;
+
+      setPanelPos(appId, newId, x, y, base);
+      OWNER_BY_ID.set(newId, appId);
+      OPEN_IDS.add(newId);
+
+      var sc = gScopeId(base, appId, 1);
+      var keyChain = (USE_GLOBAL_CLICK || appId==="_global")
+        ? rootId
+        : (sc ? (appId + ":" + sc + ":" + rootId) : (appId + ":" + rootId));
+
+      var cur = CHAIN.get(keyChain) || [];
+      if (cur.indexOf(newId)<0) cur.push(newId);
+      CHAIN.set(keyChain, cur);
+    });
+
+    // Return the focus/restart follow if necessary:
+    try {
+      ACTIVE_APP = appId;
+      stopFollow();
+      var base = currentTopWndForApp(appId);
+      var basePtr = HANDLE.ptr(base);
+      if (basePtr && basePtr.ToInt64()) startFollow(basePtr);
+      if (base && base.Activate) base.Activate();
+    } catch(_){ }
+  }catch(e){ sp.ConsoleError("[AddStep] "+e.message); }
+});
+
+  miChain.DropDownItems.Add(miMulti);
+  miChain.DropDownItems.Add(miToggle);
+  miChain.DropDownItems.Add(new Forms.ToolStripSeparator());
+  miChain.DropDownItems.Add(miAddStep);
+
+  // ——— Add the panel / close / close everything ———
+  var miAdd = new Forms.ToolStripMenuItem("+ Panel");
+  miAdd.Click.connect(function(){ addPanel(appId); });
+
+  var miClose = new Forms.ToolStripMenuItem("Close (delete)");
+miClose.Click.connect(function () {
+  try {
+    var base     = USE_GLOBAL_CLICK ? null : currentTopWndForApp(appId);
+    var scopeTag = USE_GLOBAL_CLICK ? null : (gScopeId(base, appId, 1) || null);
+
+    var id   = (def.id + "");
+    var root = id.split("_")[0];
+
+    var keyChainScoped = USE_GLOBAL_CLICK
+      ? root
+      : (scopeTag ? (appId + ":" + scopeTag + ":" + root) : (appId + ":" + root));
+
+    function idxOf(childId){
+      var m = (childId||"").split("_")[1];
+      var n = parseInt(m,10);
+      return isNaN(n) ? 0 : n; 
+    }
+    var idsToDelete = new Set();
+
+    // Children from Chain this scope
+    var chainArr = (CHAIN.get(keyChainScoped) || []).slice();
+
+    if (id === root) {
+      idsToDelete.add(root);
+      chainArr.forEach(function(ch){ idsToDelete.add(ch); });
+      // Delete the chain in the whole
+    } else {
+      var cutFrom = idxOf(id);
+      idsToDelete.add(id);
+      chainArr.forEach(function(ch){ if (idxOf(ch) >= cutFrom) idsToDelete.add(ch); });
+    }
+
+    function sweepMap(map){
+      map.forEach(function(_, k){
+        if (USE_GLOBAL_CLICK) {
+          if (typeof k === "string" && k.indexOf(root + "_") === 0) {
+            var child = k;
+            if (id === root || idxOf(child) >= idxOf(id)) idsToDelete.add(child);
+          }
+        } else if (typeof k === "string" && k.indexOf(appId + ":" + root + "_") === 0) {
+          var child = k.split(":")[1] || "";
+          if (id === root || idxOf(child) >= idxOf(id)) idsToDelete.add(child);
+        }
+      });
+    }
+    sweepMap(POS);
+    sweepMap(REL);
+
+    batchUpdate(function(){
+      // 1) Cut/remove the chain
+      if (id === root) {
+        CHAIN.delete(keyChainScoped);
+      } else {
+        var trimmed = chainArr.filter(function(ch){ return idxOf(ch) < idxOf(id); });
+        if (trimmed.length) CHAIN.set(keyChainScoped, trimmed);
+        else CHAIN.delete(keyChainScoped);
+      }
+      // 2) Panel cleaning only in this scope + remove from an overly
+      idsToDelete.forEach(function (pid) {
+        purgePanelInScope(appId, pid, scopeTag, base);
+        OPEN_IDS.delete(pid);
+      });
+    });
+
+    // 3) Refuse under the same Appid
+    refreshOverlayFor(appId);
+
+  } catch (e) {
+    sp.ConsoleError("[CLOSE->CASCADE] " + e.message);
+  }
+});
+  var miCloseAll = new Forms.ToolStripMenuItem("Close all");
+  miCloseAll.Click.connect(function(){ closeAllPanels(); });
+
+  // ——— Open a state file ———
+  var miOpenState = new Forms.ToolStripMenuItem("Open panels_state.json");
+  miOpenState.Click.connect(function(){ try{ clr.System.Diagnostics.Process.Start(STATE_FILE); }catch(_){}});
+
+cms.Items.Add(miSettings);
+cms.Items.Add(new Forms.ToolStripSeparator());
+cms.Items.Add(miOpenState);
+cms.Items.Add(new Forms.ToolStripSeparator());
+
+  cms.Items.Add(miGlobal);
+  cms.Items.Add(miClick);
+  cms.Items.Add(new Forms.ToolStripSeparator());
+  cms.Items.Add(miTitleAdd);
+  cms.Items.Add(miTitleManage);
+  cms.Items.Add(new Forms.ToolStripSeparator());
+  cms.Items.Add(miFreeze);
+  cms.Items.Add(new Forms.ToolStripSeparator());
+  cms.Items.Add(miChain);
+  cms.Items.Add(new Forms.ToolStripSeparator());
+  cms.Items.Add(miAdd);
+  cms.Items.Add(new Forms.ToolStripSeparator());
+  cms.Items.Add(miClose);
+  cms.Items.Add(miCloseAll);
+
+  return cms;
+}
+
+function shutdownUiThread() {
+  LAST_RECT = null;
+  LAST_HWND = 0;
+  LAST_APP = null;
+  MOVE_IN_PROGRESS = false;
+
+  // Stop the hook of the active window
+  try {
+    var cb = sp.GetStoredObject("fgHookCb");
+    if (cb) {
+      try { ForegroundHook.Stop(cb); } catch(_) { try { ForegroundHook.Stop(); } catch(__){} }
+      sp.DeleteStoredObject("fgHookCb");
+    }
+  } catch(_){ }
+
+  try {
+    var frm = OVERLAY;
+    if (frm && !frm.IsDisposed) {
+      frm.BeginInvoke(host.del(clr.System.Action, function(){
+        try { flushScheduledSave(); } catch(_){}
+        try { Forms.Application.ExitThread(); } catch(_){}
+        try { frm.Close(); } catch(_){}
+
+try { var r = frm.Region; frm.Region = null; if (r) r.Dispose(); } catch(_){}
+
+        try { frm.Dispose(); } catch(_){}
+      }));
+    }
+  } catch(_){}
+
+  OVERLAY = null;
+  try { sp.DeleteStoredObject("PAN_UI_THREAD"); } catch(_){}
+}
+
+function startUiThread(){
+  try{
+    var oldTh = sp.GetStoredObject("PAN_UI_THREAD");
+    if (oldTh && oldTh.IsAlive) {
+      // There is already a stream: just open overlays with a current set of panels
+      openOverlayNow();
+      return;
+    }
+  }catch(e){}
+    var th = new Thread(host.del(clr.System.Threading.ThreadStart, uiThread));
+    th.SetApartmentState(STA.STA);
+    th.IsBackground = true;
+    th.Start();
+    sp.StoreObject("PAN_UI_THREAD", th);
+}
+// Defult panels
+var DEFAULT_PANELS = PANELS.map(function(p){
+  return { id:p.id, text:p.text, dx:p.dx, dy:p.dy };
+});
+
+/* ---------- Load State ---------- */
+function loadState() {
+  try {
+    if (!IO.File.Exists(STATE_FILE)) {
+      // defaults at the first launch
+      clickMode        = 1;
+      globalClickMode  = 1;
+      USE_GLOBAL_CLICK = false;
+
+      try { POS.clear(); BTN_BY_KEY.clear(); APP_CLICK.clear(); } catch(_){}
+      REL             = new Map();
+      CHAIN           = new Map();
+      HOVER_RETURN    = new Map();
+      PANEL_DELAY     = new Map();
+      MANUALLY_CLOSED = {};
+
+      if (!TITLE_SCOPES || !TITLE_SCOPES.set) TITLE_SCOPES = new Map();
+      if (typeof FREEZE_BY_APP      !== "undefined") FREEZE_BY_APP      = new Map();
+      if (typeof LOCKED_BASE_BY_APP !== "undefined") LOCKED_BASE_BY_APP = new Map();
+      if (typeof NO_MOVE_PANELS     !== "undefined") NO_MOVE_PANELS     = false;
+
+      if (LOG_ON1) log("loadState: no file → defaults");
+      return;
+    }
+    // --- helpers ---
+    function putObjToMap(obj, map) {
+      if (!obj) return;
+      for (const [k, v] of Object.entries(obj)) map.set(k, v);
+    }
+    function putBoolObjToMap(obj, map) {
+      if (!obj) return;
+      for (const [k, v] of Object.entries(obj)) map.set(k, !!v);
+    }
+    function putIntObjToMap(obj, map) {
+      if (!obj) return;
+      for (const [k, v] of Object.entries(obj)) {
+        var intVal = parseInt(v, 10);
+        if (!isNaN(intVal)) map.set(k, intVal);
+      }
+    }
+    var raw = IO.File.ReadAllText(STATE_FILE);
+    var obj = JSON.parse(raw);
+
+    // Cleaning / reinocialization
+    try { POS.clear(); BTN_BY_KEY.clear(); APP_CLICK.clear(); } catch(_){}
+    REL             = new Map();
+    CHAIN           = new Map();
+    HOVER_RETURN    = new Map();
+    PANEL_DELAY     = new Map();
+    MANUALLY_CLOSED = obj.manually_closed || {};
+
+    if (!TITLE_SCOPES || !TITLE_SCOPES.set) TITLE_SCOPES = new Map();
+    else try { TITLE_SCOPES.clear(); } catch(_){ TITLE_SCOPES = new Map(); }
+    if (!IGNORE_CLICKS_BY_APP || !IGNORE_CLICKS_BY_APP.set) IGNORE_CLICKS_BY_APP = new Map();
+    // Basic flags
+    if (PERSIST_PANELS && Array.isArray(obj.panels)) {
+  PANELS = obj.panels;
+}
+    clickMode        = (typeof obj.clickMode === "number") ? obj.clickMode : 1;
+    globalClickMode  = (typeof obj.globalClickMode === "number") ? obj.globalClickMode : 1;
+    USE_GLOBAL_CLICK = !!obj.useGlobalClick;
+    
+    // Use global click mode when in global mode
+    if (USE_GLOBAL_CLICK) {
+      clickMode = globalClickMode;
+    }
+    if (typeof obj.noMovePanels === "boolean") NO_MOVE_PANELS = obj.noMovePanels;
+    if (typeof obj.coloredPanels === "boolean") COLORED_PANELS = obj.coloredPanels;
+
+    // POS (global + per-app)
+    if (obj.global && obj.global.pos) putObjToMap(obj.global.pos, POS);
+    if (obj.pos)                      putObjToMap(obj.pos,        POS);
+
+    // REL (only per-app/scoped)
+    if (obj.rel) putObjToMap(obj.rel, REL);
+
+    // CHAIN (global + per-app)
+    if (obj.global && obj.global.chain)
+      for (const [k1, v1] of Object.entries(obj.global.chain))
+        CHAIN.set(k1, v1);
+    if (obj.chain)
+      for (const [k2, v2] of Object.entries(obj.chain))
+        CHAIN.set(k2, v2);
+
+    // Mouse buttons (global + per-app)
+    if (obj.global && obj.global.mouseBtn) putObjToMap(obj.global.mouseBtn, BTN_BY_KEY);
+    if (obj.mouseBtn)                      putObjToMap(obj.mouseBtn,        BTN_BY_KEY);
+    // Cursor return after hover (global + per-app)
+    if (obj.global && obj.global.hoverReturn) putBoolObjToMap(obj.global.hoverReturn, HOVER_RETURN);
+    if (obj.hoverReturn)                      putBoolObjToMap(obj.hoverReturn,        HOVER_RETURN);
+    // delays (global + per-app)
+    if (obj.global && obj.global.panelDelay) putIntObjToMap(obj.global.panelDelay, PANEL_DELAY);
+    if (obj.panelDelay)                      putIntObjToMap(obj.panelDelay,        PANEL_DELAY);
+    // Click mode per-app
+    if (obj.appClick) putObjToMap(obj.appClick, APP_CLICK);
+    // pin/freeze per-app
+    if (typeof FREEZE_BY_APP !== "undefined") {
+      FREEZE_BY_APP = new Map();
+      if (obj.pinByApp) for (const [k3, v3] of Object.entries(obj.pinByApp))
+        if (v3) FREEZE_BY_APP.set(k3, true);
+    }
+    // ignore clicks per-app
+    if (obj.ignoreClicks) for (const [k4, v4] of Object.entries(obj.ignoreClicks))
+      if (v4) IGNORE_CLICKS_BY_APP.set(k4, true);
+
+    if (typeof LOCKED_BASE_BY_APP !== "undefined") LOCKED_BASE_BY_APP = new Map(); 
+    // Global delays
+    if (obj.delays) {
+      var d = obj.delays;
+      DELAY_SINGLE_MS = (typeof d.single === "number") ? d.single : DEFAULT_DELAY_SINGLE_MS;
+      DELAY_CHAIN_MS  = (typeof d.chain  === "number") ? d.chain  : DEFAULT_DELAY_CHAIN_MS;
+      DELAY_HOVER_MS  = (typeof d.hover  === "number") ? d.hover  : DEFAULT_DELAY_HOVER_MS;
+    }
+    // Lists of fragments of headlines
+    if (obj.titleScopes) {
+      for (const [exe, arr] of Object.entries(obj.titleScopes)) {
+        if (Array.isArray(arr)) {
+          TITLE_SCOPES.set(
+            exe,
+            arr.map(function(s){ return (""+s).trim(); }).filter(function(s){ return s.length>0; })
+          );
+        }
+      }
+    }
+    // switches / AB
+    if (typeof TOGGLE !== "undefined" && obj.toggle) {
+      for (const [kt, vt] of Object.entries(obj.toggle)) if (vt) TOGGLE.set(kt, true);
+    }
+    if (typeof AB_ENABLED !== "undefined" && obj.ab) {
+      for (const [ka, va] of Object.entries(obj.ab)) if (va) AB_ENABLED.set(ka, true);
+    }
+
+    if (LOG_ON1) log("loadState: OK, clickMode=" + clickMode + ", USE_GLOBAL_CLICK=" + USE_GLOBAL_CLICK + ", titleScopes=" + TITLE_SCOPES.size);
+  } catch (e) {
+    clickMode        = 1;
+    globalClickMode  = 1;
+    USE_GLOBAL_CLICK = false;
+
+    try { POS.clear(); BTN_BY_KEY.clear(); APP_CLICK.clear(); } catch(_){}
+    REL             = new Map();
+    CHAIN           = new Map();
+    HOVER_RETURN    = new Map();
+    PANEL_DELAY     = new Map();
+    MANUALLY_CLOSED = {};
+
+    if (!TITLE_SCOPES || !TITLE_SCOPES.set) TITLE_SCOPES = new Map();
+    if (typeof FREEZE_BY_APP      !== "undefined") FREEZE_BY_APP      = new Map();
+    if (typeof LOCKED_BASE_BY_APP !== "undefined") LOCKED_BASE_BY_APP = new Map();
+    if (typeof NO_MOVE_PANELS     !== "undefined") NO_MOVE_PANELS     = false;
+
+    sp.ConsoleError("loadState: " + e.message);
+  }
+}
+/* ---------- Save State ---------- */
+function saveState() {
+  try {
+    // --- helpers ---
+    function splitMapByScope(map) {
+      const g = {}, a = {};
+      for (const [k, v] of map) {
+        if (typeof k === "string" && k.indexOf(":") === -1) g[k] = v; // Global (id)
+        else a[k] = v;                                               // per-app/scoped
+      }
+      return { g, a };
+    }
+    var appClickObj = {};
+    for (const [k, v] of APP_CLICK) { if (typeof v === "number" && v !== 1) appClickObj[k] = v; }
+
+    var pinByAppObj = {};
+    if (typeof FREEZE_BY_APP !== "undefined" && FREEZE_BY_APP.forEach) {
+      for (const [k, v] of FREEZE_BY_APP) { if (v) pinByAppObj[k] = true; }
+    }
+    var ignoreClicksObj = {};
+    if (IGNORE_CLICKS_BY_APP && IGNORE_CLICKS_BY_APP.forEach) {
+      for (const [k, v] of IGNORE_CLICKS_BY_APP) { if (v) ignoreClicksObj[k] = true; }
+    }
+    var titleScopesObj = {};
+    if (TITLE_SCOPES && TITLE_SCOPES.forEach) {
+      for (const [k, arr] of TITLE_SCOPES) {
+        if (Array.isArray(arr) && arr.length) {
+          titleScopesObj[k] = arr.filter(s => typeof s === "string" && s.trim().length>0);
+        }
+      }
+    }
+    var toggleObj = {};
+    if (typeof TOGGLE !== "undefined" && TOGGLE.forEach) {
+      for (const [k, v] of TOGGLE) { if (v) toggleObj[k] = 1; }
+    }
+    var abObj = {};
+    if (typeof AB_ENABLED !== "undefined" && AB_ENABLED.forEach) {
+      for (const [k, v] of AB_ENABLED) { if (v) abObj[k] = true; }
+    }
+    // Divide by Global/Per-App
+    const posSplit   = splitMapByScope(POS);
+    const relSplit   = splitMapByScope(REL);            // Global REL do not save
+    const btnSplit   = splitMapByScope(BTN_BY_KEY);
+    const hoverSplit = splitMapByScope(HOVER_RETURN);
+    const delaySplit = splitMapByScope(PANEL_DELAY);
+    const CHAIN_TO_SAVE = mapWithoutHwndKeys(CHAIN);
+    const chainSplit    = splitMapByScope(CHAIN_TO_SAVE);
+    var obj = {
+      clickMode      : clickMode,
+      globalClickMode: globalClickMode,
+      useGlobalClick : USE_GLOBAL_CLICK,
+      noMovePanels   : (typeof NO_MOVE_PANELS === "boolean") ? NO_MOVE_PANELS : undefined,
+      coloredPanels  : COLORED_PANELS,
+      // per-app
+      pos        : posSplit.a,
+      rel        : relSplit.a,
+      chain      : chainSplit.a,
+      mouseBtn   : Object.keys(btnSplit.a).length   ? btnSplit.a   : undefined,
+      hoverReturn: Object.keys(hoverSplit.a).length ? hoverSplit.a : undefined,
+      panelDelay : Object.keys(delaySplit.a).length ? delaySplit.a : undefined,
+
+      delays     : {
+        single : (typeof DELAY_SINGLE_MS === "number" ? DELAY_SINGLE_MS : DEFAULT_DELAY_SINGLE_MS),
+        chain  : (typeof DELAY_CHAIN_MS  === "number" ? DELAY_CHAIN_MS  : DEFAULT_DELAY_CHAIN_MS),
+        hover  : (typeof DELAY_HOVER_MS  === "number" ? DELAY_HOVER_MS  : DEFAULT_DELAY_HOVER_MS)
+      },
+      global: {
+        pos         : posSplit.g,
+        chain       : chainSplit.g,
+        mouseBtn    : Object.keys(btnSplit.g).length   ? btnSplit.g   : undefined,
+        hoverReturn : Object.keys(hoverSplit.g).length ? hoverSplit.g : undefined,
+        panelDelay  : Object.keys(delaySplit.g).length ? delaySplit.g : undefined
+      },
+      appClick        : Object.keys(appClickObj).length     ? appClickObj     : undefined,
+      pinByApp        : Object.keys(pinByAppObj).length     ? pinByAppObj     : undefined,
+      ignoreClicks    : Object.keys(ignoreClicksObj).length ? ignoreClicksObj : undefined,
+      titleScopes     : Object.keys(titleScopesObj).length  ? titleScopesObj  : undefined,
+      toggle          : Object.keys(toggleObj).length       ? toggleObj       : undefined,
+      ab              : Object.keys(abObj).length           ? abObj           : undefined,
+    };
+
+if (PERSIST_PANELS) obj.panels = PANELS; 
+
+    IO.File.WriteAllText(STATE_FILE, JSON.stringify(obj, null, 2));
+    if (LOG_ON1) log("saveState: OK (global + per-app)");
+  } catch (e) {
+    sp.ConsoleError("saveState: " + e.message);
+  }
+}
+// ===== Debows conservation =====
+var __saveTimer = null;
+var __savePending = false;
+var SAVE_DEBOUNCE_MS = 200;
+var SAVE_MIN_INTERVAL_MS = 250;
+var __lastSaveTs = 0;
+
+function requestSave(){
+  if (typeof scheduleSave === "function") scheduleSave();
+  else try { saveState(); } catch(_){ }
+}
+function scheduleSave(){
+  try{
+    var now = Date.now();
+    if (__savePending) {
+      return;
+    }
+    if (now - __lastSaveTs < SAVE_MIN_INTERVAL_MS) {
+      if (__saveTimer) {
+        __saveTimer.Stop();
+        __saveTimer.Interval = SAVE_MIN_INTERVAL_MS - (now - __lastSaveTs);
+        __saveTimer.Start();
+        __savePending = true;
+        return;
+      }
+    }
+    __savePending = true;
+    if (!__saveTimer) {
+      __saveTimer = new Forms.Timer();
+      __saveTimer.Interval = SAVE_DEBOUNCE_MS;
+      __saveTimer.Tick.connect(function(){
+        try {
+          __saveTimer.Stop();
+          __savePending = false;
+          var nowTs = Date.now();
+          if (nowTs - __lastSaveTs >= SAVE_MIN_INTERVAL_MS) {
+            saveState();
+            __lastSaveTs = nowTs;
+          }
+        } catch(_){ }
+      });
+    } else {
+      __saveTimer.Stop();
+    }
+    __saveTimer.Interval = Math.max(SAVE_DEBOUNCE_MS, SAVE_MIN_INTERVAL_MS);
+    __saveTimer.Start();
+  } catch(_) {
+    // Just in case - direct conservation
+    try {
+      var nowTs = Date.now();
+      if (nowTs - __lastSaveTs >= SAVE_MIN_INTERVAL_MS) {
+        saveState();
+        __lastSaveTs = nowTs;
+      }
+    } catch(__){ }
+  }
+}
+// Forced entry (before closing)
+function flushScheduledSave(){
+  try{
+    if (__saveTimer) __saveTimer.Stop();
+    if (__savePending) { __savePending = false; saveState(); }
+  } catch(_) {}
+}
+function removePanelFromChains(panelId) {
+  const upd=[];
+  for (const [key, arr] of CHAIN) {
+    if (!Array.isArray(arr)||!arr.length) continue;
+    const f = arr.filter(x=>x!==panelId);
+    if (f.length!==arr.length) {
+      if (f.length) upd.push([key,f]); else CHAIN.delete(key);
+    }
+  }
+  for (const [k,v] of upd) CHAIN.set(k,v);
+}
+// ── Remove Panelid only from global chains (keys without ':')
+function removePanelFromChainsGlobal(panelId){
+  try{
+    const root = (panelId+"").split("_")[0];
+    const updates = [];
+    for (const [key, arr] of CHAIN) {
+      if (typeof key !== "string" || key.indexOf(":") !== -1) continue; // only global
+      if (!Array.isArray(arr) || !arr.length) continue;
+      const after = arr.filter(id => id !== panelId);
+      if (after.length !== arr.length) {
+        if (after.length) updates.push([key, after]);
+        else if (key === root) CHAIN.delete(key); 
+        else updates.push([key, after]);
+      }
+    }
+    for (const [k,v] of updates) CHAIN.set(k, v);
+    if (LOG_ON1) log(`[PURGE.GLOBAL] CHAIN(trim): panel ${panelId} removed from global chains`);
+  }catch(e){ sp.ConsoleError(`[PURGE.GLOBAL.chainTrim] ${e.message}`); }
+}
+
+function purgeGlobalPanel(panelId){
+  try{
+    if (POS?.delete)          POS.delete(panelId);
+    if (REL?.delete)          REL.delete(panelId);            // just in case
+    if (BTN_BY_KEY?.delete)   BTN_BY_KEY.delete(panelId);
+    if (HOVER_RETURN?.delete) HOVER_RETURN.delete(panelId);
+    if (PANEL_DELAY?.delete)  PANEL_DELAY.delete(panelId);
+
+    removePanelFromChainsGlobal(panelId);
+    try { delete MANUALLY_CLOSED[panelId]; } catch(_){}
+    requestSave();
+
+    if (LOG_ON1) log(`[PURGE.GLOBAL] done: ${panelId}`);
+  }catch(e){ sp.ConsoleError(`[PURGE.GLOBAL] ${e.message}`); }
+}
+
+function removePanelFromChainsInScope(appId, panelId, scopeTag){
+  try{
+if (isGlobalApp(appId)) { removePanelFromChainsGlobal(panelId); return; }
+    // The keys of the chain in this scope:
+    // - "App: Root" for the basic (exe) layer
+    // - "App: Scopetag: Root" for Title/Hwnd layer
+    var pref = scopeTag ? (appId + ":" + scopeTag + ":")
+                        : (appId + ":");
+    var updates = [];
+    CHAIN.forEach(function(arr, key){
+      if (typeof key !== "string") return;
+      if (key.indexOf(pref) !== 0) return; // alien scope - miss
+
+      var after = (arr || []).filter(function(id){ return id !== panelId; });
+      if (!arr || after.length !== arr.length) {
+        if (after.length) updates.push([key, after]);
+        else CHAIN.delete(key);
+      }
+    });
+    updates.forEach(function(kv){ CHAIN.set(kv[0], kv[1]); });
+
+    if (LOG_ON1) log("[PURGE.SCOPED] CHAIN(trim): panel "+panelId+" removed from chains scope="+(scopeTag || "<exe>"));
+  }catch(e){ sp.ConsoleError("[PURGE.SCOPED.chainTrim] "+e.message); }
+}
+
+// Load on startup
+loadState();
+
+try { registerToggleHotkey(); } catch (_){}
+
+// Delete all condition for Title-scope ": t: <frag>" specific exe
+function purgeTitleScopeState(appId, frag){
+  try{
+    if (!appId || !frag) return;
+    var tag = ":t:" + frag;
+
+    function dropInMap(map, name){
+      var del = [];
+      try {
+        map.forEach(function(_, k){
+          if (typeof k === "string" && k.indexOf(appId + ":") === 0 && k.indexOf(tag) >= 0)
+            del.push(k);
+        });
+        del.forEach(function(k){ map.delete(k); });
+        if (LOG_ON1) log("[TITLES.purge] " + name + ": -" + del.length);
+      } catch(e){ sp.ConsoleError("[TITLES.purge."+name+"] " + e.message); }
+    }
+    dropInMap(POS,          "POS");
+    dropInMap(REL,          "REL");
+    dropInMap(BTN_BY_KEY,   "BTN");
+    dropInMap(HOVER_RETURN, "HOVER");
+    dropInMap(PANEL_DELAY,  "DELAY");
+
+    // View keys: Appid + ": t: <frag>:" + root
+    function dropPrefix(map, name){
+      var pref = appId + ":" + "t:" + frag + ":";
+      var del = [];
+      try {
+        map.forEach(function(_, k){
+          if (typeof k === "string" && k.indexOf(pref) === 0) del.push(k);
+        });
+        del.forEach(function(k){ map.delete(k); });
+        if (LOG_ON1) log("[TITLES.purge] " + name + ": -" + del.length);
+      } catch(e){ sp.ConsoleError("[TITLES.purge."+name+"] " + e.message); }
+    }
+    dropPrefix(CHAIN,      "CHAIN");
+    dropPrefix(TOGGLE,     "TOGGLE");
+    dropPrefix(AB_ENABLED, "AB");
+    // Clean the switch indices
+    try {
+      var prefIdx = appId + ":" + "t:" + frag + ":";
+      var delI = [];
+      TOGGLE_IDX.forEach(function(_,k){ if (k.indexOf(prefIdx)===0) delI.push(k); });
+      delI.forEach(function(k){ TOGGLE_IDX.delete(k); });
+      if (LOG_ON1) log("[TITLES.purge] TOGGLE_IDX: -" + delI.length);
+    } catch(_){}
+
+    requestSave();
+  }catch(e){ sp.ConsoleError("[TITLES.purge] " + e.message); }
+}
+// Rename the entire state of Scope ": t: <oldfrag>" -> ": t: <Newfrag>" for Appid
+function renameTitleScopeState(appId, oldFrag, newFrag){
+  try{
+    if (!appId || !oldFrag || !newFrag) return;
+    var oldTag = ":t:" + oldFrag, newTag = ":t:" + newFrag;
+
+    function renInMap(map, name){
+      var ch = [];
+      try {
+        map.forEach(function(v, k){
+          if (typeof k === "string" && k.indexOf(appId + ":") === 0 && k.indexOf(oldTag) >= 0) {
+            var nk = k.replace(oldTag, newTag);
+            ch.push([k, nk, v]);
+          }
+        });
+        ch.forEach(function(x){ map.delete(x[0]); map.set(x[1], x[2]); });
+        if (LOG_ON1) log("[TITLES.rename] " + name + ": " + ch.length);
+      } catch(e){ sp.ConsoleError("[TITLES.rename."+name+"] " + e.message); }
+    }
+    renInMap(POS,          "POS");
+    renInMap(REL,          "REL");
+    renInMap(BTN_BY_KEY,   "BTN");
+    renInMap(HOVER_RETURN, "HOVER");
+    renInMap(PANEL_DELAY,  "DELAY");
+    // Prefix keys of chains/switches: Appid + ": t: <frag>:" + root
+    function renPrefix(map, name){
+      var prefOld = appId + ":" + "t:" + oldFrag + ":";
+      var prefNew = appId + ":" + "t:" + newFrag + ":";
+      var ch = [];
+      try {
+        map.forEach(function(v, k){
+          if (typeof k === "string" && k.indexOf(prefOld) === 0) {
+            var tail = k.slice(prefOld.length);
+            ch.push([k, prefNew + tail, v]);
+          }
+        });
+        ch.forEach(function(x){ map.delete(x[0]); map.set(x[1], x[2]); });
+        if (LOG_ON1) log("[TITLES.rename] " + name + ": " + ch.length);
+      } catch(e){ sp.ConsoleError("[TITLES.rename."+name+"] " + e.message); }
+    }
+    renPrefix(CHAIN,      "CHAIN");
+    renPrefix(TOGGLE,     "TOGGLE");
+    renPrefix(AB_ENABLED, "AB");
+    // Switch indices
+    try {
+      var prefOld = appId + ":" + "t:" + oldFrag + ":";
+      var prefNew = appId + ":" + "t:" + newFrag + ":";
+      var chI = [];
+      TOGGLE_IDX.forEach(function(v,k){
+        if (k.indexOf(prefOld)===0) { var tail=k.slice(prefOld.length); chI.push([k, prefNew+tail, v]); }
+      });
+      chI.forEach(function(x){ TOGGLE_IDX.delete(x[0]); TOGGLE_IDX.set(x[1], x[2]); });
+      if (LOG_ON1) log("[TITLES.rename] TOGGLE_IDX: " + chI.length);
+    } catch(_){}
+
+    requestSave();
+  }catch(e){ sp.ConsoleError("[TITLES.rename] " + e.message); }
+}
+
+function pruneOrphanChildren(appId){
+  try{
+    const used = new Set();
+    POS.forEach((_,k)=>{ const id=(k.split(':')[1]||k); if (id.indexOf('_')>=0) used.add(id); });
+    REL.forEach((_,k)=>{ const id=(k.split(':')[1]||k); if (id.indexOf('_')>=0) used.add(id); });
+    CHAIN.forEach((arr)=>{ (arr||[]).forEach(id=>{ if (id.indexOf('_')>=0) used.add(id); }); });
+
+    const before = PANELS.length;
+    PANELS = PANELS.filter(p => p.id.indexOf('_') < 0 || used.has(p.id));
+    if (PANELS.length !== before)
+      if (LOG_ON1) log('[PRUNE] orphan children removed: ' + (before - PANELS.length));
+  } catch(e){ sp.ConsoleError('[PRUNE] ' + e.message); }
+}
+
+function resetPanelsToDefaults(appIdOpt){
+  try{
+    var isGlobal = USE_GLOBAL_CLICK || appIdOpt === "_global";
+    var appId = isGlobal ? "_global" : (appIdOpt || getActiveAppId() || "").toLowerCase();
+
+    if (!isGlobal && (!appId || appId === "_unknown")) {
+      sp.ConsoleError("[RESET] it was not possible to determine EXE for point discharge");
+      return;
+    }
+
+    var targetName = isGlobal ? "GLOBAL mode" : appId;
+    if (!sp.Confirm(
+      'Reset panels ONLY for "' + targetName + '"?\r\n' +
+      "The following will be deleted: positions/REL/chains/buttons/delays/toggles/titles.\r\n" +
+      "Other applications will not be affected.",
+      "Reset for " + targetName
+    )) return;
+
+    // Close forms only for EXE (not for global)
+    if (!isGlobal) {
+      try {
+        var toClose = [];
+        REG.forEach(function(rec, id){
+          var f = rec && rec.frm;
+          if (!f || f.IsDisposed) return;
+          var owner = (FORM_APP.get(f) || "").toLowerCase();
+          if (owner === appId) toClose.push(id);
+        });
+        toClose.forEach(function(id){
+          try {
+            var rec = REG.get(id);
+            if (rec && rec.frm && !rec.frm.IsDisposed) { rec.frm.Close(); rec.frm.Dispose(); }
+            REG.delete(id);
+          } catch(_){}
+        });
+      } catch(e){ sp.ConsoleError("[RESET.closeOnlyThisExe] " + e.message); }
+    }
+    batchUpdate(function(){
+      if (isGlobal) {
+        function dropGlobalKeys(map, name) {
+          var toDel = [];
+          map.forEach((_, k) => {
+            if (typeof k === "string" && k.indexOf(":") === -1) toDel.push(k);
+          });
+          toDel.forEach(k => map.delete(k));
+          if (LOG_ON1) log("[RESET.GLOBAL] "+name+": -"+toDel.length);
+        }
+        dropGlobalKeys(POS,          "POS");
+        dropGlobalKeys(REL,          "REL");
+        dropGlobalKeys(BTN_BY_KEY,   "BTN");
+        dropGlobalKeys(HOVER_RETURN, "HOVER");
+        dropGlobalKeys(PANEL_DELAY,  "DELAY");
+        dropGlobalKeys(CHAIN,        "CHAIN");
+        dropGlobalKeys(TOGGLE,       "TOGGLE");
+        dropGlobalKeys(AB_ENABLED,   "AB");
+
+        var delI = [];
+        TOGGLE_IDX.forEach((_, k) => {
+          if (typeof k === "string" && k.indexOf(":") === -1) delI.push(k);
+        });
+        delI.forEach(k => TOGGLE_IDX.delete(k));
+
+        // We drop Panels to default
+        PANELS = DEFAULT_PANELS.map(p => ({ id:p.id, text:p.text, dx:p.dx, dy:p.dy }));
+        
+        // We drop the click of the global mode to default
+        globalClickMode = 1;
+        clickMode = 1;
+
+      } else {
+        // === For EXE ===
+        function dropByPrefix(map, name){
+          var del = [];
+          map.forEach((_, k) => {
+            if (typeof k === "string" && k.indexOf(appId + ":") === 0) del.push(k);
+          });
+          del.forEach(k => map.delete(k));
+          if (LOG_ON1) log("[RESET."+appId+"] "+name+": -"+del.length);
+        }
+        dropByPrefix(POS,          "POS");
+        dropByPrefix(REL,          "REL");
+        dropByPrefix(BTN_BY_KEY,   "BTN");
+        dropByPrefix(HOVER_RETURN, "HOVER");
+        dropByPrefix(PANEL_DELAY,  "DELAY");
+        dropByPrefix(CHAIN,        "CHAIN");
+        dropByPrefix(TOGGLE,       "TOGGLE");
+        dropByPrefix(AB_ENABLED,   "AB");
+
+        var delI = [];
+        TOGGLE_IDX.forEach((_, k) => {
+          if (typeof k === "string" && k.indexOf(appId + ":") === 0) delI.push(k);
+        });
+        delI.forEach(k => TOGGLE_IDX.delete(k));
+
+        try { FREEZE_BY_APP.delete(appId); } catch(_){}
+        try { LOCKED_BASE_BY_APP.delete(appId); } catch(_){}
+        try { LAST_TOP_BY_APP.delete(appId); } catch(_){}
+        try { APP_CLICK.delete(appId); } catch(_){}
+        try { TITLE_SCOPES.delete(appId); } catch(_){}
+        try { if (typeof pruneOrphanChildren === "function") pruneOrphanChildren(appId); } catch(_){}
+      }
+    });
+     if (isGlobal) {
+       seedGlobalDefaultsCentered(DEFAULT_PANELS);
+       // Clear panel rect cache to force recalculation
+       try { PANEL_RECT_CACHE.clear(); } catch(_){}
+       // Force update overlay with new positions
+       try { 
+         if (OVERLAY && !OVERLAY.IsDisposed) {
+           OVERLAY.Visible = false;
+         }
+         openOverlayNow();
+         rebuildOverlayRegion();
+         if (OVERLAY && !OVERLAY.IsDisposed) {
+           OVERLAY.Visible = true;
+           OVERLAY.Invalidate();
+         }
+       } catch (_) {}
+     } else {
+       try { refreshOverlayFor(appId); } catch(_) {
+         try { openOverlayNow(currentTopWndForApp(appId), appId); } catch(_){}
+       }
+     }
+     // make the panels inactive after reset
+     PANELS_INACTIVE_AFTER_RESET = true;
+
+    if (LOG_ON1) log("[RESET] Reset is made for " + targetName, "DBG");
+  } catch(e){
+    sp.ConsoleError("[RESET] " + e.message);
+  }
+}
+
+function showNoAct(frm){
+    frm.Show();
+    try{
+        WinNoAct.MakeNoActivate(host.cast(clr.System.IntPtr, frm.Handle));
+    }catch(e){}
+}
+
+function closeAllPanels(){
+  // Stop "follow"
+  LAST_RECT = null;
+  LAST_HWND = 0;
+  LAST_APP = null;
+  MOVE_IN_PROGRESS = false;
+  try {
+    FREEZE_BY_APP.clear();
+    LOCKED_BASE_BY_APP.clear();
+  } catch(_){ }
+  requestSave();
+  OPEN_IDS.clear();
+  try { rebuildOverlayRegion(); } catch(_){ }
+  try { requestSave(); } catch(_){ }
+  try { shutdownUiThread(); } catch(_){ }
+  if (LOG_ON1) log("[CLOSE] overlay-only: Everything is closed");
+}
+function purgePanelInScope(appId, panelId, scopeTag, baseWnd) {
+  // Global owner: keys without prefixes
+  if (isGlobalApp(appId)) { purgeGlobalPanel(panelId); return; }
+
+  var basePrefix   = appId + ":" + panelId;
+  var scopedPrefix = scopeTag ? (basePrefix + ":" + scopeTag) : basePrefix;
+
+  function deleteExactOrPrefixed(map, mapName){
+    var del = [];
+    map.forEach(function(_, k){
+      if (scopeTag) {
+        if (k === scopedPrefix || (typeof k === "string" && k.indexOf(scopedPrefix + ":") === 0))
+          del.push(k);
+      } else {
+        if (k === basePrefix) del.push(k);  // Only the basic level exe
+      }
+    });
+    del.forEach(function(k){ map.delete(k); });
+    if (LOG_ON1) log("[PURGE.SCOPED] "+mapName+": -"+del.length+" For "+(scopeTag?scopedPrefix:basePrefix));
+  }
+  deleteExactOrPrefixed(POS,          "POS");
+  deleteExactOrPrefixed(REL,          "REL");
+  deleteExactOrPrefixed(BTN_BY_KEY,   "BTN");
+  deleteExactOrPrefixed(HOVER_RETURN, "HOVER");
+  deleteExactOrPrefixed(PANEL_DELAY,  "DELAY");
+
+  // Cut Panelid from chains of this particular scope
+  removePanelFromChainsInScope(appId, panelId, scopeTag);
+  try{
+    if (scopeTag) {
+  delete MANUALLY_CLOSED[scopedPrefix];     // we clean only the same Scope
+ } else {
+   if (appId === "_global") delete MANUALLY_CLOSED[panelId];
+ }
+  }catch(_){}
+  requestSave();
+  try { if (!USE_GLOBAL_CLICK) refreshOverlayFor(appId); } catch(_){}
+  if (LOG_ON1) log("[PURGE.SCOPED] done");
+}
+
+function currentTopWndForApp(appId){
+  return  getLockedBaseApp(appId)
+      ||  baseWndForApp(appId)
+      ||  guessBaseFromPanels(appId)
+      ||  sp.ForegroundWindow();
+}
+
+function getWindowRect(raw){
+  try {
+    if (raw && raw.Location !== undefined && raw.Size !== undefined) {
+      const L = raw.Location, S = raw.Size;
+      return { left: L.X, top: L.Y, right: L.X + S.Width, bottom: L.Y + S.Height };
+    }
+    const ip = host.cast(clr.System.IntPtr, raw);
+    if (!ip || ip.Equals(clr.System.IntPtr.Zero)) return null;
+    const wnd = sp.WindowFromHandle(ip);
+    if (!wnd || !wnd.Location || !wnd.Size) return null;
+    const L = wnd.Location, S = wnd.Size;
+    return { left: L.X, top: L.Y, right: L.X + S.Width, bottom: L.Y + S.Height };
+  } catch(_) {
+    return null;
+  }
+}
+
+function seedTitleScopeFromOpen(appId, baseWnd){
+  try{
+    if (!appId) appId = getActiveAppId();
+    if (!baseWnd) baseWnd = currentTopWndForApp(appId);
+    if (!baseWnd) return;
+
+    var L = baseWnd.Location;
+    OPEN_IDS.forEach(function(panelId){
+      if (panelId.indexOf('_') >= 0) return;                  
+      if (OWNER_BY_ID.get(panelId)!==appId && !isGlobalApp(appId)) return;
+      var rc = panelRect(appId, panelId, baseWnd);
+      var kScoped = gKey(appId, panelId, baseWnd, 1); 
+      if (!kScoped) return;
+      POS.set(kScoped, { x: rc.x, y: rc.y });
+      REL.set(kScoped, { dx: rc.x - L.X, dy: rc.y - L.Y });
+    });
+    requestSave();
+    openOverlayNow(baseWnd, appId);
+    return;
+  }catch(e){ sp.ConsoleError("[seedTitleScopeFromOpen] "+e.message); }
+}
+// === Throw already open panels under a new active window ===
+function repositionOpenPanels(appId, baseHwnd){
+   // Return POS by REL for open IDs and redrawing
+  var base = baseHwnd || currentTopWndForApp(appId);
+  if (!base) { if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Invalidate(); return; }
+  var L = base.Location;
+  OPEN_IDS.forEach(function(id){
+    if (overlayState.getOwner(id, null)!==appId) return;
+    var kScoped = gKey(appId, id, base);
+    var rel = REL.get(kScoped) || REL.get(appId+":"+id) || null;
+    var S = _getPanelSize(id);
+    var x,y;
+    if (rel) { x=L.X+rel.dx; y=L.Y+rel.dy; }
+    else {
+      var p = POS.get(kScoped) || POS.get(appId+":"+id) || POS.get(id) || null;
+      if (p) { x=p.x; y=p.y; } else { x=L.X; y=L.Y; }
+    }
+    setPanelPos(appId, id, x, y, base);
+  });
+  rebuildOverlayRegion();   
+  if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Invalidate();
+}
+// Order: HWND (:h:) > Title (:t:) > Just exe: id
+function keyPrio(k){
+  if (typeof k !== "string") return 0;
+  if (/:h:/.test(k)) return 3;
+  if (/:t:/.test(k)) return 2;
+  return 0;
+}
+var SEED_SHOWN_FOR_EXE = new Set();
+
+function globalHasAnyState(){
+  let has = false;
+  POS.forEach((_, k) => { if (!has && typeof k === 'string' && k.indexOf(':') === -1) has = true; });
+  REL.forEach((_, k) => { if (!has && typeof k === 'string' && k.indexOf(':') === -1) has = true; });
+  CHAIN.forEach((_, k) => { if (!has && typeof k === 'string' && k.indexOf(':') === -1) has = true; });
+  return has;
+}
+
+function seedGlobalDefaultsCentered(list){
+  var b = Forms.Screen.PrimaryScreen.Bounds;
+  var margin = 20;
+  var defs = (list && list.length ? list : DEFAULT_PANELS);
+
+  // Clear old global positions first
+  var toDelete = [];
+  POS.forEach((_, k) => {
+    if (typeof k === "string" && k.indexOf(":") === -1) toDelete.push(k);
+  });
+  toDelete.forEach(k => POS.delete(k));
+  if (LOG_ON1) log("[SEED.GLOBAL] Cleared " + toDelete.length + " old positions");
+
+  OPEN_IDS.clear();
+  defs.forEach(function(def, i){
+    var S = _getPanelSize(def.id);
+    var pt = calcCenteredLocation(i, defs.length, S, { w: b.Width, h: b.Height }, margin);
+    POS.set(def.id, { x: pt.x, y: pt.y });   // Global key = just "pN"
+    OWNER_BY_ID.set(def.id, "_global");
+    OPEN_IDS.add(def.id);
+    try { delete MANUALLY_CLOSED[def.id]; } catch(_){}
+    if (LOG_ON1) log("[SEED.GLOBAL] Set " + def.id + " to (" + pt.x + "," + pt.y + ")");
+  });
+  requestSave();
+}
+
+function exeHasAnyState(appId){
+  let has = false;
+  POS.forEach((_,k)=>{ if (!has && typeof k==='string' && k.indexOf(appId+':')===0) has = true; });
+  REL.forEach((_,k)=>{ if (!has && typeof k==='string' && k.indexOf(appId+':')===0) has = true; });
+  CHAIN.forEach((_,k)=>{ if (!has && typeof k==='string' && k.indexOf(appId+':')===0) has = true; });
+  return has;
+}
+
+function pickPanelDefsFor(appId, mode, fallbackPanels, scopeId) {
+  function idFromKey(k){ return (k.indexOf(':')>=0) ? k.split(':')[1] : k; }
+  function includePosRelKey(k){
+    if (typeof k !== 'string') return false;
+    // Global mode: key without colons (Just "p1")
+    if (!appId || appId === "_global") {
+      return k.indexOf(':') === -1;
+    }
+    // Title-scope: "appId:panelId:t:<frag>"
+    if (mode === 1 && scopeId) {
+      return k.indexOf(appId + ":") === 0 && k.indexOf(":" + scopeId) > 0;
+    }
+    // EXE level: Strictly "appId:panelId"
+    if (k.indexOf(appId + ":") === 0) {
+      var parts = k.split(":");
+      return parts.length === 2;
+    }
+    return false;
+  }
+  const ids = new Set();
+  // 1) Collect ID from POS/REL
+  POS.forEach((_, k) => { if (includePosRelKey(k)) ids.add(idFromKey(k)); });
+  REL.forEach((_, k) => { if (includePosRelKey(k)) ids.add(idFromKey(k)); });
+
+  // 2) Add ID from CHAIN (root + children) in the current scope
+  CHAIN.forEach((arr, k) => {
+    if (typeof k !== 'string') return;
+    // The global chain key - just "p1"
+    if (!appId || appId === "_global") {
+      if (k.indexOf(':') === -1) {
+        ids.add(k);
+        (arr || []).forEach(id => ids.add(id));
+      }
+      return;
+    }
+    // Title-scope: "appId:scope:root"
+    if (mode === 1 && scopeId) {
+      var pref = appId + ":" + scopeId + ":";
+      if (k.indexOf(pref) === 0) {
+        var root = k.slice(pref.length);
+        ids.add(root);
+        (arr || []).forEach(id => ids.add(id));
+      }
+      return;
+    }
+    // Level EXE: "appId:root"
+    var prefExe = appId + ":";
+    if (k.indexOf(prefExe) === 0 && k.indexOf(":") === k.lastIndexOf(":")) {
+      var rootExe = k.slice(prefExe.length);
+      ids.add(rootExe);
+      (arr || []).forEach(id => ids.add(id));
+    }
+  });
+  // 3) If nothing is found, we show the defaults for the "pure" exe once
+  if (appId && ids.size === 0 && fallbackPanels && fallbackPanels.length) {
+    if (!exeHasAnyState(appId)) {
+      if (!SEED_SHOWN_FOR_EXE.has(appId)) {
+        SEED_SHOWN_FOR_EXE.add(appId);
+        if (LOG_ON1) log(`[PICK.seed.exe] defaults for ${appId}`);
+        return fallbackPanels.map(p => ({ id:p.id, text:p.text, dx:p.dx, dy:p.dy }));
+      }
+    }
+  }
+  // 4) We turn ID → PanelDef
+  function asDef(id){
+    var d = PANELS.find(p => p.id === id);
+    return d || { id, text:panelLabel(id), dx:0, dy:0 };
+  }
+  return Array.from(ids).map(asDef);
+}
+
+function onForegroundChanged(rawHwnd){
+  if (IS_CHAIN_PLAYING || USE_GLOBAL_CLICK || IS_MULTI_CAPTURE) return;
+  var wnd = sp.WindowFromHandle(HANDLE.ptr(rawHwnd));
+  var exe = (wnd && (wnd.ExecutableName||"")).toLowerCase();
+  if (!exe || exe === "strokesplus.net.exe") return;
+
+  // If another App is fixed, we ignore switching
+  try {
+    if (!USE_GLOBAL_CLICK) {
+      var frozenApp = null;
+      FREEZE_BY_APP.forEach(function(v, k){ if (!frozenApp && v) frozenApp = k; });
+      if (frozenApp && frozenApp !== exe) {
+        if (LOG_ON1) log("[FG.ignore] frozen=" + frozenApp + " ; fg=" + exe);
+        try {
+          var locked = LOCKED_BASE_BY_APP.get(frozenApp);
+          if (locked) {
+            var lockPtr = HANDLE.ptr(locked);
+            if (lockPtr && lockPtr.ToInt64()) { stopFollow(); startFollow(lockPtr); }
+          }
+        } catch(_){}
+        return;
+      }
+    }
+  } catch(_){}
+
+  ACTIVE_APP = exe;
+
+  var top = topWndForScope(rawHwnd);
+  if (top) {
+    try { LAST_TOP_BY_APP.set(exe, _topLevelOf(top)); } catch(_){}
+    try { if (LOG_ON1) log("[FG.proc] exe=" + exe + " top=" + _wndStr(_topLevelOf(top))); } catch(_){}
+  }
+  if (FREEZE_BY_APP.get(exe)) {
+    if (LOG_ON1) log("[FG.skip] exe frozen: " + exe);
+    return;
+  }
+  if (LOG_ON1) log("[FG.overlay] rebuild"); 
+  openOverlayNow(); 
+  return;
+}
+
+// === We save the REL when the main window is completed ===
+function onMoveSizeEnd(rawHwnd){
+  if (IS_CHAIN_PLAYING) return;
+  if (!shouldStartFollow()) return;
+  if (isOurPanelHwnd(rawHwnd)) return;  // Do not save the REL by the movement of the panel
+
+  var appId = ACTIVE_APP || getActiveAppId();
+  if (FREEZE_BY_APP.get(appId)) return; // We do not count anything into strangers Move/Size
+
+  const base = getWindowRect(rawHwnd);
+
+if (scopeModeFor(appId) === 1) {
+  return;
+}
+    for (const [id, rec] of REG) {
+        const frm = rec.frm;
+        if (!frm || frm.IsDisposed) continue;
+        const dx = frm.Location.X - base.left;
+        const dy = frm.Location.Y - base.top;
+        REL.set(gKey(appId, id, rawHwnd), { dx, dy });
+    }
+    requestSave();
+}
+
+function isIdUsedForApp(appId, id, baseWndOpt){
+  const isGlob = isGlobalApp(appId);
+  const sc = isGlob ? null : gScopeId(baseWndOpt || currentTopWndForApp(appId), appId, 1);
+
+  // if manually closed in this Scope - we consider "free"
+  if (isGlob) {
+    if (MANUALLY_CLOSED[id]) return false;
+  } else {
+    const closedKey = sc ? (appId + ":" + id + ":" + sc) : (appId + ":" + id);
+    if (MANUALLY_CLOSED[closedKey] || MANUALLY_CLOSED[id]) return false;
+  }
+  if (OPEN_IDS && OWNER_BY_ID) {
+    for (const openId of OPEN_IDS) {
+      if (openId !== id) continue;
+      const owner = OWNER_BY_ID.get(openId) || (USE_GLOBAL_CLICK ? "_global" : ACTIVE_APP || getActiveAppId());
+      if (isGlob ? isGlobalApp(owner) : owner === appId) return true;
+    }
+  }
+  // POS/REL only in this scope
+  if (isGlob) {
+    if (POS.has(id) || REL.has(id)) return true;
+  } else if (sc) {
+    const kSc = appId + ":" + id + ":" + sc;
+    if (POS.has(kSc) || REL.has(kSc)) return true;
+  } else {
+    const k = appId + ":" + id;
+    if (POS.has(k) || REL.has(k)) return true;
+  }
+  // CHAIN — Also within the current scope
+  if (isGlob) {
+    if (CHAIN.has(id)) return true;
+  } else if (sc) {
+    const pref = appId + ":" + sc + ":";
+    let used = false;
+    CHAIN.forEach((arr,key)=>{
+      if (used || typeof key !== 'string' || key.indexOf(pref)!==0) return;
+      const root = key.slice(pref.length);
+      if (root === id || (Array.isArray(arr) && arr.indexOf(id)>=0)) used = true;
+    });
+    if (used) return true;
+  } else {
+    const pref = appId + ":";
+    let used = false;
+    CHAIN.forEach((arr,key)=>{
+      if (used || typeof key !== 'string') return;
+      if (key.indexOf(pref)===0 && key.indexOf(":")===key.lastIndexOf(":")) {
+        const root = key.split(":").pop();
+        if (root === id) used = true;
+      }
+      if (Array.isArray(arr) && arr.indexOf(id)>=0) used = true;
+    });
+    if (used) return true;
+  }
+
+  return false;
+}
+
+function nextRootIdForApp(appId, baseWndOpt){
+  var n = 1;
+  while (true) {
+    var id = "p" + n;
+    if (!isIdUsedForApp(appId, id, baseWndOpt)) return id;
+    n++;
+  }
+}
+
+function addPanel(appIdTarget){
+  try{
+    var appId = appIdTarget || getActiveAppId();
+    var owner = USE_GLOBAL_CLICK ? "_global" : appId;
+
+    // Calculate Base once
+    var base = isGlobalApp(owner) ? null : currentTopWndForApp(owner);
+
+    // Take the next available ID within this scope
+    var id = nextRootIdForApp(owner, base);
+
+    var num = parseInt(id.slice(1),10) || 1;
+    var def = PANELS.find(p=>p.id===id);
+    if (!def) { def = { id:id, text:panelLabel(id), dx:0, dy:0 }; PANELS.push(def); }
+    invalidatePanelSize(id);
+    invalidatePanelRect(owner, id);
+
+    var S = _getPanelSize(id), b = Forms.Screen.PrimaryScreen.Bounds;
+    var margin=20, total=OPEN_IDS.size+1, idx=OPEN_IDS.size;
+    var totalW = total*S.w + (total-1)*margin;
+    var x0 = Math.round((b.Width-totalW)/2);
+    var x  = x0 + idx*(S.w+margin);
+    var y  = Math.round((b.Height-S.h)/2);
+
+    batchUpdate(function(){
+  OWNER_BY_ID.set(id, owner);
+  OPEN_IDS.add(id);
+  setPanelPos(owner, id, x, y, base);
+});
+if (!USE_GLOBAL_CLICK) refreshOverlayFor(appId);
+  } catch(e){
+    sp.ConsoleError("addPanel: "+e.message);
+  }
+}
+
+function uiThread(){
+  try {
+    ACTIVE_APP = getActiveAppId();
+
+    if (!USE_GLOBAL_CLICK) {
+      var cm = APP_CLICK.get(ACTIVE_APP);
+      clickMode = (typeof cm === "number") ? cm : 1;
+      APP_CLICK.set(ACTIVE_APP, clickMode);
+    }
+    const pinnedMode  = !USE_GLOBAL_CLICK && FREEZE_BY_APP.get(ACTIVE_APP);
+    const baseInit    = pinnedMode ? currentTopWndForApp(ACTIVE_APP) : null;
+    if (baseInit) setLockedBaseApp(ACTIVE_APP, baseInit);
+
+    const firstHostWnd = USE_GLOBAL_CLICK ? null : (baseInit || sp.ForegroundWindow());
+    const modeNow      = USE_GLOBAL_CLICK ? 0 : scopeModeFor(ACTIVE_APP);
+    const scopeIdNow   = USE_GLOBAL_CLICK ? null : gScopeId(firstHostWnd, ACTIVE_APP, 1);
+    const appForPick   = USE_GLOBAL_CLICK ? "" : ACTIVE_APP;
+
+    const defs = pickPanelDefsFor(appForPick, modeNow, DEFAULT_PANELS, scopeIdNow);
+
+    OPEN_IDS.clear();
+
+    defs.forEach(function(def){
+  const owner = USE_GLOBAL_CLICK ? "_global" : ACTIVE_APP;
+  const closedKey = USE_GLOBAL_CLICK
+    ? def.id
+    : (gKey(owner, def.id, firstHostWnd, 1) || (owner + ":" + def.id));
+  if (MANUALLY_CLOSED[closedKey] || MANUALLY_CLOSED[def.id]) return; 
+
+  OWNER_BY_ID.set(def.id, owner);
+  OPEN_IDS.add(def.id);
+  var base = isGlobalApp(owner) ? null : firstHostWnd;
+  var rc   = panelRect(owner, def.id, base);
+  setPanelPos(owner, def.id, rc.x, rc.y, base);
+});
+    ensureOverlay();
+    rebuildOverlayRegion();
+if (OVERLAY && !OVERLAY.IsDisposed) {
+  if (!OVERLAY.Visible) showNoAct(OVERLAY);
+  OVERLAY.Invalidate();
+  ensureOverlayTop(); 
+}
+try { unregisterToggleHotkey(); } catch(_){}
+try { registerToggleHotkeyOnThisThread("UI"); } catch(_){}
+
+    // Hook of active window/movements (only outside global)
+    var fgCallback = host.del(ForegroundHook.WindowChanged, function(rawHwnd, eventType){
+      if (USE_GLOBAL_CLICK) return;
+      var ip = HANDLE.ptr(rawHwnd);
+      if (eventType === 0x0003) {
+        onForegroundChanged(ip);
+        return;
+      }
+      if (eventType === 0x000A) {
+        startFollow(ip);
+        MOVE_IN_PROGRESS = true;
+        return;
+      }
+      if (!ip || isOurPanelHwnd(ip)) return;
+      if (!shouldStartFollow()) return;
+      if (!LAST_HWND || !LAST_RECT) startFollow(ip);
+      var isLocationChange = (eventType === 0x800B);
+      if (isLocationChange) {
+        var wasMove = MOVE_IN_PROGRESS;
+        MOVE_IN_PROGRESS = true;
+        handleMoveEvent(ip);
+        MOVE_IN_PROGRESS = wasMove;
+        return;
+      }
+      if (eventType === 0x000B) {
+        handleMoveEvent(ip);
+        MOVE_IN_PROGRESS = false;
+        stopFollow();
+        onMoveSizeEnd(ip);
+        return;
+      }
+      if (MOVE_IN_PROGRESS) {
+        handleMoveEvent(ip);
+      }
+    });
+    try {
+      if (!USE_GLOBAL_CLICK) ForegroundHook.Start(fgCallback);
+      sp.StoreObject("fgHookCb", fgCallback);
+
+      if (!USE_GLOBAL_CLICK && firstHostWnd) {
+        try { firstHostWnd.Activate(); } catch(_){}
+        repositionOpenPanels(ACTIVE_APP, firstHostWnd);
+      }
+    } catch(e){ sp.ConsoleError("ForegroundHook.Start: " + e.message); }
+
+    //UI cycle is needed for the life of an overlay
+    try { Forms.Application.Run(); } catch(e){ sp.ConsoleError("Application.Run: " + e.message); }
+
+  } catch(eOuter) {
+    sp.ConsoleError("uiThread: " + eOuter.message);
+  }
+}
+if (!__RUNNING) {
+  startUiThread();
+  sp.StoreObject("PANELS_CLOSE_ALL", closeAllPanels);
+} else {
+  if (LOG_ON1) log("[GUARD] UI has already been launched - we will not start the second time");
+}
+
+function clickOne(panelId, opts){
+  try {
+    opts = opts || {};
+
+    // ---- delay: single vs chain step
+    var isChain = !!opts.chain;
+    var sleepMs = isChain
+      ? (typeof DELAY_CHAIN_MS  === "number" ? DELAY_CHAIN_MS  : DEFAULT_DELAY_CHAIN_MS)
+      : (typeof DELAY_SINGLE_MS === "number" ? DELAY_SINGLE_MS : DEFAULT_DELAY_SINGLE_MS);
+
+    // ---- Basic parameters
+    var app  = getActiveAppId();
+    var mode = USE_GLOBAL_CLICK ? clickMode : (APP_CLICK.get(app) || 1);
+
+    // current active window and scoped keys
+    // if a chain is running and we're given a fixed base — use it
+   var baseFromChain = opts.baseWnd || null;
+var fw = baseFromChain || (USE_GLOBAL_CLICK ? null : currentTopWndForApp(app));
+
+var kScoped = (!USE_GLOBAL_CLICK && fw) ? gKey(app, panelId, fw) : null;
+// Only by the heading (kScoped  ...:t:<frag>)
+var titleOnly = (!USE_GLOBAL_CLICK && /:t:/.test(kScoped || ""));
+// early exit if the panel is closed manually
+const closedKeyScoped = USE_GLOBAL_CLICK
+   ? panelId
+   : (gKey(app, panelId, fw, 1) || (app + ":" + panelId));
+
+ if (MANUALLY_CLOSED[closedKeyScoped]) {
+  if (LOG_ON1) log('[CLICK.skip] ' + panelId + ' — manually closed (' + closedKeyScoped + ')');
+  return false;
+}
+   var keyPref = USE_GLOBAL_CLICK
+      ? panelId
+      : (kScoped || (app + ":" + panelId));   
+    // ---- button/mode hover
+        var btnCode;
+if (USE_GLOBAL_CLICK) {
+  btnCode = BTN_BY_KEY.get(panelId) ?? 0;
+} else if (titleOnly) {
+  btnCode = BTN_BY_KEY.has(kScoped) ? BTN_BY_KEY.get(kScoped) : 0;
+} else {
+  btnCode = (kScoped && BTN_BY_KEY.has(kScoped)) ? BTN_BY_KEY.get(kScoped)
+           : (BTN_BY_KEY.get(app + ":" + panelId) ?? 0);
+}
+    var hoverOnly = (btnCode === -1);
+    var btn = hoverOnly ? Forms.MouseButtons.Left  
+                        : (btnCode ? Forms.MouseButtons.Right : Forms.MouseButtons.Left);
+
+    // preferred behavior "return the cursor"
+    var shouldReturn = (typeof opts.returnCursor === "boolean")
+      ? !!opts.returnCursor
+      : getHoverReturn(keyPref);
+
+    var frmLive = (REG.get(panelId) && REG.get(panelId).frm && !REG.get(panelId).frm.IsDisposed)
+                    ? REG.get(panelId).frm : null;
+
+var rel = null, relKeyUsed = null;
+if (!USE_GLOBAL_CLICK) {
+  if (titleOnly) {
+    if (kScoped && REL.has(kScoped)) { rel = REL.get(kScoped); relKeyUsed = kScoped; }
+  } else {
+if (kScoped && REL.has(kScoped))        { rel = REL.get(kScoped);     relKeyUsed = kScoped; }
+else if (REL.has(app + ":" + panelId))  { rel = REL.get(app+":"+panelId); relKeyUsed = app+":"+panelId; }
+  }
+}
+    // POS: scoped -> app -> global(id) -> null
+   var pos = null, posKeyUsed = null;
+if (USE_GLOBAL_CLICK) {
+  if (POS.has(panelId)) { pos = POS.get(panelId); posKeyUsed = panelId; }
+} else if (titleOnly) {
+  if (kScoped && POS.has(kScoped)) { pos = POS.get(kScoped); posKeyUsed = kScoped; }
+} else {
+  if (kScoped && POS.has(kScoped))        { pos = POS.get(kScoped);     posKeyUsed = kScoped; }
+else if (POS.has(app + ":" + panelId))  { pos = POS.get(app+":"+panelId); posKeyUsed = app+":"+panelId; }
+else if (frmLive && POS.has(panelId))   { pos = POS.get(panelId);     posKeyUsed = panelId; }
+}
+
+// If we require a title-scope, but there is no POS/REL for it-we do nothing
+if (titleOnly && !(rel || pos)) {
+  if (LOG_ON1) log('[CLICK.skip] ' + panelId + ' — no title-scope POS/REL (' + (kScoped || '-') + ')');
+  return false;
+}
+// The dimensions of the panel
+var S  = _getPanelSize(panelId);
+var w  = frmLive ? frmLive.Width  : ((rel && rel.w) || (pos && pos.w) || S.w);
+var h  = frmLive ? frmLive.Height : ((rel && rel.h) || (pos && pos.h) || S.h);
+var cx = w ? (w>>1) : 0;
+var cy = h ? (h>>1) : 0;
+    // Basic window for calculating REL
+    var baseWnd = baseFromChain || null, baseLoc = null;
+
+    if (!USE_GLOBAL_CLICK && rel && !baseFromChain) {
+      // We are trying to calculate the real Basewnd under the panel/by Scoped
+      try {
+        if (kScoped) {
+          baseWnd = fw;
+         } else if (frmLive) {
+          // window under the center of the panel
+          var probe = new Drawing.Point(frmLive.Location.X + cx, frmLive.Location.Y + cy);
+          var under = sp.WindowFromPoint(probe, true);
+          var top = null;
+          try { if (under) top = under.FirstMoveableParent || under.RootWindow || under.GetRootOwnerWindow || under; } catch(_){}
+          var ex = ""; try { ex = (top.ExecutableName || "").toLowerCase(); } catch(_){}
+          if (top && ex === app) baseWnd = top;
+        }
+      } catch(_){}
+    }
+    if (!baseWnd) baseWnd = fw;
+    baseLoc = baseWnd ? baseWnd.Location : null;
+
+    // REL is valid in the presence of a base and not "zero" with the existing POS
+    var relValid = !!(rel && baseLoc && !(rel.dx === 0 && rel.dy === 0 && pos));
+
+// --- Do not click if there are no coordinates in this and the form is not lively
+if (!rel && !pos && !frmLive) {
+  if (LOG_ON1) log('[CLICK.skip] ' + panelId + ' — no POS/REL in this scope; posKey='+(posKeyUsed||'-')+', relKey='+(relKeyUsed||'-'));
+  return false;
+}
+    // ---- Click point
+    var def = PANELS.find(p => p.id === panelId) || null;
+    if (!def) def = {dx:0, dy:0};
+    var pt;
+
+    if (relValid) {
+      pt = { x: baseLoc.X + rel.dx + cx, y: baseLoc.Y + rel.dy + cy };
+    } else if (pos) {
+      pt = { x: pos.x + cx, y: pos.y + cy };
+    } else if (frmLive) {
+      // If the form is visible, we click on its center
+      pt = { x: frmLive.Location.X + cx, y: frmLive.Location.Y + cy };
+    } else if (!USE_GLOBAL_CLICK && baseLoc) {
+      pt = { x: baseLoc.X + (def.dx||0) + cx, y: baseLoc.Y + (def.dy||0) + cy };
+    } else {
+      var b = Forms.Screen.PrimaryScreen.Bounds;
+      pt = { x: (b.Width>>1), y: (b.Height>>1) };
+    }
+    var p = new Drawing.Point(pt.x, pt.y);
+
+    // debug information
+    try {
+      var trgStr = "<null>";
+      try { var trgWnd = sp.WindowFromPoint(p, true); trgStr = _wndStr(trgWnd); } catch(__){}
+      if (LOG_ON1) log('[CLICK.resolve] id='+panelId
+        +' app='+app
+        +' base='+_wndStr(baseWnd)
+        +' titleOnly='+ (titleOnly?1:0)
+        +' kScoped='+(kScoped||'-')
+        +' relKey='+(relKeyUsed||'-')
+        +' posKey='+(posKeyUsed||'-'));
+      if (LOG_ON1) log('[CLICK.to] id='+panelId
+        +' mode='+mode
+        +' btnCode='+btnCode
+        +' hoverOnly='+(hoverOnly?1:0)
+        +' pt=(' + pt.x + ',' + pt.y + ')'
+        +' trg='+trgStr);
+    } catch(_){}
+
+    // ---- mode 3: PostMessage
+    if (mode === 3) {
+      if (hoverOnly) {
+        // just "bring"
+        sp.MouseMove(p);
+        sp.Sleep(typeof DELAY_HOVER_MS === "number" ? DELAY_HOVER_MS : DEFAULT_DELAY_HOVER_MS);
+        return true;
+      }
+      var trg = sp.WindowFromPoint(p, true);
+      if (!trg) return false;
+      var client = trg.ScreenPointToClientPoint(p);
+      var dn = btnCode ? 0x0204 : 0x0201; // RBUTTONDOWN/LBUTTONDOWN
+      var up = btnCode ? 0x0205 : 0x0202; // RBUTTONUP  /LBUTTONUP
+      var lp = ((client.Y & 0xFFFF) << 16) | (client.X & 0xFFFF);
+      trg.PostMessageObj(dn, 0, lp);
+      trg.PostMessageObj(up, 0, lp);
+      sp.Sleep(sleepMs);
+      return true;
+    }
+    // ---- mode 1:  SendInput
+    if (mode === 1) {
+      var old = Forms.Cursor.Position;
+      if (hoverOnly) {
+        sp.MouseMove(p);
+        sp.Sleep(typeof DELAY_HOVER_MS === "number" ? DELAY_HOVER_MS : DEFAULT_DELAY_HOVER_MS);
+        if (shouldReturn) sp.MouseMove(old);
+        return true;
+      }
+      sp.MouseClick(p, btn, true, true);
+      sp.Sleep(sleepMs);
+      if (shouldReturn) sp.MouseMove(old);
+      return true;
+    }
+
+    // In case of an unexpected regime
+    return false;
+
+  } catch (e) {
+    sp.ConsoleError("clickOne(" + panelId + "): " + e.message);
+    return false;
+  }
+}
+// === Multi-Click ===
+function startMultiClick(appId, parentId, count){
+  if (IS_MULTI_CAPTURE) return;
+  IS_MULTI_CAPTURE = true;
+
+  if (!appId)     appId     = getActiveAppId();
+  if (!parentId)  parentId  = "p1";
+  if (!count)     count     = 2;
+
+  // The base window, to which we will tie the entire record
+    var base = null;
+  try {
+    base = baseWndForApp(appId) || guessBaseFromPanels(appId);
+    if (!base) {
+      var fw = sp.ForegroundWindow();
+      if (fw && ((fw.ExecutableName||"").toLowerCase() === appId.toLowerCase()))
+        base = _topLevelOf(fw);
+    }
+  } catch(_){}
+  try { if (LOG_ON1) log("[MULTI.begin] app=" + appId + " parent=" + parentId + " count=" + count + " base=" + _wndStr(base || sp.ForegroundWindow())); } catch(_){}
+
+  // hide the panels of this application during recording
+  try{ if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = false; }catch(_){}
+  var st = {
+    appId     : appId,
+    parentId  : parentId,
+    count     : Math.max(1, parseInt(count,10) || 1),
+    points    : [],                 // Absolute coordinates of clicks
+    baseWnd   : base || sp.ForegroundWindow(),
+    lastDown  : false,
+    timer     : null
+  };
+  var t = new Forms.Timer();
+  t.Interval = 16;
+  t.Tick.connect(function(){
+    try{
+      if (sp.IsKeyDown(vk.ESCAPE)) {
+        t.Stop(); t.Dispose();
+        IS_MULTI_CAPTURE = false;
+        try{ if (OVERLAY && !OVERLAY.IsDisposed) OVERLAY.Visible = true; }catch(_){}
+        return;
+      }
+      if (!isGlobalApp(appId) && getActiveAppId() !== appId) return;
+
+      var isDown = sp.IsButtonDown(Forms.MouseButtons.Left);
+      if (!st.lastDown && isDown) {
+        st.lastDown = true;                      // Pressed
+      } else if (st.lastDown && !isDown) {       // released → fix the click
+        st.lastDown = false;
+
+        var pt = sp.GetCurrentMousePoint();      // Absolute coordinates
+        st.points.push({ x: pt.X, y: pt.Y });
+
+var info = topInfoAtPoint(pt);
+if (!st.firstWin) {
+  st.firstWin = info;
+  if (LOG_ON1) log("[MULTI.hwnd.first] Parent HWND: " + info.topH + " (HWND: " + info.childH + ")");
+}
+st.lastWin = info;
+if (LOG_ON1) log("[MULTI.hwnd.last ] Parent HWND: " + (st.lastWin?st.lastWin.topH:0) + " (HWND: " + (st.lastWin?st.lastWin.childH:0) + ")");
+
+if (st.points.length >= st.count) {
+  t.Stop(); t.Dispose();
+  IS_MULTI_CAPTURE = false;
+  setPanelsVisible(appId, true);
+  applyMultiResult(st);
+}
+      }
+    } catch(e){ sp.ConsoleError("startMultiClick.tick: " + e.message); }
+  });
+  st.timer = t;
+  t.Start();
+}
+
+function mapWithoutHwndKeys(srcMap){
+  var dst = new Map();
+  srcMap.forEach(function(v,k){
+    if (typeof k === "string" && k.indexOf(":h:") >= 0) return;
+    dst.set(k, v);
+  });
+  return dst;
+}
+
+function applyMultiResult(st){
+  try{
+    var appId = st.appId;
+    var root  = st.parentId;
+    var isGlob = isGlobalApp(appId);
+
+    var ids = [root]; for (let i=1;i<st.count;i++) ids.push(root+"_"+i);
+    var children = ids.slice(1);
+
+    var base = st.baseWnd || (isGlob ? sp.ForegroundWindow() : (currentTopWndForApp(appId) || sp.ForegroundWindow()));
+    var scTitle = isGlob ? null : gScopeId(base, appId, 1);
+    var scHwnd  = isGlob ? null : gScopeId(base, appId, 2);
+    var scopeTag = scTitle
+    try { if (LOG_ON1) log("[MULTI.apply] app=" + appId + " base=" + _wndStr(base) + " scTitle=" + (scTitle||"-") + " scHwnd=" + (scHwnd||"-")); } catch(_){}
+// --- Comparison is strictly top-HWND ---
+var shouldFreeze = false;
+try{
+  var h1 = st.firstWin ? st.firstWin.topH : 0;
+  var h2 = st.lastWin  ? st.lastWin.topH  : 0;
+  shouldFreeze = (h1 !== 0 && h2 !== 0 && h1 !== h2);
+  if (LOG_ON1){
+    log("[MULTI.compare] by HWND: " + (shouldFreeze ? "DIFF → FREEZE" : "SAME/UNKNOWN → no freeze"));
+    log("[MULTI.compare] first:  Parent HWND: " + h1 + " (HWND: " + (st.firstWin?st.firstWin.childH:0) + ")");
+    log("[MULTI.compare] last:   Parent HWND: " + h2 + " (HWND: " + (st.lastWin?st.lastWin.childH:0) + ")");
+  }
+}catch(_){}
+    var ck = isGlob ? root : (scopeTag ? (appId+":"+scopeTag+":"+root) : (appId+":"+root));
+var prevChildren = CHAIN.get(ck) || [];
+var keep = {};
+children.forEach(function(id){ keep[id] = 1; });
+var toRemove = prevChildren.filter(function(id){ return !keep[id]; });
+    chainSetSafe(ck, children);
+    toRemove.forEach(function(id){
+  try{
+    if (isGlob) {
+      // Global mode - keys without prefix
+      POS.delete(id); REL.delete(id);
+      BTN_BY_KEY.delete(id); HOVER_RETURN.delete(id); PANEL_DELAY.delete(id);
+      delete MANUALLY_CLOSED[id];
+    } else {
+      purgePanelInScope(appId, id, scopeTag, base);
+    }
+    OPEN_IDS.delete(id);   
+  } catch(_){}
+});
+    var baseLoc = base && base.Location ? base.Location : new Drawing.Point(0,0);
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      var def = PANELS.find(p=>p.id===id);
+      if (!def){
+        var n = (i===0) ? (parseInt(id.slice(1),10)||1) : (parseInt(id.split("_")[1],10)||1);
+        def = {id:id, text:panelLabel(id), dx:0, dy:0};
+        PANELS.push(def);
+      }
+      var S = _getPanelSize(id);
+      var abs = st.points[i] || {x: baseLoc.X + (S.w>>1), y: baseLoc.Y + (S.h>>1)};
+      var px = Math.max(0, abs.x - (S.w>>1));
+      var py = Math.max(0, abs.y - (S.h>>1));
+
+      overlayState.addPanel(isGlob ? "_global" : appId, id, {
+        x: px,
+        y: py,
+        baseWnd: isGlob ? null : base
+      });
+    }
+    requestSave();
+// --- Freeze only if top-hwnd varies ---
+if (!isGlob){
+  if (shouldFreeze){
+    var lockBase = (st.firstWin && st.firstWin.topObj) ? st.firstWin.topObj : base;
+    try { AutoFreezeForForm(appId, lockBase, OVERLAY, false); } catch(_){ }
+    freezePanelsForApp(appId, lockBase);
+    if (LOG_ON1) log("[MULTI.freeze] set=1 (different top HWND)");
+  } else {
+    if (LOG_ON1) log("[MULTI.freeze] skipped");
+  }
+}
+ensureOverlay();
+try { rebuildOverlayRegion(); } catch(_){ }
+if (OVERLAY && !OVERLAY.IsDisposed) {
+  if (!OVERLAY.Visible) showNoAct(OVERLAY);
+  OVERLAY.Invalidate();
+}
+if (!isGlob) {
+  // Rear open and run follow to the desired Appid/window
+  try { refreshOverlayFor(appId); } catch(_){ }
+  followBaseWindow(base);
+}
+var scopeLog = isGlob ? 'global' : (scopeTag || '<exe>');
+if (LOG_ON1) log('[MULTI] scope='+scopeLog+' '+appId+':'+root+' -> ['+(CHAIN.get(ck)||[])+']');
+
+  }catch(e){ sp.ConsoleError("applyMultiResult: "+e.message); }
+}
+sp.DeleteStoredObject("PANEL_CLICK");
+
+sp.StoreObject("PANEL_CLICK", function (id) {
+  try {
+    if (PANELS_INACTIVE_AFTER_RESET) {
+      if (LOG_ON1) log("[PANEL_CLICK] Blocked - panels inactive after reset");
+      return false;
+    }
+    var app = getActiveAppId();
+    var fw  = sp.ForegroundWindow();
+
+    if (IGNORE_CLICKS_BY_APP.get(app)) {
+      if (LOG_ON1) log("[PANEL_CLICK] Blocked - clicks ignored for " + app);
+      return false;
+    }
+    var baseForScope =
+          LOCKED_BASE_BY_APP.get(app)
+       || baseWndForApp(app)
+       || topWndForScope(fw);
+
+    var modeNow = USE_GLOBAL_CLICK ? 0 : scopeModeFor(app);
+    var keyChainScoped = USE_GLOBAL_CLICK ? id : chainKey(app, id, fw);
+    try { if (LOG_ON1) log("[CHAIN.begin] app=" + app + " root=" + id + " modeNow=" + modeNow + " base=" + _wndStr(baseForScope)); } catch(_){}
+
+if (modeNow === 1) { 
+  var kScopedRoot = gKey(app, id, fw);
+  if (!POS.has(kScopedRoot) && !REL.has(kScopedRoot)) {
+    if (LOG_ON1) log('[CHAIN.skip] root ' + id + ' has no title-scope POS/REL (' + kScopedRoot + ')');
+    return false;
+  }
+}
+    var seqRaw = USE_GLOBAL_CLICK
+  ? (CHAIN.get(id) || [])
+  : (modeNow === 0 ? (CHAIN.get(app + ":" + id) || []) : (CHAIN.get(keyChainScoped) || []));
+
+    var seq = seqRaw.filter(function (ch) {
+  var kScopedCh = gKey(app, ch, fw);
+if (modeNow === 1) {
+    // Strictly only Title-scope
+    return /:t:/.test(kScopedCh) && (POS.has(kScopedCh) || REL.has(kScopedCh));
+  }
+  return REG.has(ch)
+      || POS.has(kScopedCh) || REL.has(kScopedCh)
+      || POS.has(app + ":" + ch) || REL.has(app + ":" + ch)
+      || POS.has(ch) || REL.has(ch);
+});
+
+// --- TOGGLE: one click on one click Target A-> B-> C---
+var rootId = id.split('_')[0];
+var keyToggle = USE_GLOBAL_CLICK
+  ? rootId
+  : ((modeNow === 0) ? (app + ":" + rootId) : chainKey(app, rootId, fw));
+
+if (TOGGLE.get(keyToggle)) {
+  var seqRawT = USE_GLOBAL_CLICK
+  ? (CHAIN.get(rootId) || [])
+  : ((modeNow === 0) ? (CHAIN.get(app + ":" + rootId) || []) : (CHAIN.get(chainKey(app, rootId, fw)) || []));
+
+  var list = [rootId].concat(seqRawT).filter(function(targetId){
+    var kSc = gKey(app, targetId, fw);
+    if (modeNow === 1) {
+      return /:t:/.test(kSc) && (POS.has(kSc) || REL.has(kSc));
+    }
+    return REG.has(targetId)
+        || POS.has(kSc) || REL.has(kSc)
+        || POS.has(app + ":" + targetId) || REL.has(app + ":" + targetId)
+        || POS.has(targetId) || REL.has(targetId);
+  });
+
+  if (list.length === 0) {
+    if (LOG_ON1) log("[TOGGLE.skip] no accessible goals for " + keyToggle);
+    return false;
+  }
+  var idx = TOGGLE_IDX.get(keyToggle) || 0;
+  var nextId = list[idx % list.length];
+  TOGGLE_IDX.set(keyToggle, (idx + 1) % list.length);
+    // One click on the chosen goal
+  return withModsTempUp(function () {
+    return clickOne(nextId, {});
+  }, { restore:true });
+}
+    var isChain = seq.length > 0;
+    // temporarily release mods once for the entire call and at the end we restore
+    return withModsTempUp(function () {
+      if (!isChain) {
+        return clickOne(id, {});
+      }
+      // chain - clicks go without the influence of clamped mods
+      var startPos = Forms.Cursor.Position;
+      IS_CHAIN_PLAYING = true;
+      try {
+        try { if (LOG_ON1) log("[CHAIN.step] 0 -> " + id); } catch(_){}
+        var ok = clickOne(id, { chain:true, returnCursor:false, baseWnd: baseForScope });
+
+        var prevId = id;
+        for (let i = 0; i < seq.length; i++) {
+          const nextId = seq[i];
+          var delayMs = getDelayForPanel(app, prevId, baseForScope);
+          if (LOG_ON1) {
+            try { log("[CHAIN.step] " + (i+1) + " -> " + nextId + " delay=" + delayMs + "ms"); } catch(_){}
+          }
+          sp.Sleep(delayMs);
+          clickOne(nextId, { chain:true, returnCursor:false, baseWnd: baseForScope });
+          prevId = nextId;
+        }
+// Return the cursor to the start? - We decide on setting up the last panel exactly in the current Scope
+try {
+  var lastId = prevId; 
+  var base   = USE_GLOBAL_CLICK ? null : currentTopWndForApp(app);
+  var kLast  = USE_GLOBAL_CLICK ? lastId : (gKey(app, lastId, base, 1) || (app + ":" + lastId));
+  var shouldReturnFinal = getHoverReturn(kLast);
+
+  if (shouldReturnFinal) {
+    var cur = Forms.Cursor.Position;
+    if (cur.X !== startPos.X || cur.Y !== startPos.Y) sp.MouseMove(startPos);
+  }
+} catch (_){}
+        return ok;
+      } finally {
+        IS_CHAIN_PLAYING = false;
+      }
+    }, { restore: !isChain }); // For mod chains — do not restore
+  } catch (e) {
+    sp.ConsoleError("PANEL_CLICK: " + e.message);
+    return false;
+  }
+});
+
+function handleMoveEvent(rawHwnd){
+  try {
+    if (!LAST_APP || !LAST_HWND) return;
+    var wnd = sp.WindowFromHandle(LAST_HWND);
+    if (!wnd) return;
+    var top = _topLevelOf(wnd) || wnd;
+    if (!top) return;
+    var rect = getWindowRect(top);
+    if (!rect) return;
+    if (LAST_RECT && rect.left === LAST_RECT.left && rect.top === LAST_RECT.top) return;
+    LAST_RECT = rect;
+    repositionOpenPanels(LAST_APP, top);
+  } catch(_){ }
+}
+
+function syncOverlay(appId, baseWnd, options){
+  options = options || {};
+  var refollow = options.refollow !== false;
+  if (!appId) appId = ACTIVE_APP || getActiveAppId();
+  try { refreshOverlayFor(appId); } catch(_){ }
+  if (!refollow) return;
+  if (USE_GLOBAL_CLICK) {
+    if (LOG_ON1) log("[syncOverlay] USE_GLOBAL_CLICK → skip follow");
+    return;
+  }
+  if (!baseWnd) baseWnd = currentTopWndForApp(appId);
+  followBaseWindow(baseWnd);
+}
+
+var ScopeKey = {
+  makePanelKey: function(appId, panelId, baseWnd, forceMode){
+    if (isGlobalApp(appId)) return panelId;
+    var scope = ScopeKey.makeScopeId(appId, baseWnd, forceMode);
+    return scope ? appId + ":" + panelId + ":" + scope
+                 : (appId ? appId + ":" + panelId : panelId);
+  },
+  makeChainKey: function(appId, rootId, baseWnd){
+    if (isGlobalApp(appId)) return rootId;
+    return ScopeKey.makeScopePrefix(appId, baseWnd) + ":" + rootId;
+  },
+  makeScopePrefix: function(appId, baseWnd){
+    if (USE_GLOBAL_CLICK) return "";
+    if (baseWnd) {
+      var frag = titleMatches(appId, baseWnd);
+      if (frag) return appId + ":t:" + frag;
+    }
+    var mode = scopeModeFor(appId);
+    if (mode === 1 || mode === 2) {
+      var sid = ScopeKey.makeScopeId(appId, baseWnd || sp.ForegroundWindow(), mode);
+      if (sid) return appId + ":" + sid;
+    }
+    return appId;
+  },
+  makeScopeId: function(appId, baseWnd, forceMode){
+    var mode = (typeof forceMode === "number") ? forceMode : scopeModeFor(appId);
+    if (!baseWnd || mode === 0) return null;
+    if (mode === 2) {
+      try{
+        var ip = HANDLE.ptr(baseWnd);
+        if (!ip || ip.Equals(clr.System.IntPtr.Zero)) return null;
+        return "h:" + ip.ToInt64().toString(16);
+      }catch(_){ return null; }
+    }
+    if (mode === 1) {
+      var pat = titleMatches(appId, baseWnd);
+      return pat ? ("t:" + pat) : null;
+    }
+    return null;
+  },
+  parsePanelKey: function(key){
+    if (typeof key !== "string") return { appId: null, panelId: key, scope: null };
+    var parts = key.split(":");
+    if (parts.length >= 3) {
+      return { appId: parts[0], panelId: parts[1], scope: parts.slice(2).join(":") };
+    }
+    if (parts.length === 2) {
+      return { appId: parts[0], panelId: parts[1], scope: null };
+    }
+    return { appId: null, panelId: key, scope: null };
+  }
+};
+var overlayState = {
+  pos: POS,
+  rel: REL,
+  owners: OWNER_BY_ID,
+  openIds: OPEN_IDS,
+  addPanel: function(appId, panelId, position){
+    this.owners.set(panelId, appId);
+    this.openIds.add(panelId);
+    if (position) {
+      var base = position.baseWnd || null;
+      setPanelPos(appId, panelId, position.x, position.y, base);
+    }
+  },
+  removePanel: function(panelId){
+    this.openIds.delete(panelId);
+    this.owners.delete(panelId);
+    try { this.pos.delete(panelId); } catch(_){ }
+    try { this.rel.delete(panelId); } catch(_){ }
+  },
+  clear: function(){
+    this.openIds.clear();
+    this.owners.clear();
+    this.pos.clear();
+    this.rel.clear();
+  },
+  getOwner: function(panelId, defaultOwner){
+    return this.owners.get(panelId) || defaultOwner;
+  },
+  setRel: function(key, value){ this.rel.set(key, value); },
+  setPos: function(key, value){ this.pos.set(key, value); }
+};

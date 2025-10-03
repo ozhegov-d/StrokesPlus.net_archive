@@ -1,0 +1,20 @@
+var arr = v => Array.isArray(v) ? v : [v];
+function sendKeysSafe(modsOrKey, keys){
+    const mods = keys ? arr(modsOrKey) : [];          
+    const btns = keys ? arr(keys)       : arr(modsOrKey);
+    const pressed = [];
+    mods.forEach(vk=>{if (!sp.IsKeyDown(vk)){sp.SendVKeyDown(vk);pressed.push(vk);}});
+    btns.forEach(vk => sp.SendVKey(vk));
+    pressed.reverse().forEach(vk => sp.SendVKeyUp(vk));}
+
+function smartClick(id, fallback){
+    try{const click = sp.GetStoredObject("PANEL_CLICK");  
+        if (typeof click === "function" && click(id)) return; 
+    }catch{sp.DeleteStoredObject("PANEL_CLICK");}
+    if (typeof fallback === "function") fallback();}
+
+
+smartClick("p1", () => sendKeysSafe(vk.LSHIFT, vk.VK_1)); //shift+1
+//smartClick("p1", () => sendKeysSafe(vk.LMENU, vk.VK_1)); // alt+1
+//smartClick("p1", () => sendKeysSafe(vk.LCONTROL, vk.VK_1)); // ctrl+1
+//smartClick("p1", () => sendKeysSafe(vk.F1)); // F1
