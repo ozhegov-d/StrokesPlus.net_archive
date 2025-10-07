@@ -90,7 +90,7 @@ function ShowImage(img, pt, border) {
     form.FormClosed.connect(function() {
         if(pic && pic.Image) pic.Image.Dispose();
         if(form) form.Dispose();
-        sp.ConsoleLog("Resources cleaned up");
+        //sp.ConsoleLog("Resources cleaned up");
     });
 
     Forms.Application.Run(form);
@@ -122,7 +122,7 @@ function searchByImage(pic, searchUrl, searchName) {
     clip.SetImage(pic.Image);
     sp.Sleep(500);
     sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
-    sp.ConsoleLog(`${searchName} search completed`);
+    //sp.ConsoleLog(`${searchName} search completed`);
 }
 
 function createMenuItem(text, action, Forms) {
@@ -185,7 +185,7 @@ function ShowImageBindAllMenu(form, pic, img) {
                         sp.Sleep(EDIT_DELAY);
                         // Insert the image
                         sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
-                        sp.ConsoleLog(`Image opened in ${EDIT_PROGRAM_PATH}`);
+                        //sp.ConsoleLog(`Image opened in ${EDIT_PROGRAM_PATH}`);
                     }, Forms));
                 }
                 
@@ -226,11 +226,11 @@ var gestureDistance = Math.sqrt(Math.pow((action.End.X - action.Start.X), 2) + M
 if (gestureDistance > LONG_GESTURE_DISTANCE) {
     // Long gesture - full screen screenshot
     sp.SendVKey(vk.SNAPSHOT);
-    sp.ConsoleLog("Full screen screenshot taken");
+    //sp.ConsoleLog("Full screen screenshot taken");
 } else {
     // Short gesture - Snip & Sketch
     sp.SendModifiedVKeys([vk.LSHIFT,vk.LWIN], [vk.VK_S]);
-    sp.ConsoleLog("Snip & Sketch activated");
+    //sp.ConsoleLog("Snip & Sketch activated");
 }
 
 sp.Sleep(50);
@@ -262,3 +262,4 @@ for(i=0; i< 100; i++) {
         break;
     }
 }
+
