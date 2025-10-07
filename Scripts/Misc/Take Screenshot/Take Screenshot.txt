@@ -5,6 +5,9 @@ var ENABLE_EDIT = true;
 var EDIT_PROGRAM_PATH = "mspaint"; // Path to editing program
 //var EDIT_PROGRAM_PATH = "C:\\Adobe\\Photoshop.exe"; 
 
+// Gesture settings
+var LONG_GESTURE_DISTANCE = 200; // Distance for long gesture (pixels)
+
 // Delay settings
 var SEARCH_DELAY = 2000; // Delay before search (ms)
 var EDIT_DELAY = 1000;  // Delay before editing (ms)
@@ -87,7 +90,7 @@ function ShowImage(img, pt, border) {
     form.FormClosed.connect(function() {
         if(pic && pic.Image) pic.Image.Dispose();
         if(form) form.Dispose();
-       // sp.ConsoleLog("Resources cleaned up");
+        sp.ConsoleLog("Resources cleaned up");
     });
 
     Forms.Application.Run(form);
@@ -119,7 +122,7 @@ function searchByImage(pic, searchUrl, searchName) {
     clip.SetImage(pic.Image);
     sp.Sleep(500);
     sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
-    //sp.ConsoleLog(`${searchName} search completed`);
+    sp.ConsoleLog(`${searchName} search completed`);
 }
 
 function createMenuItem(text, action, Forms) {
@@ -182,7 +185,7 @@ function ShowImageBindAllMenu(form, pic, img) {
                         sp.Sleep(EDIT_DELAY);
                         // Insert the image
                         sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
-                       // sp.ConsoleLog(`Image opened in ${EDIT_PROGRAM_PATH}`);
+                        sp.ConsoleLog(`Image opened in ${EDIT_PROGRAM_PATH}`);
                     }, Forms));
                 }
                 
@@ -215,12 +218,36 @@ function ShowImageBindDragMove(form, pic) {
 }
 //var startimage = clip.GetImage();
 clip.Clear();
-sp.SendModifiedVKeys([vk.LSHIFT,vk.LWIN], [vk.VK_S]);
+
+// Calculate gesture distance
+var gestureDistance = Math.sqrt(Math.pow((action.End.X - action.Start.X), 2) + Math.pow((action.End.Y - action.Start.Y), 2));
+
+// Check if it's a long gesture
+if (gestureDistance > LONG_GESTURE_DISTANCE) {
+    // Long gesture - full screen screenshot
+    sp.SendVKey(vk.SNAPSHOT);
+    sp.ConsoleLog("Full screen screenshot taken");
+} else {
+    // Short gesture - Snip & Sketch
+    sp.SendModifiedVKeys([vk.LSHIFT,vk.LWIN], [vk.VK_S]);
+    sp.ConsoleLog("Snip & Sketch activated");
+}
 
 sp.Sleep(50);
 var imageShown = false; // Flag to prevent duplicate display
+var scriptCancelled = false; // Flag to check if script was cancelled
+
+// Wait for screenshot (works for both full screen and Snip & Sketch)
 for(i=0; i< 100; i++) {  
     sp.Sleep(100);      
+    
+    // Check if Esc was pressed to cancel script
+    if(sp.IsKeyDown(vk.ESCAPE)) {
+       // sp.ConsoleLog("Script cancelled by user (Esc pressed)");
+        scriptCancelled = true;
+        break;
+    }
+    
     var wnd = sp.WindowsFromTitlePartial("screenshot");
     var currimage = clip.GetImage();
     
