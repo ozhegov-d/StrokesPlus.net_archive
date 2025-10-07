@@ -1,0 +1,237 @@
+// Function settings
+var ENABLE_YANDEX_SEARCH = true;
+var ENABLE_TINEYE_SEARCH = true;
+var ENABLE_EDIT = true;
+var EDIT_PROGRAM_PATH = "mspaint"; // Path to editing program
+//var EDIT_PROGRAM_PATH = "C:\\Adobe\\Photoshop.exe"; 
+
+// Delay settings
+var SEARCH_DELAY = 2000; // Delay before search (ms)
+var EDIT_DELAY = 1000;  // Delay before editing (ms)
+
+// Function to display image
+function ShowImage(img, pt, border) {
+    if (img == null) return;
+    var Forms = forms.System.Windows.Forms;
+    var Keys = forms.System.Windows.Forms.Keys;
+    if (border == null) border = 0;
+    if (border != 0) { pt = new Point(pt.X - border, pt.Y - border); }
+
+    var form = new Forms.Form;
+    form.StartPosition = Forms.FormStartPosition.Manual;
+    form.FormBorderStyle = (border != 0) ? 
+        Forms.FormBorderStyle.None :
+        Forms.FormBorderStyle.SizableToolWindow ;
+    form.TopMost = true;
+    form.ControlBox = false;
+    form.ShowInTaskbar = false;
+    form.Margin = new Forms.Padding(0);
+    if (border != 0) { form.Padding = new Forms.Padding(border); }
+    form.MinimumSize = new Size(10, 10);
+    form.Size = new Size(10, 10);
+    form.Location = pt;
+    form.AutoSize = true;
+    form.GetType().GetProperty("DoubleBuffered",
+        host.flags(clr.System.Reflection.BindingFlags.NonPublic,
+        clr.System.Reflection.BindingFlags.Instance))
+        .SetValue(form, true);
+    form.BackColor = drawing.System.Drawing.SystemColors.HotTrack;
+
+    var pic = new Forms.PictureBox;
+    pic.Name = 'pic';
+    pic.SizeMode = Forms.PictureBoxSizeMode.Zoom;
+    pic.Size = new Size(img.Width, img.Height);
+    pic.BackColor = drawing.System.Drawing.SystemColors.Control;
+    if (border != 0) { pic.Location = new Point(border, border); }
+    pic.Image = img;
+
+    form.Controls.Add(pic);
+    var autoSize = form.Size;
+    var t = (form.ClientSize.Width - pic.Width - form.Padding.Horizontal);
+    autoSize.Width -= t;
+    autoSize.Height -= t;
+    form.AutoSize = false;
+    form.Size = autoSize;
+    pic.Dock = Forms.DockStyle.Fill;
+
+    var form_shown = 
+    form.Shown.connect(
+    function (sender, args) {
+        form.TopMost = true;
+        form.Activate();
+        if(sp.IsKeyToggled(vk.CAPITAL)){
+            sp.SendVKey(vk.CAPITAL);
+        }
+    });
+
+    var pic_doubleClick = 
+    pic.DoubleClick.connect(
+    function (sender, args) {
+        form.Close();
+    });
+
+    var form_keyDown = 
+    form.KeyDown.connect(
+    function (sender, e) {
+        if (e.KeyCode == Keys.Escape) {
+            form.Close();
+        }
+    });
+
+    // Connect menu for saving
+    menuBlind = ShowImageBindAllMenu(form, pic, img);
+    dragMoveBlind = ShowImageBindDragMove(form, pic);
+    wheelResizeBlind = ShowImageBindWheelResize(form, pic);
+
+    // Add cleanup on form close
+    form.FormClosed.connect(function() {
+        if(pic && pic.Image) pic.Image.Dispose();
+        if(form) form.Dispose();
+       // sp.ConsoleLog("Resources cleaned up");
+    });
+
+    Forms.Application.Run(form);
+}
+function ShowImageBindWheelResize(form, pic) {
+    // Scaling the shape of the mouse wheel
+    var form_mouseWheel = 
+    form.MouseWheel.connect(
+    function (sender, e) {
+        var factor = e.Delta / 1000;
+        var ampt = forms.System.Windows.Forms.Control.MousePosition;
+        var rmpt = new Point();
+        rmpt.X = ampt.X - form.Left;
+        rmpt.Y = ampt.Y - form.Top;
+        var intFunc = Math.floor;
+        rmpt.X +=  intFunc(rmpt.X * factor);
+        rmpt.Y +=  intFunc(rmpt.Y * factor);
+        form.SetBounds(ampt.X - rmpt.X, ampt.Y - rmpt.Y, 
+        form.Width + intFunc(form.Width *  factor), 
+        form.Height + intFunc(form.Height *  factor));
+    });
+    return [form_mouseWheel];
+}
+
+// Common functions for optimization
+function searchByImage(pic, searchUrl, searchName) {
+    sp.Run(searchUrl);
+    sp.Sleep(SEARCH_DELAY);
+    clip.SetImage(pic.Image);
+    sp.Sleep(500);
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+    //sp.ConsoleLog(`${searchName} search completed`);
+}
+
+function createMenuItem(text, action, Forms) {
+    var item = new Forms.ToolStripMenuItem(text);
+    item.Click.connect(action);
+    return item;
+}
+
+function ShowImageBindAllMenu(form, pic, img) {
+    var Forms = forms.System.Windows.Forms;
+    var saveFileDialog1 = new Forms.SaveFileDialog();
+    saveFileDialog1.Filter = "png files (*.png)|*.png";
+    saveFileDialog1.RestoreDirectory = true;
+    saveFileDialog1.FileName = clr.System.DateTime.Now.ToString().replace(/[/\*?\":<>| ]/g, '_');
+
+    var pic_mouseClick = 
+    pic.MouseClick.connect(
+    function (sender, e) {
+        if (e.Button == MouseButtons.Right) {
+            // Check if we need to create menu or show save dialog directly
+            if(!ENABLE_YANDEX_SEARCH && !ENABLE_TINEYE_SEARCH && !ENABLE_EDIT) {
+                // Show only save dialog
+                if (saveFileDialog1.ShowDialog() == Forms.DialogResult.OK) {
+                    pic.Image.Save(saveFileDialog1.FileName, drawing.System.Drawing.Imaging.ImageFormat.Png);
+                    //sp.ConsoleLog(`Image saved to: ${saveFileDialog1.FileName}`);
+                    form.Close();
+                }
+            } else {
+                // Create context menu only if needed
+                var contextMenu = new Forms.ContextMenuStrip();
+                
+                // Create menu items
+                contextMenu.Items.Add(createMenuItem("💾 Save", function() {
+                    if (saveFileDialog1.ShowDialog() == Forms.DialogResult.OK) {
+                        pic.Image.Save(saveFileDialog1.FileName, drawing.System.Drawing.Imaging.ImageFormat.Png);
+                        //sp.ConsoleLog(`Image saved to: ${saveFileDialog1.FileName}`);
+                        form.Close();
+                    }
+                }, Forms));
+
+                if(ENABLE_YANDEX_SEARCH) {
+                    contextMenu.Items.Add(createMenuItem("🔍 Yandex Search", function() {
+                        searchByImage(pic, "https://yandex.ru/images/", "Yandex");
+                    }, Forms));
+                }
+                
+                if(ENABLE_TINEYE_SEARCH) {
+                    contextMenu.Items.Add(createMenuItem("🔍 TinEye Search", function() {
+                        searchByImage(pic, "https://tineye.com/", "TinEye");
+                    }, Forms));
+                }
+                
+                if(ENABLE_EDIT) {
+                    contextMenu.Items.Add(createMenuItem("🎨 Edit in Program", function() {
+                        // Copy the image to the exchange buffer
+                        clip.SetImage(pic.Image);
+                        sp.Sleep(500);
+                        // Open the editing program
+                        sp.RunProgram(EDIT_PROGRAM_PATH, "", "open", "normal", true, false, false);
+                        sp.Sleep(EDIT_DELAY);
+                        // Insert the image
+                        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+                       // sp.ConsoleLog(`Image opened in ${EDIT_PROGRAM_PATH}`);
+                    }, Forms));
+                }
+                
+                // Show full menu
+                contextMenu.Show(pic, new Point(e.X, e.Y));
+            }
+        }
+    });
+
+    return [pic_mouseClick];
+}
+
+function ShowImageBindDragMove(form, pic) {
+    var Cursors = forms.System.Windows.Forms.Cursors;
+    var ReleaseCapture = sp_config.GetType().Assembly.GetType("API").GetMethod("ReleaseCapture");
+
+    var pic_mouseMove = 
+    pic.MouseMove.connect(
+    function (sender, e) {
+        var hitResize = form.Height + form.Width - (e.X + e.Y) < 30;
+        var cursor = hitResize ? Cursors.SizeNWSE : Cursors.Default;
+        if (pic.Cursor != cursor) pic.Cursor = cursor;
+        if (e.Button == MouseButtons.Left) {
+            ReleaseCapture.Invoke(null, null);
+            sp.WindowFromHandle(form.Handle).SendMessageObj(0x0112,
+                hitResize ? 0xF008 : 0xF012, 0);
+        }
+    });
+    return [pic_mouseMove];
+}
+//var startimage = clip.GetImage();
+clip.Clear();
+sp.SendModifiedVKeys([vk.LSHIFT,vk.LWIN], [vk.VK_S]);
+
+sp.Sleep(50);
+var imageShown = false; // Flag to prevent duplicate display
+for(i=0; i< 100; i++) {  
+    sp.Sleep(100);      
+    var wnd = sp.WindowsFromTitlePartial("screenshot");
+    var currimage = clip.GetImage();
+    
+    // Simplified checks with variables
+    var isNotFirstIteration = i > 0;
+    var noScreenshotWindows = wnd.Count() === 0;
+    var hasImage = clip.ContainsImage();
+    
+    if(isNotFirstIteration && noScreenshotWindows && hasImage && !imageShown) {
+        imageShown = true; // Set flag
+        ShowImage(clip.GetImage(), action.End,1);
+        break;
+    }
+}
