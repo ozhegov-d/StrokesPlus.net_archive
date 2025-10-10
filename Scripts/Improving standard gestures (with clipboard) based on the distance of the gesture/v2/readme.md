@@ -52,15 +52,15 @@ Uncheck the Always Activate Window Where Gesture Began option.
 
 Add the following code in Settings → Before Action.  
 This will still activate the window under your gesture, but will be ignored by this script.  
-> if (action.ActionName === "minimize v2") { // Write the name of the window-minimizing script here.
-    var focusWin = sp.ForegroundWindow();
-} else {
-    var startWin = sp.WindowFromPoint(
-        new Point(Math.round(action.Start.X), Math.round(action.Start.Y)),
-        true);
-    if (startWin && startWin.IsValid()) {
-        try {startWin.Activate();
-        } catch (e) {}}}
+> if (action.ActionName === "minimize v2") { // Write the name of the window-minimizing script here.  
+    var focusWin = sp.ForegroundWindow();  
+} else {  
+    var startWin = sp.WindowFromPoint(  
+        new Point(Math.round(action.Start.X), Math.round(action.Start.Y)),  
+        true);  
+    if (startWin && startWin.IsValid()) {  
+        try {startWin.Activate();  
+        } catch (e) {}}}  
 
 
 https://github.com/user-attachments/assets/a7ef9a92-b964-4507-b56d-e76aa5caa341
