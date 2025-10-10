@@ -10,10 +10,10 @@ First send Ctrl+End, then send WM_MOUSEWHEEL messages for continuous scrolling; 
 >Settings → Before Action  
 
 > (function () {
-    //  ▸ If autoscroll is in progress, stop it and do nothing else.
-    if (sp.GetStoredBool("LongScrollActive")) {
+    //  ▸ If autoscroll is in progress, stop it and do nothing else.  
+    if (sp.GetStoredBool("LongScrollActive")) {  
         sp.StoreBool("LongScrollAbort", true);  
-        return;
+        return;  
     }
 })();
 
