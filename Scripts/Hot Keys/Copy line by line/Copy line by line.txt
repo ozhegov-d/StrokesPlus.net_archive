@@ -1,0 +1,68 @@
+var linesToCopy = 1; // how many lines to copy
+
+var originalClip = clip.GetText() || "";
+
+// Copy the lines on the left
+sp.SendModifiedVKeys([vk.LSHIFT], [vk.HOME]);
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(20);
+
+var leftPart = clip.GetText() || "";
+var leftIsEmpty = (leftPart === originalClip);
+
+var rightPart = "";
+if (leftIsEmpty) {
+    // Cursor at the beginning - copy to the end
+    var clipBeforeRight = clip.GetText() || "";
+    sp.SendModifiedVKeys([vk.LSHIFT], [vk.END]);
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.SendVKey(vk.LEFT);
+    sp.Sleep(20);
+    rightPart = clip.GetText() || "";
+} else {
+    // The cursor is not at the beginning - copy the right side
+    var clipBeforeRight = clip.GetText() || "";
+    sp.SendModifiedVKeys([vk.LSHIFT], [vk.END]);
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.SendVKey(vk.LEFT);
+    sp.Sleep(20);
+    var afterRight = clip.GetText() || "";
+
+    // If nothing has changed after copying, it means the right side is empty
+    if (afterRight === clipBeforeRight) {
+        rightPart = ""; // don't add anything
+    } else {
+        rightPart = afterRight;
+    }
+}
+
+var firstLine = leftIsEmpty ? rightPart : (leftPart + rightPart);
+
+if (linesToCopy === 1) {
+    clip.SetText(firstLine);
+} else {
+    // Go to end of first line
+    sp.SendVKey(vk.END);
+    sp.Sleep(20);
+
+    // Select (linesToCopy) DOWN
+    for (var i = 1; i < linesToCopy; i++) {
+        sp.SendModifiedVKeys([vk.LSHIFT], [vk.DOWN]);
+        sp.Sleep(20);
+    }
+
+    // Select to the end of the last line
+    sp.SendModifiedVKeys([vk.LSHIFT], [vk.END]);
+    sp.Sleep(20);
+
+    // Copy 
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.SendVKey(vk.RIGHT);
+    sp.Sleep(30);
+
+    var additionalLines = clip.GetText() || "";
+
+    // Glue the first line + additional ones
+    var fullText = firstLine + additionalLines;
+clip.SetText(fullText);
+}
