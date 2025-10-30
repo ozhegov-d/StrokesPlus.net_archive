@@ -71,6 +71,7 @@ if (linesToCopy === 1) {
     sp.Sleep(30);
 
     var additionalLines = clip.GetText() || "";
+    // Glue the first line + additional ones
     var fullText = firstLine + additionalLines;
     clip.SetText(fullText || "");
 }
@@ -85,3 +86,4 @@ if (goToLineBelow) {
     sp.SendVKey(vk.END);
     sp.SendVKey(vk.END);
 }
+
