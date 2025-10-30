@@ -17,6 +17,7 @@ if (leftIsEmpty) {
     sp.SendModifiedVKeys([vk.LSHIFT], [vk.END]);
     sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
     sp.SendVKey(vk.LEFT);
+//    sp.SendVKey(vk.DOWN); // go to line below (linesToCopy = 1)
     sp.Sleep(20);
     rightPart = clip.GetText() || "";
 } else {
@@ -25,6 +26,8 @@ if (leftIsEmpty) {
     sp.SendModifiedVKeys([vk.LSHIFT], [vk.END]);
     sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
     sp.SendVKey(vk.LEFT);
+//    sp.SendVKey(vk.DOWN); // go to line below (linesToCopy = 1)
+
     sp.Sleep(20);
     var afterRight = clip.GetText() || "";
 
@@ -58,6 +61,8 @@ if (linesToCopy === 1) {
     // Copy 
     sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
     sp.SendVKey(vk.RIGHT);
+//    sp.SendVKey(vk.DOWN); // go to line below (linesToCopy = 2+)
+
     sp.Sleep(30);
 
     var additionalLines = clip.GetText() || "";
