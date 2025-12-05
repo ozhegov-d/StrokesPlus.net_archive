@@ -1,0 +1,57 @@
+// Timer duration in seconds
+var timerDurationSec = 5;
+
+var timerName = 'SimpleTimer'; // change for different hotkey + timerScript
+
+// Delete old timer (if exists)
+sp.DeleteTimer(timerName);
+
+// from file
+var timerScript = "sp.PlaySound('C:\\\\Windows\\\\Media\\\\Alarm10.wav');" +
+
+// system beep sound
+//var timerScript = "clr.System.Console.Beep(800, 100);" +
+
+                  "sp.DeleteTimer('" + timerName + "');";
+
+// Start new timer
+sp.CreateTimer(timerName, timerDurationSec * 1000, 1, timerScript);
+
+
+/*
+Console.Beep(frequency, duration)
+
+clr.System.Console.Beep(800, 500);
+800 = frequency in Hertz (Hz) - pitch
+500 = duration in milliseconds
+
+// System beep
+"clr.System.Media.SystemSounds.Beep.Play();"
+
+Low sound
+clr.System.Console.Beep(400, 500);
+Medium sound (default)
+clr.System.Console.Beep(800, 500);
+High sound
+clr.System.Console.Beep(1200, 500);
+Short beep
+clr.System.Console.Beep(1000, 200);
+Long signal
+clr.System.Console.Beep(800, 1000);
+Two short beeps
+clr.System.Console.Beep(800, 300); sp.Sleep(100); clr.System.Console.Beep(800, 300);
+
+
+// don't accept arguments
+
+// information
+"clr.System.Media.SystemSounds.Asterisk.Play();"
+
+// Exclamation sound (warning)
+"clr.System.Media.SystemSounds.Exclamation.Play();"
+
+// Error sound
+"clr.System.Media.SystemSounds.Hand.Play();"
+
+
+*/
