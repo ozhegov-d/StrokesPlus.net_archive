@@ -1,5 +1,4 @@
-Searches only in Global Actions - Action List and Applications  
-
+#### StrokesPlus_Search in your Scripts
 v3
 > +Searches everywhere  
 +Displays all matches
