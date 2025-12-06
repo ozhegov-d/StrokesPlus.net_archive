@@ -1,0 +1,395 @@
+// Copy the selected text to the clipboard
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(50);
+var selectedText = clip.GetText();
+if (selectedText && selectedText.trim() !== "") {
+    // sp.ConsoleLog(`Copied to clipboard: "${selectedText}"`);
+} else {
+    // sp.ConsoleLog("No text selected or clipboard is empty.");
+}
+
+var inputBoxInfo = new InputBoxInfo(), res, cMsg = [];
+
+// Customize input window
+inputBoxInfo.Title = 'Search';
+inputBoxInfo.Message = '';
+inputBoxInfo.AllowDirectInput = true;
+res = sp.InputBox(inputBoxInfo);
+
+if (res) res = res.trim();
+
+if (!res || !res.trim()) {
+    sp.MessageBox("Please enter a valid search query.", "Invalid Input");
+} else {
+    // Константы
+    const CONTEXT_LINES_COUNT = 1; // The number of context lines that are shown above and below the line.
+
+    function escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    let searchRegex = new RegExp(escapeRegExp(res).replace(/\s+/g, '\\s*'), 'gi');
+
+    function processLine(line, searchRegex) {
+        let regex = new RegExp(searchRegex.source, searchRegex.flags);
+        if (!regex.test(line)) return null;
+
+        return line.replace(/(<[^>]*>)|([^<>]+)/g, (match, tag, text) =>
+            tag || text
+                .replace(/[<>]/g, m => ({ '<': '&lt;', '>': '&gt;' }[m]))
+                .replace(regex, match => `<span style="background-color: yellow;">${match}</span>`)
+        );
+    }
+
+
+function collectContext(scriptLines, lineIdx, contextLinesCount, searchRegex) {
+        let context = [];
+
+        for (let j = contextLinesCount; j > 0; j--) {
+            let prevIdx = lineIdx - j;
+            if (prevIdx >= 0) {
+                let prevLine = scriptLines[prevIdx].trimLeft();
+                if (prevLine) context.push(`${prevIdx + 1}: ${prevLine}`);
+            }
+        }
+
+        let highlightedLine = processLine(scriptLines[lineIdx], searchRegex);
+        context.push(`${lineIdx + 1}: ${highlightedLine || scriptLines[lineIdx]}`);
+
+        for (let j = 1; j <= contextLinesCount; j++) {
+            let nextIdx = lineIdx + j;
+            if (nextIdx < scriptLines.length) {
+                let nextLine = scriptLines[nextIdx].trimLeft();
+                if (nextLine) context.push(`${nextIdx + 1}: ${nextLine}`);
+            }
+        }
+        return context.join('\n');
+    }
+
+function searchInScript(scriptText, path, sectionLabel, category, actionName, contextLinesCount = CONTEXT_LINES_COUNT) {
+        if (!scriptText || scriptText.trim() === '') return null;
+        
+        let scriptLines = scriptText.split('\n');
+        let matchCount = 0;
+        let allContext = [];
+
+        for (let lineIdx = 0; lineIdx < scriptLines.length; lineIdx++) {
+            let line = scriptLines[lineIdx].trimLeft();
+            if (!line.match(searchRegex)) continue;
+
+            matchCount++;
+            allContext.push(collectContext(scriptLines, lineIdx, contextLinesCount, searchRegex));
+        }
+
+        if (matchCount > 0) {
+            return {
+                mainPart: sectionLabel,
+                category: category || '',
+                action: `${actionName} (${matchCount} match${matchCount > 1 ? 'es' : ''})`,
+                context: `Path: ${path}\n${allContext.join('\n\n')}`
+            };
+        }
+        return null;
+    }
+
+function searchInText(textContent, path, sectionLabel, category, actionName) {
+        if (!textContent || textContent.trim() === '') return null;
+        
+        if (textContent.match(searchRegex)) {
+            return {
+                mainPart: sectionLabel,
+                category: category || '',
+                action: actionName,
+                context: `Path: ${path}\nText: ${textContent}`
+            };
+        }
+        return null;
+    }
+
+function searchInActions(actions, pathPrefix, sectionLabel, contextLinesCount = CONTEXT_LINES_COUNT) {
+        for (let i = 0; i < actions.Count; i++) {
+            if (!actions[i]?.Script) continue;
+
+            let scriptLines = actions[i].Script.split('\n');
+            let matchCount = 0;
+            let allContext = [];
+
+            for (let lineIdx = 0; lineIdx < scriptLines.length; lineIdx++) {
+                let line = scriptLines[lineIdx].trimLeft();
+                if (!line.match(searchRegex)) continue;
+
+                matchCount++;
+                allContext.push(collectContext(scriptLines, lineIdx, contextLinesCount, searchRegex));
+            }
+
+            if (matchCount > 0) {
+                var path = `${pathPrefix}[${i}].Script`;
+                cMsg.push({
+                    mainPart: sectionLabel,
+                    category: actions[i].Category,
+                    action: `${actions[i].Description} (${matchCount} match${matchCount > 1 ? 'es' : ''})`,
+                    context: `Path: ${path}\n${allContext.join('\n\n')}`
+                });
+            }
+        }
+    }
+
+function searchInBeforeAfter(app, appIndex, sectionLabel) {
+        var pathPrefix = appIndex !== null 
+            ? `sp_config.Applications[${appIndex}]` 
+            : 'sp_config.GlobalApplication';
+        
+        ['BeforeAction', 'AfterAction'].forEach(actionType => {
+            var result = searchInScript(
+                app[actionType]?.Script,
+                `${pathPrefix}.${actionType}.Script`,
+                sectionLabel,
+                'Settings',
+                actionType.replace('Action', ' Action')
+            );
+            if (result) cMsg.push(result);
+        });
+    }
+
+function searchInTextExpansions(textExpansions, pathPrefix, sectionLabel) {
+        if (!textExpansions) return;
+        for (let i = 0; i < textExpansions.Count; i++) {
+            var te = textExpansions[i];
+            if (te && te.Text) {
+                var textResult = searchInText(
+                    te.Text,
+                    `${pathPrefix}.TextExpansions[${i}].Text`,
+                    sectionLabel,
+                    te.Category ? `Text Expansion - ${te.Category}` : 'Text Expansion',
+                    `${te.Description || i}`
+                );
+                if (textResult) cMsg.push(textResult);
+            }
+        }
+    }
+
+function searchInEvents(events, sectionLabel, categoryPrefix) {
+        for (let i = 0; i < events.length; i++) {
+            var evt = events[i];
+            if (evt.obj && evt.obj.Script) {
+                var category = categoryPrefix && evt.category ? `${categoryPrefix} - ${evt.category}` : (categoryPrefix || evt.category || '');
+                var result = searchInScript(
+                    evt.obj.Script,
+                    `sp_config.${evt.name}.Script`,
+                    sectionLabel,
+                    category,
+                    evt.name
+                );
+                if (result) cMsg.push(result);
+            }
+        }
+    }
+
+function searchInCollection(collection, pathPrefix, sectionLabel, getName) {
+        if (!collection || collection.Count === 0) return;
+        for (let i = 0; i < collection.Count; i++) {
+            var item = collection[i];
+            if (item && item.Script) {
+                var result = searchInScript(
+                    item.Script,
+                    `${pathPrefix}[${i}].Script`,
+                    sectionLabel,
+                    item.Category || '',
+                    getName(item, i)
+                );
+                if (result) cMsg.push(result);
+            }
+        }
+    }
+
+function generateHTML(cMsg) {
+        var listItems = cMsg.map((item, index) => {
+            let contextWithoutPath = item.context.replace(/^Path: .+\n/, '');
+            return `
+            <li>
+                <div class="result-header" onclick="toggleVisibility(${index})">
+                    <strong style="font-weight: 700;">${item.mainPart}</strong> - 
+                    <span style="font-weight: 600;">${item.category}</span> - 
+                    <span style="font-weight: normal;">${item.action}</span>
+                </div>
+                <div id="context-${index}" style="display: none; margin-top: 5px; background-color: #f9f9f9; padding: 10px; border: 1px solid #ddd;">
+                    <pre>${contextWithoutPath}</pre>
+                </div>
+            </li>
+        `;
+        }).join('');
+
+        return `
+            <html>
+            <head>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        padding: 10px;
+                        margin: 0;
+                    }
+                    ul {
+                        list-style: none;
+                        padding: 0;
+                        margin: 0;
+                    }
+                    li {
+                        margin-bottom: 10px;
+                    }
+                    pre {
+                        font-family: monospace;
+                        white-space: pre-wrap;
+                        word-wrap: break-word;
+                        margin: 0;
+                    }
+                    .result-header {
+                        cursor: pointer;
+                        padding: 5px;
+                    }
+                    .result-header:hover {
+                        background-color: #f0f0f0;
+                    }
+                </style>
+                <script>
+                    function toggleVisibility(index) {
+                        var element = document.getElementById('context-' + index);
+                        element.style.display = element.style.display === 'none' ? 'block' : 'none';
+                    }
+                </script>
+            </head>
+            <body>              
+                <ul>${listItems}</ul>
+            </body>
+            </html>
+        `;
+    }
+
+    searchInActions(
+        sp_config.GlobalApplication.Actions,
+        'sp_config.GlobalApplication.Actions',
+        'Global Actions - Action List',
+        CONTEXT_LINES_COUNT
+    );
+
+    for (let appIdx = 0; appIdx < sp_config.Applications.Count; appIdx++) {
+        var currentApp = sp_config.Applications[appIdx];
+        
+        searchInActions(
+            currentApp.Actions,
+            `sp_config.Applications[${appIdx}].Actions`,
+            `Applications - ${currentApp.Description}`,
+            CONTEXT_LINES_COUNT
+        );
+        
+        searchInBeforeAfter(currentApp, appIdx, `Applications - ${currentApp.Description}`);
+        
+        searchInTextExpansions(
+            currentApp.TextExpansions,
+            `sp_config.Applications[${appIdx}]`,
+            `Applications - ${currentApp.Description}`
+        );
+    }
+
+    searchInCollection(
+        sp_config.Hotkeys,
+        'sp_config.Hotkeys',
+        'Hot Keys',
+        (item, i) => item.Description || 'Hotkey ' + i
+    );
+
+    searchInCollection(
+        sp_config.SavedMacros,
+        'sp_config.SavedMacros',
+        'Macros',
+        (item, i) => item.Name || item.Description || 'Macro ' + i
+    );
+
+    searchInBeforeAfter(sp_config.GlobalApplication, null, 'Global Actions');
+
+    searchInTextExpansions(
+        sp_config.GlobalApplication.TextExpansions,
+        'sp_config.GlobalApplication',
+        'Global Actions'
+    );
+
+    if (sp_config.CustomFloaters && sp_config.CustomFloaters.Count > 0) {
+        for (let i = 0; i < sp_config.CustomFloaters.Count; i++) {
+            var floater = sp_config.CustomFloaters[i];
+            var floaterName = floater.Name || `Floater ${i}`;
+            
+            var floaterActions = [
+                { prop: floater.PressAction, name: 'PressAction' },
+                { prop: floater.ReleaseAction, name: 'ReleaseAction' },
+                { prop: floater.EnterAction, name: 'EnterAction' },
+                { prop: floater.HoverAction, name: 'HoverAction' },
+                { prop: floater.LeaveAction, name: 'LeaveAction' },
+                { prop: floater.UpAction, name: 'UpAction' },
+                { prop: floater.RightAction, name: 'RightAction' },
+                { prop: floater.DownAction, name: 'DownAction' },
+                { prop: floater.LeftAction, name: 'LeftAction' }
+            ];
+            
+            floaterActions.forEach(act => {
+                if (act.prop && act.prop.Script) {
+                    var floaterResult = searchInScript(
+                        act.prop.Script,
+                        `sp_config.CustomFloaters[${i}].${act.name}.Script`,
+                        'Floaters',
+                        floaterName,
+                        act.name
+                    );
+                    if (floaterResult) cMsg.push(floaterResult);
+                }
+            });
+        }
+    }
+    var mouseEvents = [
+        { obj: sp_config.LeftClickAction, name: 'LeftClickAction', category: 'Left Click' },
+        { obj: sp_config.MiddleClickAction, name: 'MiddleClickAction', category: 'Middle Click' },
+        { obj: sp_config.RightClickAction, name: 'RightClickAction', category: 'Right Click' },
+        { obj: sp_config.X1ClickAction, name: 'X1ClickAction', category: 'X1 Click' },
+        { obj: sp_config.X2ClickAction, name: 'X2ClickAction', category: 'X2 Click' },
+        { obj: sp_config.VerticalWheelTickAction, name: 'VerticalWheelTickAction', category: 'Vertical Wheel' },
+        { obj: sp_config.HorizontalWheelTickAction, name: 'HorizontalWheelTickAction', category: 'Horizontal Wheel' },
+        { obj: sp_config.StrokeReleaseAction, name: 'StrokeReleaseAction', category: 'Release' },
+        { obj: sp_config.NoMatchAction, name: 'NoMatchAction', category: 'No Match' }
+    ];
+    searchInEvents(mouseEvents, 'Global Actions', 'Mouse Events');
+
+    var loadUnloadEvents = [
+        { obj: sp_config.OnLoadAction, name: 'OnLoadAction', category: 'Load' },
+        { obj: sp_config.OnCloseAction, name: 'OnCloseAction', category: 'Unload' }
+    ];
+    searchInEvents(loadUnloadEvents, 'Global Actions', 'Load/Unload');
+
+    var hardwareEvents = [
+        { obj: sp_config.DeviceChangeAction, name: 'DeviceChangeAction', category: 'Device Changed' }
+    ];
+    searchInEvents(hardwareEvents, 'Global Actions', 'Hardware Events');
+
+    var windowEvents = [
+        { obj: sp_config.WindowFocusAction, name: 'WindowFocusAction', category: '' }
+    ];
+    searchInEvents(windowEvents, 'Global Actions', 'Window Events');
+
+    let totalMatches = cMsg.reduce((sum, item) => {
+        let matches = item.action.match(/\((\d+)\s*match/);
+        if (!matches || !matches[1]) {
+            return sum + 1;
+        }
+        return sum + parseInt(matches[1]);
+    }, 0);
+
+    if (cMsg.length === 0) {
+        sp.MessageBox('No matches found.', 'Search Results');
+    } else {
+        sp.HTMLWindow(
+            `Search Results - ${totalMatches} match${totalMatches > 1 ? 'es' : ''}`,
+            generateHTML(cMsg),
+            "",
+            "",
+            "searchResultsWindow",
+            true
+        );
+    }
+}
