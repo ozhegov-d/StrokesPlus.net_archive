@@ -1,0 +1,139 @@
+var openFileFolder      = true; // true: Open the path to the file (currently open in the program); if no file path exists, open the path to the program. false: Open only the path to the program.
+var useRunPath          = false;  // true: use external file manager from RunPath; false: use Explorer/system
+var RunPath             = "C:\\TOTALCMD64\\TOTALCMD64.EXE";
+//var RunPath             = "C:\\XYplorer\\XYplorer.exe";
+
+var IO = clr.System.IO;
+
+function extractFilePathFromTitle(title) {
+    if (!title || !title.match(/^[a-zA-Z]:\\|^\\\\/)) return "";
+    
+    var dashIndex = title.indexOf(" - ");
+    if (dashIndex > 0) {
+        return title.substring(0, dashIndex).trim();
+    }
+    
+    var bracketIndex = title.indexOf(" [");
+    var parenIndex = title.indexOf(" (");
+    var minIndex = title.length;
+    
+    if (bracketIndex > 0 && bracketIndex < minIndex) minIndex = bracketIndex;
+    if (parenIndex > 0 && parenIndex < minIndex) minIndex = parenIndex;
+    
+    if (minIndex < title.length) {
+        return title.substring(0, minIndex).trim();
+    }
+    
+    return title.trim();
+}
+
+function getMainWindowTitle(wnd) {
+    try {
+        var mainWnd = wnd.FirstMoveableParent || wnd.RootWindow || wnd;
+        return mainWnd.Title || wnd.Title || "";
+    } catch (e) {
+        return wnd.Title || "";
+    }
+}
+
+function extractFilePathFromCommandLine(wnd, exeName, exePath) {
+    try {
+        var cmdLine = wnd.CommandLine;
+        var processName = wnd.Process.ProcessName.toLowerCase();
+        
+        if (processName === "notepad") {
+            var cmdParts = cmdLine.split('"');
+            for (var i = 0; i < cmdParts.length; i++) {
+                var part = cmdParts[i].trim();
+                if (part.includes(".") && part.includes("\\") && !part.toLowerCase().endsWith(exeName)) {
+                    return part;
+                }
+            }
+        } else {
+            var pathMatches = cmdLine.match(/"([^"]+)"|(\S+)/g);
+            if (pathMatches && pathMatches.length > 0) {
+                for (var i = 0; i < pathMatches.length; i++) {
+                    var potentialPath = pathMatches[i].replace(/"/g, '').trim();
+                    if (exePath && potentialPath.toLowerCase() === exePath) continue;
+                    if (exeName && potentialPath.toLowerCase().endsWith(exeName)) continue;
+                    
+                    if ((potentialPath.includes(":\\") || potentialPath.startsWith("\\\\")) && 
+                        potentialPath.includes("\\") && 
+                        (potentialPath.includes(".") || IO.Directory.Exists(potentialPath))) {
+                        return potentialPath;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+    }   
+    return "";
+}
+
+function getProgramPath(wnd) {
+    try {
+        if (wnd.Process && wnd.Process.MainModule) {
+            return IO.Path.GetDirectoryName(wnd.Process.MainModule.FileName);
+        } else if (wnd.ExecutablePath) {
+            return wnd.ExecutablePath;
+        }
+    } catch (e) {
+        if (wnd.ExecutablePath) {
+            return wnd.ExecutablePath;
+        }
+    }
+    return null;
+}
+
+var fgWnd = sp.ForegroundWindow();
+if (!fgWnd) {
+    sp.MessageBox('Could not determine the active window', 'Error');
+} else {
+    var wnd = fgWnd;
+    try {
+        var rect = fgWnd.Rectangle;
+        var centerPoint = new Point(rect.X + Math.floor(rect.Width / 2), rect.Y + Math.floor(rect.Height / 2));
+        wnd = sp.WindowFromPoint(centerPoint, false);
+    } catch (e) {
+    }
+    var folderPath = null;
+    
+    if (openFileFolder) {
+        var filePath = "";        
+        var windowTitle = getMainWindowTitle(wnd);        
+        filePath = extractFilePathFromTitle(windowTitle);
+       
+        if (!filePath || (!filePath.includes(":\\") && !filePath.startsWith("\\\\"))) {
+            var exeName = wnd.ExecutableName ? wnd.ExecutableName.toLowerCase() : "";
+            var exePath = wnd.ExecutablePath ? wnd.ExecutablePath.toLowerCase() : "";
+            filePath = extractFilePathFromCommandLine(wnd, exeName, exePath);
+        }       
+        if (filePath && (filePath.includes(":\\") || filePath.startsWith("\\\\"))) {
+            try {
+                if (IO.File.Exists(filePath)) {
+                    folderPath = IO.Path.GetDirectoryName(filePath);
+                } else if (IO.Directory.Exists(filePath)) {
+                    folderPath = filePath;
+                }
+                
+                if (folderPath && !IO.Directory.Exists(folderPath)) {
+                    folderPath = null;
+                }
+            } catch (e) {
+                folderPath = null;
+            }
+        }
+    }
+    if (!folderPath) {
+        folderPath = getProgramPath(wnd);
+    }   
+    if (folderPath) {
+        if (useRunPath && RunPath) {
+            sp.RunProgram(RunPath, '"' + folderPath + '"', 'open', 'normal', false, false, false);
+        } else {
+            sp.Run('explorer "' + folderPath + '"');
+        }
+    } else {
+        sp.MessageBox('Could not determine the path to the open file or program', 'Error');
+    }
+}
