@@ -41,6 +41,9 @@ https://github.com/user-attachments/assets/1b2083f0-0cd7-448d-bec8-f01c008cfea5
 ---------------------------------------------------------------------------------------------------------
 ### window resize+move+opacity+always on top+remove window title
 
+>v3 Allows moving maximized window , optimization  
+ v2 it doesn't work on the taskbar
+
 https://github.com/user-attachments/assets/3a076e3a-e279-4084-974c-43f3ef48d699
 
 #### Global Actions > Mouse Events > Click 
@@ -57,8 +60,6 @@ If you want it to work with Ctrl, then you need to (Options > Generals > Ignore 
 + Alt + Scroll - Change the window's opacity
   
 if opacity is less than 255(maximum value) it becomes over all windows
-
-> v2 it doesn't work on the taskbar
 
 ---------------------------------------------------------------------------------------------------------
 ### Window Slot Manager  
@@ -93,3 +94,4 @@ https://github.com/user-attachments/assets/ebba4d73-0182-416b-b7b8-81719e420e6b
 Works for both hotkeys and gestures  
 First, activate the window with a mouse click, then use the hotkey (you can change the location of the windows using which window was last activated)  
 You can also choose how the windows will be positioned (vertically, horizontally, etc.)  
+
