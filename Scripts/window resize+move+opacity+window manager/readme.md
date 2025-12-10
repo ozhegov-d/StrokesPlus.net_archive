@@ -1,9 +1,21 @@
-### Window with pass-through cutout
+### Crop And Lock
 
+https://github.com/user-attachments/assets/649a4157-e156-40d6-b110-72329654035a
+
+
+Crops the current window (does not create a new one).   
+To move the window, use this [script](https://github.com/ozhegov-d/StrokesPlus.net_archive/tree/main/Scripts/window%20resize%2Bmove%2Bopacity%2Bwindow%20manager#window-resizemoveopacityalways-on-topremove-window-title) (Ctrl+Click)
+
+> alternative  
+https://learn.microsoft.com/ru-ru/windows/powertoys/crop-and-lock  
+https://github.com/LorenzCK/OnTopReplica  
+
+---------------------------------------------------------------------------------------------------------
+### Window with pass-through cutout
 
 https://github.com/user-attachments/assets/35744087-aa01-4572-9a71-4b6bc2f33170
 
-
+---------------------------------------------------------------------------------------------------------
 ### MoveWindowByClick
 
 Move the window by clicking anywhere.
@@ -100,5 +112,6 @@ https://github.com/user-attachments/assets/ebba4d73-0182-416b-b7b8-81719e420e6b
 Works for both hotkeys and gestures  
 First, activate the window with a mouse click, then use the hotkey (you can change the location of the windows using which window was last activated)  
 You can also choose how the windows will be positioned (vertically, horizontally, etc.)  
+
 
 
