@@ -1,0 +1,133 @@
+var enableTopMost_hole = true;  // true - window stays on top when hole is active, false - normal behavior
+
+var MIN_WINDOW_SIZE_HOLE = 50; // minimum window size (width and height) in pixels
+var MIN_HOLE_SIZE_HOLE = 10;   // minimum hole region size (width and height) in pixels
+var REGION_APPLY_DELAY_HOLE = 10;  // delay in milliseconds after applying region
+var REGION_REMOVE_DELAY_HOLE = 100;  // delay in milliseconds after removing region
+
+var IntPtrT = host.typeOf(clr.System.IntPtr);
+var Int32T = host.typeOf(clr.System.Int32);
+var BooleanT = host.typeOf(clr.System.Boolean);
+
+var actionWindow = action.Window;
+if (actionWindow && actionWindow.IsValid() && !actionWindow.Minimized && actionWindow.Visible) {
+    var bounds = action.Bounds;
+    var windowRect = actionWindow.Rectangle;
+    var holeRect = clipRectToBounds(
+        { X: bounds.X - windowRect.X, Y: bounds.Y - windowRect.Y, Width: bounds.Width, Height: bounds.Height },
+        { Width: windowRect.Width, Height: windowRect.Height }
+    );
+    if (holeRect.Width >= MIN_HOLE_SIZE_HOLE && holeRect.Height >= MIN_HOLE_SIZE_HOLE) {
+        toggleWindowHoleCustom(actionWindow, holeRect.X, holeRect.Y, holeRect.Width, holeRect.Height);
+    }
+}
+
+if (!NativeModules.WinRegionAPI) {
+    var winRegionTB = sp.NativeModule().DefineType("WinRegionAPI", "Class,Public,SequentialLayout,Serializable");
+    winRegionTB.DefinePInvokeMethod("SetWindowRgn", "user32.dll", [IntPtrT, IntPtrT, BooleanT], Int32T, "PreserveSig");
+    winRegionTB.DefinePInvokeMethod("DeleteObject", "gdi32.dll", [IntPtrT], BooleanT, "PreserveSig");
+    winRegionTB.Create();
+}
+
+function clipRectToBounds(rect, bounds) {
+    if (rect.X < 0) { rect.Width += rect.X; rect.X = 0; }
+    if (rect.Y < 0) { rect.Height += rect.Y; rect.Y = 0; }
+    if (rect.X + rect.Width > bounds.Width) { rect.Width = bounds.Width - rect.X; }
+    if (rect.Y + rect.Height > bounds.Height) { rect.Height = bounds.Height - rect.Y; }
+    if (rect.Width < 0) rect.Width = 0;
+    if (rect.Height < 0) rect.Height = 0;
+    return rect;
+}
+
+function applyRegion(window, holeX, holeY, holeWidth, holeHeight) {
+    var rect = window.Rectangle;
+    var outerRect = new System.Drawing.Rectangle(0, 0, rect.Width, rect.Height);
+    var holeRect = new System.Drawing.Rectangle(holeX, holeY, holeWidth, holeHeight);
+    var region = new System.Drawing.Region(outerRect);
+    region.Exclude(holeRect);
+    window.Region = region;
+    sp.Sleep(REGION_APPLY_DELAY_HOLE);
+    return window.Region != null;
+}
+
+function clearStoredWindowParams(hWndStr) {
+    sp.DeleteStoredNumber('windowHoleX_' + hWndStr);
+    sp.DeleteStoredNumber('windowHoleY_' + hWndStr);
+    sp.DeleteStoredNumber('windowHoleWidth_' + hWndStr);
+    sp.DeleteStoredNumber('windowHoleHeight_' + hWndStr);
+    sp.DeleteStoredBool('windowWasTopMost_' + hWndStr);
+}
+
+function removeWindowRegion(window) {
+    if (!window || !window.IsValid() || window.Minimized || !window.Visible || !NativeModules.WinRegionAPI) {
+        return false;
+    }
+    try {
+        var hWnd = window.HWnd;
+        var hWndStr = hWnd.ToInt64().toString();
+        var wasTopMost = sp.GetStoredBool('windowWasTopMost_' + hWndStr);
+        
+        try {
+            NativeModules.WinRegionAPI.SetWindowRgn(hWnd, clr.System.IntPtr.Zero, true);
+            sp.Sleep(REGION_REMOVE_DELAY_HOLE);
+        } catch (e) {
+            window.Region = null;
+        }
+        
+        clearStoredWindowParams(hWndStr);
+        if (wasTopMost != null) {
+            window.TopMost = wasTopMost;
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function makeWindowWithCustomHole(window, holeX, holeY, holeWidth, holeHeight) {
+    if (!window || !window.IsValid() || window.Minimized || !window.Visible) {
+        return false;
+    }
+    try {
+        var rect = window.Rectangle;
+        if (rect.Width < MIN_WINDOW_SIZE_HOLE || rect.Height < MIN_WINDOW_SIZE_HOLE) {
+            return false;
+        }
+        
+        var holeRect = clipRectToBounds({ X: holeX, Y: holeY, Width: holeWidth, Height: holeHeight }, { Width: rect.Width, Height: rect.Height });
+        if (holeRect.Width < MIN_HOLE_SIZE_HOLE || holeRect.Height < MIN_HOLE_SIZE_HOLE) {
+            return false;
+        }
+        
+        var hWndStr = window.HWnd.ToInt64().toString();
+        var existingTopMost = sp.GetStoredBool('windowWasTopMost_' + hWndStr);
+        if (existingTopMost === null) {
+            sp.StoreBool('windowWasTopMost_' + hWndStr, window.TopMost);
+        }
+        
+        sp.StoreNumber('windowHoleX_' + hWndStr, holeRect.X);
+        sp.StoreNumber('windowHoleY_' + hWndStr, holeRect.Y);
+        sp.StoreNumber('windowHoleWidth_' + hWndStr, holeRect.Width);
+        sp.StoreNumber('windowHoleHeight_' + hWndStr, holeRect.Height);
+        
+        if (!applyRegion(window, holeRect.X, holeRect.Y, holeRect.Width, holeRect.Height)) {
+            return false;
+        }
+        
+        if (enableTopMost_hole) {
+            window.TopMost = true;
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function toggleWindowHoleCustom(window, holeX, holeY, holeWidth, holeHeight) {
+    if (!window || !window.IsValid()) {
+        return false;
+    }
+    return (window.Region != null) 
+        ? removeWindowRegion(window) 
+        : makeWindowWithCustomHole(window, holeX, holeY, holeWidth, holeHeight);
+}
