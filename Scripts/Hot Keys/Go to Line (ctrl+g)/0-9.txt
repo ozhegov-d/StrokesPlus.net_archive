@@ -1,0 +1,3 @@
+if (!sp.IsKeyDown(vk.CAPITAL)) {
+    sp.SendString('0'); // Replace the number with your desired button (digit)
+}
