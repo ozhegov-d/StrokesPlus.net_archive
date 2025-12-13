@@ -127,6 +127,9 @@ Short gesture not from a link and with no selected text on the page performs the
 Long gesture switches the tab if text is not selected 
 + It also works in any application: the browser opens and searches
 
+v2.2
++APP_CONFIGS_FORWARD
++optimization
 v2.1  
 +now handles both `C:\\...` and `C:/...`  
 +magnet links support  
