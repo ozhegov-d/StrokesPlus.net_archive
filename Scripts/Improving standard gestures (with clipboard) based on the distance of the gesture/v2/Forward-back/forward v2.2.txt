@@ -1,0 +1,446 @@
+// === Settings ===
+var enableUrlOpen       = true;  // open URLs directly instead of searching (e.g., reddit.com)
+var enableRegeditOpen   = true;  // open registry paths in regedit (HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run)
+var msc_cpl_open        = true;  // launch .msc/.cpl consoles or control panels (devmgmt.msc, main.cpl)
+var enableMagnetOpen    = true;  // open magnet links via system default handler
+
+var enableFilePathOpen  = true;  // open files/folders from clipboard paths (%PROGRAMFILES% or %USERPROFILE%\AppData\ or C:\Temp)
+
+var useRunPath          = false;  // true: use external file manager from RunPath; false: use Explorer/system
+//var RunPath           = "C:\\TOTALCMD\\TOTALCMD64.EXE";
+//var RunPath           = "C:\\XYplorer\\XYplorer.exe";
+
+var forbidBatCmd        = false; // true → do NOT launch .bat/.cmd directly (open parent instead)
+var enableConsoleLog    = false; // console log
+
+var IO = clr.System.IO;
+
+// === Distance & search profile ===
+var SHORT_GESTURE  = 160;  // < 160  = short gesture (files, paths, search)
+var MEDIUM_GESTURE = 360;  // 160-360 = medium gesture (search)
+
+var LONG_GESTURE   = 200;  // > 200  = long gesture (navigation)
+
+// === Search engines ===
+function getSearchPrefix(distance) {
+    return distance < SHORT_GESTURE
+        ? 'https://www.google.com/search?q='                    // < 160 
+        : distance < MEDIUM_GESTURE
+        ? 'https://www.google.com/search?tbm=isch&q='   // >160 <360
+        : 'https://www.youtube.com/results?search_query='; // >360
+}
+
+// === Standard Actions ===
+function standardForward() {
+    sp.SendVKey(vk.BROWSER_FORWARD); return "Forward";}
+
+function standardNextTab() {
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]); return "Next tab➪";}
+
+// === APP_CONFIGS_FORWARD  ===
+APP_CONFIGS_FORWARD = {
+XNVIEW: {
+        enabled: true,
+        detect: (exeName) => exeName.includes("xnview"), 
+        checkClipboard: false,  // true = check clipboard (if text is selected → search)
+        commands: {
+            short: {
+                // func: null,  // null = use standard behavior
+                // func: () =>  sp.SendVKey(vk.BROWSER_FORWARD),
+                   func: () =>  sp.SendModifiedVKeys([vk.LMENU], [vk.RIGHT]),
+
+                message: 'Forward'
+            },
+            long: {
+                func: () => sp.SendModifiedVKeys([vk.LCONTROL], [vk.TAB]),
+                message: 'Next tab ➪'
+            }
+        }
+    },
+AUDITION: {
+        enabled: true,
+        detect: (exeName) => exeName.includes("audition"),
+        checkClipboard: false,  // false = DO NOT check clipboard (the command is executed immediately!)
+        commands: {
+            short: {
+                func: null,
+                message: ''
+            },
+            long: {
+                func: () => sp.SendVKey(vk.END),
+                message: '➪'
+            }
+        }
+    }
+
+};
+
+// Determining the active application 
+function detectActiveAppForward(exeName) {
+    for (const appName in APP_CONFIGS_FORWARD) {
+        var config = APP_CONFIGS_FORWARD[appName];
+        if (config.enabled && config.detect(exeName)) {
+            return { name: appName, config: config };
+        }
+    }
+    return null;
+}
+
+function executeCommandForward(command) {
+    command.func();
+    return command.message || '';
+}
+
+// === Toast UI ===
+var info = new DisplayTextInfo();
+info.MessageAlignment = 'center';
+info.Duration         = 500;
+info.Opacity          = 0.9;
+info.MessageFont      = new Font('Segoe UI Semibold', 20);
+info.BackColor        = 'black';
+info.ForeColor        = 'white';
+info.FadeSteps        = 18;
+
+function displayMessage(msg) {
+  info.Message = msg;
+  // for multimonitors
+  var screen = System.Windows.Forms.Screen.FromPoint(action.Start);
+  var bounds = screen.Bounds; // CURRENT monitor boundaries
+  
+  var w = Math.min(500, Math.max(200, msg.length * 20)), h = 100;
+  var x = action.Start.X + 7, y = action.Start.Y - 150;
+  
+  // Checking the boundaries of the CURRENT monitor
+  if (x + w > bounds.X + bounds.Width)  x = bounds.X + bounds.Width - w - 10;
+  if (y + h > bounds.Y + bounds.Height) y = bounds.Y + bounds.Height - h - 10;
+  if (x < bounds.X) x = bounds.X + 10;
+  if (y < bounds.Y) y = bounds.Y + 10;
+  
+  info.Location = `${x},${y}`;
+  sp.DisplayText(info);
+}
+
+// === Unified logging functions  ===
+function log(msgFunc, tag) { if (enableConsoleLog) {var msg = typeof msgFunc === 'function' ? msgFunc() : msgFunc;sp.ConsoleLog(msg, tag || "Gesture");}}
+function logWarning(msgFunc, tag) { if (enableConsoleLog) {var msg = typeof msgFunc === 'function' ? msgFunc() : msgFunc;sp.ConsoleWarning(msg, tag || "Gesture");}}
+
+function performSearch(text, searchUrl, inBrowser) {
+    var encoded = encodeURIComponent(text);
+    if (inBrowser) {
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_T]); sp.Sleep(50);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_L]); sp.Sleep(50);
+        clip.SetText(searchUrl + encoded);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]); sp.Sleep(90);
+        sp.SendVKey(vk.RETURN);
+    } else {
+        sp.RunProgram(searchUrl + encoded, "", "open", "normal", true, false, false);
+    }
+}
+function readClipboard() {
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+  sp.Sleep(80); 
+  return clip.GetText() || "";
+}
+
+// ─ helpers ─
+function pathExists(p){ try { return IO.File.Exists(p) || IO.Directory.Exists(p); } catch(_) { return false; } }
+function dirExists(p){  try { return IO.Directory.Exists(p); } catch(_) { return false; } }
+function hasExt(p){     try { return (IO.Path.GetExtension(p) || "").length > 0; } catch(_) { return false; } }
+function nearestExistingDir(p){
+  try {
+    // if file → use its parent; if dir → walk up until existing
+    var di = dirExists(p) ? new IO.DirectoryInfo(p)
+                          : (new IO.FileInfo(p)).Directory;
+    while (di && !di.Exists) di = di.Parent;
+    return di && di.Exists ? di.FullName : null;
+  } catch(_){ return null; }
+}
+function openFolder(folderPath){
+  if (useRunPath) {
+    var U = (RunPath || "").toUpperCase();
+    if (U.includes("TOTALCMD")) {
+      sp.RunProgram(RunPath, `/O /T /L="${folderPath}"`, "open", "normal", true, false, false);
+    } else {
+      sp.RunProgram(RunPath, `"${folderPath}"`, "open", "normal", true, false, false);
+    }
+  } else {
+    sp.RunProgram(folderPath, "", "open", "normal", true, false, false);
+  }
+}
+var RX_URL = /^(https?:\/\/)?(localhost(:\d+)?|[a-z0-9]+(?:[-.][a-z0-9]+)*\.[a-z]{2,})(:\d{1,5})?(\/.*)?$/i;
+var RX_REGISTRY = /^(HKEY_LOCAL_MACHINE|HKLM|HKEY_CURRENT_USER|HKCU|HKEY_CLASSES_ROOT|HKCR|HKEY_CURRENT_CONFIG|HKCC|HKU)(\\[^\\\/:*?"<>|]*)*$/i;
+var RX_FILEPATH = /^(?:[A-Za-z]:[\\\/]|\\\\[^\\\/:*?"<>|\r\n]+[\\\/][^\\\/:*?"<>|\r\n]+)(?:[^\\\/:*?"<>|\r\n]+[\\\/]?)*$/;
+var RX_MSC = /^[^\\\/ :]+\.(msc)$/i;
+var RX_CPL = /^[^\\\/ :]+\.(cpl)$/i;
+var RX_MAGNET = /^magnet:\?xt=urn:btih:[A-Za-z0-9]{20,}/i;
+var RX_BROWSER = /chrome|firefox|msedge|opera|brave|vivaldi/;
+
+function isUrl(s) {
+  var lo = s.toLowerCase(), ban = ['.msc','.cpl','.bat','.cmd','.lnk','.exe'];
+  for (var b of ban) if (lo.endsWith(b)) return false;
+  return RX_URL.test(s);
+}
+function isRegistryPath(t) { return RX_REGISTRY.test(t); }
+function isFilePath(t) { return RX_FILEPATH.test(t); }
+function isMscFile(t) { return RX_MSC.test(t); }
+function isCplFile(t) { return RX_CPL.test(t); }
+function isMagnetLink(t) { return RX_MAGNET.test(t); }
+
+// === Save original clipboard content ===
+var originalClipboardContent = clip.GetText();
+var wasClipboardEmpty        = !originalClipboardContent;
+
+// === Gesture info ===
+sp.MouseMove(action.Start);
+sp.StoreBool("LongScrollAbort", true); // this is for copy-paste scripts (to stop scrolling)
+sp.StoreBool("LongScrollActive", false);
+
+// === Distance calculation ===
+sp.Sleep(10);
+var distance = Math.hypot(action.End.X - action.Start.X, action.End.Y - action.Start.Y)|0;
+var searchPrefix = getSearchPrefix(distance); 
+
+// === App context ===
+var fg        = sp.ForegroundWindow();
+var exeName   = fg.Process.MainModule.ModuleName.toLowerCase(); //
+var isBrowser = RX_BROWSER.test(exeName); 
+var cursor    = sp.GetCurrentMouseCursor();
+
+var newClipboardContent = "";
+var trimmed = "";
+var normalized = "";
+var handled = false;
+var origTrim = (originalClipboardContent || "").trim();
+var trimmedNotSame = false;
+
+var clipboardAlreadyRead = false; // Flag not to read twice
+function ensureClipboardRead() {
+    if (!clipboardAlreadyRead) {
+        newClipboardContent = readClipboard();
+        trimmed = newClipboardContent.trim();
+        normalized = normalizeFsPath(trimmed);
+        trimmedNotSame = (trimmed !== "" && trimmed !== origTrim);
+        clipboardAlreadyRead = true;
+    }
+}
+
+var expanded = null;
+function getExpanded() {
+    if (expanded === null) {
+        expanded = clr.System.Environment.ExpandEnvironmentVariables(normalized);
+    }
+    return expanded;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 1) Cursor is Hand
+// ─────────────────────────────────────────────────────────────
+if (cursor === "Hand") {
+  if (!isBrowser) {
+    ensureClipboardRead();
+    if (trimmedNotSame) {
+      sp.RunProgram(searchPrefix + encodeURIComponent(trimmed), "", "open", "normal", true, false, false);
+      handled = true;
+    }
+  }
+  
+  if (!handled) {
+    if (distance >= LONG_GESTURE) {
+      displayMessage(standardNextTab());
+    } else {
+      sp.MouseClick(action.Start, MouseButtons.Middle, true, true);
+      sp.MouseMove(action.End);
+    }
+    handled = true;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 2) .msc / .cpl launch + 3) URL / Regedit / File / Search
+// ─────────────────────────────────────────────────────────────
+var activeAppPreCheck = detectActiveAppForward(exeName);
+var skipClipboardSections = activeAppPreCheck !== null && 
+                           activeAppPreCheck.config.checkClipboard === false;
+
+if (!handled && !skipClipboardSections) {
+  ensureClipboardRead(); 
+}
+
+if (!handled && msc_cpl_open && distance < LONG_GESTURE) {  
+  if (isMscFile(trimmed) && trimmedNotSame) {
+    sp.RunProgram(trimmed, "", "open", "normal", true, false, false);
+    handled = true;
+  }
+  else if (isCplFile(trimmed) && trimmedNotSame) {
+    sp.RunProgram("control.exe", trimmed, "open", "normal", false, false, true);
+    //displayMessage("🧩 .CPL Control Panel");
+    handled = true;
+  }
+}
+
+if (!handled) try {
+  // Magnet
+  if (enableMagnetOpen && isMagnetLink(trimmed) && trimmedNotSame) {
+  sp.RunProgram(trimmed, "", "open", "normal", true, false, true);
+  handled = true;
+}
+  // URL
+  else if (enableUrlOpen && isUrl(trimmed) && trimmedNotSame) {
+    if (!/^https?:\/\//i.test(trimmed)) trimmed = "https://" + trimmed;
+    sp.RunProgram(trimmed, "", "open", "normal", true, false, false);
+    handled = true;
+  }
+  // Regedit 
+  else if (enableRegeditOpen && distance < LONG_GESTURE && isRegistryPath(trimmed) && trimmedNotSame) {
+    // update regedit last key and relaunch
+    var cmd = `/c reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Applets\\Regedit"` +
+              ` /v LastKey /t REG_SZ /d "${trimmed}" /f`;
+    sp.RunProgram("cmd.exe", cmd, "open", "hidden", true, false, true);
+    sp.RunProgram("regedit.exe", "", "open", "normal", true, false, false);
+    handled = true;
+
+    // Alternative (if S+ runs as admin), open and paste path directly:
+    // clip.SetText(trimmed);
+    // sp.RunProgram("regedit.exe","","open","normal",true,false,false);
+    // sp.Sleep(200);
+    // sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_L]); sp.Sleep(50);
+    // sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]); sp.Sleep(50);
+    // sp.SendVKey(vk.RETURN);
+  }
+  // File / Folder
+  else if (
+    enableFilePathOpen &&
+    distance < LONG_GESTURE &&               
+    normalized !== origTrim &&               
+    isFilePath(getExpanded()) 
+  ) {
+    var exp = getExpanded();
+    log("Clipboard→Path: " + exp, "Path");
+
+    if (pathExists(exp)) {
+      var existsDir = dirExists(exp); 
+      if (existsDir) {
+        // folder exists → open it
+        openFolder(exp);
+      } else {
+        // file exists
+        if (useRunPath) {
+          // external FM usually doesn't open the file → open its parent
+          var parent = (new IO.FileInfo(exp)).Directory;
+          if (parent && parent.Exists) openFolder(parent.FullName);
+          else displayMessage("file not found ↯");
+        } else {
+          // SAFE MODE for .bat/.cmd without return
+          var lo = exp.toLowerCase();
+          if (forbidBatCmd && (lo.endsWith(".bat") || lo.endsWith(".cmd"))) {
+            var parent = (new IO.FileInfo(exp)).Directory;
+            if (parent && parent.Exists) {
+              openFolder(parent.FullName);
+              displayMessage("Blocked .bat/.cmd (safe mode)", 1200);
+            } else {
+              displayMessage("file not found ↯", 1400);
+            }
+            handled = true;
+          } else {
+            // open via default file association
+            sp.RunProgram(exp, "", "open", "normal", true, false, false);
+          }
+        }
+      }
+    } else {
+      // path doesn't exist → decide by shape (file vs folder) and open nearest existing parent
+      var looksLikeFile = hasExt(exp) && !exp.endsWith("\\");
+      var ned = nearestExistingDir(exp);
+
+      displayMessage(looksLikeFile ? "file not found ↯" : "Folder not found ↯");
+      if (ned) openFolder(ned);
+    }
+
+    handled = true;
+  }
+  // Search fallback
+  else if (trimmedNotSame) {
+    performSearch(trimmed, searchPrefix, isBrowser);
+    handled = true;
+  }
+} catch(e) {
+  logWarning("Clipboard parse error: " + e.message, "ParseClipboard");
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4) Gesture navigation OR Search (если буфер изменился!)
+// ─────────────────────────────────────────────────────────────
+if (!handled) {
+  var msg = "";
+  var isLongGesture = distance >= LONG_GESTURE; 
+  var activeApp = detectActiveAppForward(exeName);
+  
+  if (activeApp) {
+    var command = isLongGesture ? activeApp.config.commands.long : activeApp.config.commands.short;
+    var hasCustomCommand = (command.func !== null);
+    var shouldCheckClipboard = (activeApp.config.checkClipboard !== false); // По умолчанию true
+    
+    if (!shouldCheckClipboard) {
+      if (hasCustomCommand) {
+        msg = executeCommandForward(command);
+      } else {
+        msg = isLongGesture ? standardNextTab() : standardForward();
+      }
+      if (msg) displayMessage(msg);
+    }
+    else {
+      ensureClipboardRead(); 
+      
+      // If the clipboard has changed → search (priority)
+      if (trimmedNotSame) {
+        performSearch(trimmed, searchPrefix, isBrowser);
+        handled = true;
+      }
+      // clipboard has NOT changed → execute command or standard behavior
+      else {
+        if (hasCustomCommand) {
+          msg = executeCommandForward(command);
+        } else {
+          msg = isLongGesture ? standardNextTab() : standardForward();
+        }
+        if (msg) displayMessage(msg);
+      }
+    }
+  } else {
+    ensureClipboardRead();
+    
+    if (trimmedNotSame) {
+      // Text highlighted → search
+      performSearch(trimmed, searchPrefix, isBrowser);
+      handled = true;
+    } else {
+      // Text not selected → navigation
+      msg = isLongGesture ? standardNextTab() : standardForward();
+      if (msg) displayMessage(msg);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5) Restore original clipboard
+// ─────────────────────────────────────────────────────────────
+if (wasClipboardEmpty) clip.Clear(); else clip.SetText(originalClipboardContent);
+
+// === Path normalization ===
+function normalizeFsPath(raw) {
+  if (!raw) return "";
+  let s = raw.trim();
+
+  // strip surrounding quotes/backticks if copied from code
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {s = s.slice(1, -1);}
+
+  // unify slashes
+  s = s.replace(/\//g, "\\");
+
+  // collapse duplicate backslashes, but keep UNC prefix intact
+  if (s.startsWith("\\\\")) {s = "\\\\" + s.slice(2).replace(/\\{2,}/g, "\\");} else {s = s.replace(/\\{2,}/g, "\\");}
+
+  // trim trailing whitespace
+  s = s.replace(/\s+$/, "");
+  return s;
+}
