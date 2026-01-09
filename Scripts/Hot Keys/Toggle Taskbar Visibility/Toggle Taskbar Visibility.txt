@@ -1,0 +1,62 @@
+// Toggle Taskbar Visibility
+
+// 1 = Auto-hide + transparency    - the taskbar is completely invisible
+// 2 = Auto-hide (no transparency) - the taskbar appears on mouse hover
+var HIDE_METHOD = 1;
+
+// ============================================
+var Marshal = clr.System.Runtime.InteropServices.Marshal;
+var ABM_SETSTATE = 10, ABS_AUTOHIDE = 1, ABS_ALWAYSONTOP = 2;
+
+if (!NativeModules.TaskbarAPI6) {
+    var IntPtrT = host.typeOf(clr.System.IntPtr);
+    var UInt32T = host.typeOf(clr.System.UInt32);
+    var api = sp.NativeModule().DefineType("TaskbarAPI6", "Class,Public,SequentialLayout,Serializable");
+    api.DefinePInvokeMethod("SHAppBarMessage", "shell32.dll", [UInt32T, IntPtrT], IntPtrT, "PreserveSig");
+    api.Create();
+}
+
+function SetTaskbarState(hwnd, state) {
+    var ptr = Marshal.AllocHGlobal(48);
+    try {
+        for (var i = 0; i < 48; i++) Marshal.WriteByte(ptr, i, 0);
+        Marshal.WriteInt32(ptr, 0, 48);
+        Marshal.WriteIntPtr(ptr, 8, hwnd);
+        Marshal.WriteIntPtr(ptr, 40, new IntPtr(state));
+        NativeModules.TaskbarAPI6.SHAppBarMessage(ABM_SETSTATE, ptr);
+    } finally {
+        Marshal.FreeHGlobal(ptr);}}
+
+// Toggle
+var isHidden = !sp.GetStoredBool("taskbar_hidden");
+sp.StoreBool("taskbar_hidden", isHidden);
+
+// Finding all taskbars
+var shellTray = sp.WindowFromClassOrTitle("Shell_TrayWnd", "");
+var secondaryTrays = sp.WindowsFromTitleRegex("Shell_SecondaryTrayWnd");
+
+if (!shellTray) {
+    sp.MessageBox("Таскбар не найден!", "Error");}
+
+var state = isHidden ? ABS_AUTOHIDE : ABS_ALWAYSONTOP;
+var alpha = (HIDE_METHOD == 1) ? (isHidden ? 0 : 255) : 255;
+
+SetTaskbarState(shellTray.HWnd, state);
+if (HIDE_METHOD == 1) shellTray.Alpha = alpha;
+
+if (secondaryTrays && secondaryTrays.Length > 0) {
+    for (var i = 0; i < secondaryTrays.Length; i++) {
+        if (HIDE_METHOD == 1) secondaryTrays[i].Alpha = alpha;}}
+
+var info = new DisplayTextInfo();
+info.Title = "Taskbar";
+info.Message = isHidden ? "AUTO-HIDE ON" : "AUTO-HIDE OFF";
+info.Duration = 800;
+info.Opacity = 0.9;
+info.Location = "bottom";
+info.TitleFont = new Font("Segoe UI", 12, host.flags(FontStyle.Bold));
+info.MessageFont = new Font("Segoe UI", 11);
+info.BackColor = isHidden ? "0,120,215" : "60,60,60";
+info.ForeColor = "white";
+info.Padding = 12;
+sp.DisplayText(info);
