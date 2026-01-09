@@ -1,0 +1,17 @@
+//Settings - Win+Ctrl+M
+
+// 1 = Magnifier, 2 = Full screen, 3 = Docked
+var MAGNIFIER_MODE = 1;
+
+var modeKeys = [null, vk.VK_L, vk.VK_F, vk.VK_D];
+var isActive = sp.GetStoredBool("magnifier_active");
+
+if (isActive) {
+    sp.SendModifiedVKeys([vk.LWIN], [vk.ESCAPE]);
+    sp.StoreBool("magnifier_active", false);
+} else {
+    sp.SendModifiedVKeys([vk.LWIN], [vk.OEM_PLUS]);
+    sp.Sleep(3000);
+    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [modeKeys[MAGNIFIER_MODE]]);
+    sp.StoreBool("magnifier_active", true);
+}
