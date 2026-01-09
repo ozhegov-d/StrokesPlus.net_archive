@@ -1,0 +1,50 @@
+// Audio Device Switcher
+// 1-е device: HOME → TAB → TAB → ENTER
+// 2-е device: HOME → DOWN → TAB → TAB → ENTER
+
+var DEVICE_1_POS = 1, DEVICE_NAME_1 = "Monitor";   // 1st on the list
+var DEVICE_2_POS = 2, DEVICE_NAME_2 = "Speakers";  // 2nd on the list
+
+// ============================================
+
+var t = (sp.GetStoredNumber("audio_device") == 1) ? 2 : 1;
+var pos = (t == 1) ? DEVICE_1_POS : DEVICE_2_POS;
+var name = (t == 1) ? DEVICE_NAME_1 : DEVICE_NAME_2;
+
+sp.RunProgram("control", "mmsys.cpl", "open", "normal", false, false, false);
+sp.Sleep(200);
+
+var wnd = null;
+for (var i = 0; i < 20 && !wnd; i++) {
+    wnd = sp.WindowFromClassOrTitle("#32770", "Звук") || sp.WindowFromClassOrTitle("#32770", "Sound");
+    if (!wnd) sp.Sleep(50);
+}
+
+if (wnd) {
+    wnd.Activate();
+    wnd.TopMost = true;
+    sp.Sleep(100);
+
+    sp.SendVKey(vk.HOME);
+    sp.Sleep(30);
+    for (var d = 1; d < pos; d++) { sp.SendVKey(vk.DOWN); sp.Sleep(20); }
+    sp.SendVKey(vk.TAB); sp.Sleep(20);
+    sp.SendVKey(vk.TAB); sp.Sleep(20);
+    sp.SendVKey(vk.RETURN); sp.Sleep(50);
+    sp.SendVKey(vk.ESCAPE);
+}
+
+sp.StoreNumber("audio_device", t);
+
+var info = new DisplayTextInfo();
+info.Title = "Audio";
+info.Message = name;
+info.Duration = 800;
+info.Opacity = 0.9;
+info.Location = "bottom";
+info.TitleFont = new Font("Segoe UI", 12, host.flags(FontStyle.Bold));
+info.MessageFont = new Font("Segoe UI", 11);
+info.BackColor = "0,120,215";
+info.ForeColor = "white";
+info.Padding = 10;
+sp.DisplayText(info);
