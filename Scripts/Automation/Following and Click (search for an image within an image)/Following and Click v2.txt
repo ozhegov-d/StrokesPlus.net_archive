@@ -1,0 +1,487 @@
+/*
+LOGIC:
+1. First, check chains with an app filter (imageChains with app)
+   - On a match: execute this chain immediately and ignore all others
+2. If no app match is found:
+   - Process all remaining chains (chains without an app filter)
+
+directClick: true — direct click on coordinates bypassing image search; uses coordinates relative to the last found point or the start/end of the gesture.
+
+restoreMouseOnce: true — the mouse returns to the initial position only once at the end of the chain (on the last step); individual restoreMouse settings are ignored.
+restoreMouseOnce: false — each step uses its own restoreMouse parameter.
+
+restoreMouse: true — after the click, the mouse returns to the initial position (start of the step or start of the gesture, depending on restoreMouseOnce).
+restoreMouse: false — the mouse remains at the click position; it does not return.
+
+*/
+
+var enableLogging = false;
+var saveScreenshots = false; // to the same folder as the path (visually indicating where to click and what happens next)
+
+var clickAtStart = true;  // true – click at the gesture start (action.Start), false – click at the gesture end (action.End)
+// for example, if you need the right mouse button click at the current cursor position
+var useAllMonitors = false; // true – screenshot all monitors (for 2+ monitors), false – only primary monitor (faster)
+
+var IO = System.IO;
+var Drawing = System.Drawing;
+var Color = Drawing.Color;
+
+var imageChains = [
+
+/* --------------------------------------------------chain: 1
+example of how to do it for 2 monitors (var useAllMonitors = true;)
+problem: if monitors have different display scaling or resolution
+then you need to take 2 separate screenshots for each monitor
+
+0 if application is chrome
+1 right mouse button click (at the cursor position at gesture start, affected by var clickAtStart = true;)
+2 image search by screenshot - click
+3 ESC
+*/
+//{chain: 1,
+//        restoreMouseOnce: true,  // true - return mouse only at the end of the chain, false - use each step's restoreMouse
+//        steps: [{
+//                directClick: true,
+//                app: "chrome",     // Filter by process name (for example, chrome)
+//                windowTitle: "",
+//                delayAfterClick: 250,
+//                mouseButton: MouseButtons.Right,
+//                offsetX: 0, /* (+ right, - left) */ offsetY: 0, /* (+ down, - up) */ 
+//                restoreMouse: true
+//            },
+////for 1monitor
+//              { path: "C:\\portable\\Win\\HotKey\\test\\StrokesPlus.net_Portable_0.5.7.9-test2 без when\\test\\chrоme русский.png",
+
+////For 2monitors or simply for multiple images
+////            { path: ["C:\\Portable\\StrokesPlus.net_Portable_0.5.8.0 v2\\photo\\chrome.png",
+////                     "C:\\Portable\\StrokesPlus.net_Portable_0.5.8.0 v2\\photo\\chrome2.png"
+////                      ],
+//                delayAfterClick: 0,
+//                mouseButton: MouseButtons.Left,
+//                offsetX: 0, /* (+ right, - left) */ offsetY: 0, /* (+ down, - up) */ 
+//                restoreMouse: true
+//            },
+//            {sendKeys: true,
+//                sendKeyCommand: "sp.SendVKey(vk.ESCAPE);",
+//                delayAfterSend: 200
+//            },
+//]},
+
+/* --------------------------------------------------chain: 2
+0 any application (no app specified: app: "")
+1 find by image - click
+2 from last click position - click with offsetY: 100 (100 pixels downward)
+3 from last click position - click with offsetX: 390, offsetY: 530 (390 pixels right, 530 pixels upward)
+*/
+//{chain: 2,
+//        restoreMouseOnce: true,  // true - return mouse only at the end of the chain, false - use each step's restoreMouse
+//        steps: [{
+//                path: "C:\\test\\test33.png",
+//                delayAfterClick: 200,
+//                mouseButton: MouseButtons.Left,
+//                offsetX: 0, /* (+ right, - left) */ offsetY: 0, /* (+ down, - up) */ 
+//                restoreMouse: true
+//            },
+//            {directClick: true,  // direct click on the coordinates (relative to the last location found)
+//                delayAfterClick: 200,
+//                mouseButton: MouseButtons.Left,
+//                offsetX: 0, /* (+ right, - left) */ offsetY: 100, /* (+ down, - up) */ 
+//                restoreMouse: true
+//            },
+//            {directClick: true,
+//                delayAfterClick: 0,
+//                mouseButton: MouseButtons.Left,
+//                offsetX: 390, /* (+ right, - left) */ offsetY: -530, /* (+ down, - up) */ 
+//                restoreMouse: true
+//            }
+//]},
+
+/* --------------------------------------------------chain: 3
+if 1 image is not found 2 are skipped (1.png and 2.png)
+or use multiple image search
+        {
+        path: ["C:\\test\\3.png",
+               "C:\\test\\4.png"
+              ],
+
+*/
+//{chain: 3,
+//        restoreMouseOnce: true,  // true - вернуть мышь только в конце цепочки, false - использовать restoreMouse каждого шага
+//        steps: [{
+//                path: "C:\\test\\1.png",
+//                delayAfterClick: 200,
+//                mouseButton: MouseButtons.Left,
+//                offsetX: 0, /* (+ right, - left) */ offsetY: 0, /* (+ down, - up) */ 
+//                restoreMouse: true
+//            },
+//{
+//                path: "C:\\test\\2.png",
+//                delayAfterClick: 200,
+//                mouseButton: MouseButtons.Left,
+//                offsetX: 0, /* (+ right, - left) */ offsetY: 0, /* (+ down, - up) */ 
+//                restoreMouse: true
+//            },      
+//]},
+
+/* --------------------------------------------------chain: 4
+0 if the application is notepad
+1 alt
+2 left and etc
+*/
+// {chain: 4,
+//        restoreMouseOnce: false,
+//        steps: [
+//            {
+//            app: "notepad",       
+//            sendKeys: true,
+//            sendKeyCommand: "sp.SendVKey(vk.LMENU);", 
+//          //sendKeyCommand: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);", // ctrl-f
+//            delayAfterSend: 0
+//        },
+
+//          {      
+//            sendKeys: true,
+//            sendKeyCommand: "sp.SendVKey(vk.LEFT);sp.SendVKey(vk.LEFT);sp.SendVKey(vk.DOWN);sp.SendVKey(vk.DOWN);sp.SendVKey(vk.DOWN);sp.SendVKey(vk.RETURN);",
+//            delayAfterSend: 0
+//}
+//]},
+
+
+];
+
+function log(msg, color) {
+    if (!enableLogging) return;
+    var text = (typeof msg === 'function') ? msg() : msg.toString();
+    if (color) {
+        sp.ConsoleLog(text, "", color);
+    } else {
+        sp.ConsoleLog(text);}}
+
+var screenBounds = useAllMonitors 
+? System.Windows.Forms.SystemInformation.VirtualScreen : System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+var memoryImagePool = new Drawing.Bitmap(screenBounds.Width, screenBounds.Height);
+var globalGraphics = Drawing.Graphics.FromImage(memoryImagePool); // Reusable Graphics object
+var lastFoundX = 0;
+var lastFoundY = 0;
+var hasLastFound = false; // Flag for checking the presence of saved coordinates
+var globalScreenshotMade = false; // Flag that a global screenshot has already been taken for all chains
+
+function safeDispose(obj) {
+    try {
+        if (obj && typeof obj.Dispose === "function") {
+            obj.Dispose();}
+    } catch (e) {
+        log(`Dispose error: ${e.message}`);}}
+
+function restoreMousePosition() {
+    try {
+        sp.MouseMove(globalOriginalMousePos);
+        log(() => "Mouse returned to the original position. X=" + globalOriginalMousePos.X + ", Y=" + globalOriginalMousePos.Y, Color.Goldenrod);
+    } catch (e) {
+        log(() => "Error restoring mouse position: " + e.message, Color.Red);}}
+
+function validateWindowFilter(config, fgWnd) {
+    if (config.app) {
+        var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+        if (!exeName.includes(config.app.toLowerCase())) {
+            log(() => "Skip action: process name \"" + exeName + "\" does not match \"" + config.app + "\"", Color.Red);
+            return false;}
+        log(() => "Process name \"" + exeName + "\" matches \"" + config.app + "\"", Color.DodgerBlue);}
+    
+    if (config.windowTitle) {
+        if (!fgWnd.Title.toLowerCase().includes(config.windowTitle.toLowerCase())) {
+            log(() => "Skip: window title \"" + fgWnd.Title + "\" ≠ \"" + config.windowTitle + "\"", Color.Red);
+            return false;}
+        if (config.app) {
+            log(() => "Window title OK: " + fgWnd.Title, Color.DodgerBlue);}}   
+    return true;}
+
+function getScreenshotPaths(config, chainBasePath, pathsToTry, stepIndex) {
+    var baseDir = getBaseDirectory(config, chainBasePath);
+    var pathForFileName = pathsToTry ? pathsToTry[0] : null;
+    var baseFileName = IO.Path.GetFileName(pathForFileName || chainBasePath) || "unknown";
+    var stepPrefix = baseFileName + "_chain" + config.chain + "_" + stepIndex + "_";
+    return { baseDir: baseDir, stepPrefix: stepPrefix };}
+
+// Draw markers on screenshot (only used when saveScreenshots = true)
+function drawFoundMarkers(graphics, rect, clickPoint) {
+    var rectPen = null, crossPen = null;
+    try {
+        rectPen = new Drawing.Pen(Color.FromName('Red'), 3);
+        crossPen = new Drawing.Pen(Color.FromName('Lime'), 2);
+        graphics.DrawRectangle(rectPen, rect);
+        var size = 15;
+        graphics.DrawLine(crossPen, clickPoint.X - size, clickPoint.Y, clickPoint.X + size, clickPoint.Y);
+        graphics.DrawLine(crossPen, clickPoint.X, clickPoint.Y - size, clickPoint.X, clickPoint.Y + size);
+    } finally {
+        safeDispose(rectPen);
+        safeDispose(crossPen);}}
+
+function drawClickMarker(graphics, clickPoint) {
+    var pen = null;
+    try {
+        pen = new Drawing.Pen(Color.FromName('Lime'), 2);
+        var size = 15;
+        graphics.DrawLine(pen, clickPoint.X - size, clickPoint.Y, clickPoint.X + size, clickPoint.Y);
+        graphics.DrawLine(pen, clickPoint.X, clickPoint.Y - size, clickPoint.X, clickPoint.Y + size);
+    } finally {
+        safeDispose(pen);}}
+
+function getPathArray(path) {
+    if (!path) return null;
+    if (typeof path === 'string') return [path];
+    if (path instanceof Array && path.length > 0) return path;
+    return null;}
+
+function getBaseDirectory(config, chainBasePath) {
+    if (chainBasePath) {
+        return IO.Path.GetDirectoryName(chainBasePath);}
+    var paths = getPathArray(config.path);
+    if (paths) {
+        return IO.Path.GetDirectoryName(paths[0]);}
+    return ".";}
+
+function takeScreenshot(graphics) {
+        graphics.CopyFromScreen(
+        screenBounds.X,
+        screenBounds.Y,
+        0,
+        0,
+        new Drawing.Size(screenBounds.Width, screenBounds.Height));}
+
+function getOriginalMousePos() {
+    // Priority: gesture position first (if available), otherwise current mouse position
+    if (typeof action !== "undefined") {
+        if (action.Start && action.End) {
+            // If both positions are available, use the one that matches clickAtStart
+            return clickAtStart ? action.Start : action.End;}
+        if (action.Start) return action.Start;
+        if (action.End) return action.End;}
+    // If the gesture position is not available, use the current mouse position
+    return sp.GetCurrentMousePoint();}
+
+var globalOriginalMousePos = getOriginalMousePos();
+log(() => "Original mouse position saved: X=" + globalOriginalMousePos.X + ", Y=" + globalOriginalMousePos.Y, Color.Cyan);
+
+function chainNeedsImageSearch(chain) {
+    for (var k = 0; k < chain.steps.length; k++) {
+        var step = chain.steps[k];
+        if (step.path && !step.sendKeys) {
+            return true;}}
+    return false;}
+
+function processChain(chain, fgWnd) {
+    var steps = chain.steps;
+    var chainSuccess = true;
+
+    for (var j = 0; j < steps.length; j++) {
+        if (!chainSuccess) {
+            log(() => "Skipping step " + (j + 1) + " (chain stopped)", Color.Gray);
+            continue;}
+        var isLast = j === steps.length - 1;
+        var step = steps[j];
+        step.chain = chain.chain;       
+        var effectiveRestore = chain.restoreMouseOnce ? isLast : (step.restoreMouse || false);
+        step.restoreMouse = effectiveRestore;
+        
+        var success = processConfigItem(step, j, fgWnd);
+        // If the image search step (path) is not successful, stop the chain
+        if (!success && step.path && !step.directClick && !step.sendKeys) {
+            chainSuccess = false;
+            log(() => "Step " + (j + 1) + " failed (image not found), stopping chain. Next steps will be skipped.", Color.Red);
+            
+            if (chain.restoreMouseOnce && !step.restoreMouse) restoreMousePosition();}}
+    return chainSuccess;}
+
+var chainBasePaths = {};
+for (var i = 0; i < imageChains.length; i++) {
+    var chain = imageChains[i];
+    for (var j = 0; j < chain.steps.length; j++) {
+        var paths = getPathArray(chain.steps[j].path);
+        if (paths) {
+            chainBasePaths[chain.chain] = paths[0];
+            break;}}}
+
+var chainsWithApp = [];
+var chainsWithoutApp = [];
+var fgWnd = sp.ForegroundWindow();
+var exeName = fgWnd.Process.MainModule.ModuleName.toLowerCase();
+
+var needsScreenshot = false;
+for (var i = 0; i < imageChains.length; i++) {
+    var chain = imageChains[i];
+    var chainHasAppFilter = false;
+    var chainAppFilter = null;
+    
+    for (var k = 0; k < chain.steps.length; k++) {
+        var step = chain.steps[k];
+        if (step.app) {
+            chainHasAppFilter = true;
+            chainAppFilter = step.app;
+            break; }}    
+    if (chainHasAppFilter) {
+        chainsWithApp.push({ chain: chain, appFilter: chainAppFilter });
+    } else {
+        chainsWithoutApp.push(chain);
+        if (chainNeedsImageSearch(chain)) {
+            needsScreenshot = true;}}}
+
+var matchedChainExecuted = false;
+var lastAppFilter = null; 
+for (var i = 0; i < chainsWithApp.length; i++) {
+    var chainData = chainsWithApp[i];
+    var chain = chainData.chain;
+    var chainAppFilter = chainData.appFilter;    
+    if (exeName.includes(chainAppFilter.toLowerCase())) {
+        if (lastAppFilter !== chainAppFilter) {
+            if (chainNeedsImageSearch(chain) && !globalScreenshotMade) {
+                takeScreenshot(globalGraphics);
+                globalScreenshotMade = true;}
+            lastAppFilter = chainAppFilter;}       
+        log("-----------------------------------------------");
+        log(() => "Match found: chain " + chain.chain + " for application \"" + exeName + "\"", Color.DodgerBlue);        
+        var chainSuccess = processChain(chain, fgWnd);        
+        if (chainSuccess) {
+            matchedChainExecuted = true;
+            break; 
+        } else {
+            log(() => "Chain " + chain.chain + " failed, checking next chain with app \"" + chainAppFilter + "\"", Color.Gray);}
+    } else {
+        log(() => "Processing chain " + chain.chain + " - skipped (active window \"" + exeName + "\" does not match app filter \"" + chainAppFilter + "\")", Color.Gray);}}
+
+if (matchedChainExecuted) {
+    for (var i = 0; i < chainsWithoutApp.length; i++) {
+        log(() => "Processing chain " + chainsWithoutApp[i].chain + " - skipped (app match already found)", Color.Gray);}
+} else {
+    if (needsScreenshot) {
+        takeScreenshot(globalGraphics);
+        globalScreenshotMade = true;}   
+    for (var i = 0; i < chainsWithoutApp.length; i++) {
+        var chain = chainsWithoutApp[i];
+        log("-----------------------------------------------");
+        log(() => "Processing chain " + chain.chain + " (no app filter - full screen)", Color.DodgerBlue);
+        processChain(chain);}}
+
+function processConfigItem(config, stepIndex, fgWnd) {
+    var chainBasePath = chainBasePaths[config.chain] || null;
+    var pathsToTry = getPathArray(config.path);
+    
+    if (!validateWindowFilter(config, fgWnd)) {
+        return false;}   
+
+    if (config.sendKeys) {
+        log(() => "Sending keys: " + config.sendKeyCommand, Color.Orange);
+        try {
+            if (config.sendKeyCommand) new Function(config.sendKeyCommand)();
+        } catch (e) {
+            log(() => "Error in sendKeys: " + e.message, Color.Red);}
+        if (config.delayAfterSend) sp.Sleep(config.delayAfterSend);        
+        if (config.restoreMouse) restoreMousePosition();
+        return true;}
+
+    var sourceImage = null;
+    var adjustedX, adjustedY;
+    var success = false;
+    try {
+        if (config.directClick) {
+            var basePoint;
+
+            if (hasLastFound) {
+                basePoint = new Point(lastFoundX, lastFoundY);
+            } else {
+                basePoint = getOriginalMousePos();
+            }
+            adjustedX = Math.round(basePoint.X + (config.offsetX || 0));
+            adjustedY = Math.round(basePoint.Y + (config.offsetY || 0));
+            lastFoundX = adjustedX;
+            lastFoundY = adjustedY;
+            hasLastFound = true; 
+            log(() => "Direct click: X=" + adjustedX + ", Y=" + adjustedY + " (screen coordinates)", Color.LimeGreen);
+            success = true;
+        } else if (pathsToTry) {
+
+            if (!(stepIndex === 0 && globalScreenshotMade)) {
+                takeScreenshot(globalGraphics);}            
+            var foundNeedlePoint = null;
+            var foundSourceImage = null;            
+            for (var p = 0; p < pathsToTry.length; p++) {
+                var currentPath = pathsToTry[p];  
+              
+                if (!IO.File.Exists(currentPath)) {
+                    log(() => "File not found: " + currentPath + ", trying next...", Color.Orange);
+                    sp.MessageBox("File not found: " + currentPath, "File Not Found"); 
+                    continue;}              
+                try {
+                    var testImage = Drawing.Image.FromFile(currentPath);
+                    var testNeedlePoint = null;                    
+                    try {
+                        testNeedlePoint = sp.FindImageWithinImage(testImage, memoryImagePool);
+                    } catch (e) {
+                        log(() => "ERROR searching image: " + currentPath + " - " + e.message + ", trying next...", Color.Orange);
+                        sp.MessageBox("Please try taking the photo again (Index was outside the bounds of the array)\n\nFile: " + currentPath, "Image Search Error");
+                        safeDispose(testImage);
+                        continue;}    
+ 
+                    if (testNeedlePoint) {
+                        foundNeedlePoint = testNeedlePoint;
+                        foundSourceImage = testImage;
+                        log(() => "Image found: " + currentPath + " → X=" + (testNeedlePoint.X + testImage.Width / 2) + ", Y=" + (testNeedlePoint.Y + testImage.Height / 2) + " (screen coordinates)", Color.LimeGreen);
+                        break; 
+                    } else {
+                        log(() => "Image not found: " + currentPath + ", trying next...", Color.Tomato);
+                        safeDispose(testImage);}
+                } catch (e) {
+                    log(() => "Error loading image: " + currentPath + " - " + e.message + ", trying next...", Color.Orange);
+                    continue;}}  
+         
+            if (!foundNeedlePoint) {
+                log(() => "None of the images found in step " + (stepIndex + 1) + " (" + pathsToTry.length + " path(s) tried)", Color.Tomato);
+                return false;}            
+            // Using the found image
+            sourceImage = foundSourceImage;
+            adjustedX = Math.round(foundNeedlePoint.X + sourceImage.Width / 2 + (config.offsetX || 0));
+            adjustedY = Math.round(foundNeedlePoint.Y + sourceImage.Height / 2 + (config.offsetY || 0));
+            lastFoundX = adjustedX;
+            lastFoundY = adjustedY;
+            hasLastFound = true;
+
+            if (saveScreenshots) {
+                var highlightRect = new Drawing.Rectangle(foundNeedlePoint.X, foundNeedlePoint.Y, sourceImage.Width, sourceImage.Height);
+                drawFoundMarkers(globalGraphics, highlightRect, new Point(adjustedX, adjustedY));
+                var paths = getScreenshotPaths(config, chainBasePath, pathsToTry, stepIndex);
+                var savedImagePath = IO.Path.Combine(paths.baseDir, paths.stepPrefix + "found.png");
+                memoryImagePool.Save(savedImagePath, Drawing.Imaging.ImageFormat.Png);
+                log(() => "Found image screenshot saved: " + savedImagePath);}
+            success = true;
+        } else {
+            var errorMsg = "Error: step must have either directClick: true OR path specified";
+            sp.MessageBox(errorMsg, "Configuration Error");
+            log(errorMsg, Color.Red);
+            return false;}
+
+        if (!success) {
+            return false;}
+        sp.MouseClick(new Point(adjustedX, adjustedY), config.mouseButton || MouseButtons.Left, true, true);
+        sp.Sleep(config.delayAfterClick || 0);
+        
+         if (saveScreenshots) {
+            takeScreenshot(globalGraphics);
+            drawClickMarker(globalGraphics, new Point(adjustedX, adjustedY));
+            var paths = getScreenshotPaths(config, chainBasePath, pathsToTry, stepIndex);
+            var filename = config.directClick 
+                ? paths.stepPrefix + "directclick_" + adjustedX + "_" + adjustedY + "_after_click.png"
+                : paths.stepPrefix + "found_after_click.png";
+            var postClickPath = IO.Path.Combine(paths.baseDir, filename);
+            memoryImagePool.Save(postClickPath, Drawing.Imaging.ImageFormat.Png);
+            log(() => "Screenshot after click: " + postClickPath);}
+        } catch (e) {
+    log(() => "Error: " + e.message, Color.Red);
+    success = false;
+} finally {
+    safeDispose(sourceImage);
+    if (config.restoreMouse) restoreMousePosition();}
+    return success;
+}
+// Release resources after all operations
+safeDispose(globalGraphics);
+safeDispose(memoryImagePool);
