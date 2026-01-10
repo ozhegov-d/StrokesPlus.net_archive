@@ -1,6 +1,12 @@
+### Following and Click
+> v2  
++multiple monitors  
++image + click anywhere relative to the image  
++sendKeys(hotkeys)  
 
-
-
+<img width="598" height="141" alt="v2" src="https://github.com/user-attachments/assets/e956ff4b-f2a7-448f-8387-bb6529da4d4c" />  
+  
+---
 https://github.com/user-attachments/assets/928eb228-2796-422b-8bc4-b44963ce6f32
 
 
