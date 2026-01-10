@@ -50,11 +50,11 @@ then you need to take 2 separate screenshots for each monitor
 //                restoreMouse: true
 //            },
 ////for 1monitor
-//              { path: "C:\\portable\\Win\\HotKey\\test\\StrokesPlus.net_Portable_0.5.7.9-test2 без when\\test\\chrоme русский.png",
+//              { path: "C:\\test\\test1.png",
 
 ////For 2monitors or simply for multiple images
-////            { path: ["C:\\Portable\\StrokesPlus.net_Portable_0.5.8.0 v2\\photo\\chrome.png",
-////                     "C:\\Portable\\StrokesPlus.net_Portable_0.5.8.0 v2\\photo\\chrome2.png"
+////            { path: ["C:\\test\\test1.png",
+////                     "C:\\test\\test2.png"
 ////                      ],
 //                delayAfterClick: 0,
 //                mouseButton: MouseButtons.Left,
@@ -484,4 +484,5 @@ function processConfigItem(config, stepIndex, fgWnd) {
 }
 // Release resources after all operations
 safeDispose(globalGraphics);
+
 safeDispose(memoryImagePool);
