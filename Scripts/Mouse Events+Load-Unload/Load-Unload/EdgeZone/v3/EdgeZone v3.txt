@@ -1,0 +1,1025 @@
+const helper = new Win();
+
+// Configuration
+const CONFIG = {
+    edgeZoneSize: 1, // activation zone (in pixels)
+    logs: false,
+    frameMs: 16, // Mouse position polling interval in milliseconds. Lower = more responsive but more CPU. Higher = less CPU but less responsive.
+    
+    // Auto-minimize settings
+    autoMinimizeFrames: 3, // Number of frames cursor must be outside window before auto-minimize (1 frame ≈ frameMs)
+    
+    // Child window checking settings
+    checkChildWindows: true, // If true, check child windows. Child windows found at activation are tracked by rectangle (fast). If false, child windows will be minimized
+    // Note: for useWindowFromPoint. Add useWindowFromPoint: true to process config where needed.
+    childWindowCheckInterval: 50, // Update interval for child window check (in milliseconds, only used when process has useWindowFromPoint: true)
+    childWindowLargeMovementPx: 50, // Large movement threshold for child window check (in pixels, only used when process has useWindowFromPoint: true)
+    
+    // Window rectangle cache settings 
+    updateWindowRectCache: true, // If true, update window rectangle cache periodically to track window movement/resize. If false, use rectangle only from activation (faster, but won't track window movement)
+    windowRectCacheUpdateInterval: 30, // Update interval for window rectangle cache (in milliseconds, only used when updateWindowRectCache=true)
+
+    displays: {display1: {enabled: true,     // enable/disable first monitor (true/false)
+    areas:{     top: true,     // top area
+                bottom: true,  // bottom area
+                left: true,    // left area
+                right: true    // right area
+}},
+    display2: {enabled: false,    // enable/disable second monitor
+    areas:{     top: true,     // top area
+                bottom: true,  // bottom area
+                left: false,   // left area
+                right: true    // right area
+}}}};
+
+/*
+████████╗ ██████╗ ██████╗         ██╗
+╚══██╔══╝██╔═══██╗██╔══██╗       ███║
+   ██║   ██║   ██║██████╔╝ ████╗ ╚██║
+   ██║   ██║   ██║██╔═══╝  ╚═══╝  ██║
+   ██║   ╚██████╔╝██║             ██║
+   ╚═╝    ╚═════╝ ╚═╝             ╚═╝
+*/const displayConfig = {displays: {display1: {top: {areas: [
+
+//{ enabled: true, from: 0, to: 15, process: { run: "C:\\Telegram\\Telegram.exe", title: "" }},
+//{ enabled: true, from: 0, to: 15, process: { run: "C:\\Telegram\\Telegram.exe", title: "" ,cursorPosition:{x:0.5,y:0.5} }},
+
+{ enabled: true, from: 0, to: 15, process: { name: "telegram", title: "" ,cursorPosition:{x:0.5,y:0.5} ,autoMinimize:true }},
+               
+//{ enabled: true, from: 40, to: 60, process: { name: "everything", title: "" }},
+//{ enabled: true, from: 40, to: 60, process: { name: "everything", title: "", cursorPosition:{/*horizontally*/x:0.5,/*vertically*/y:0.5},autoMinimize:true}},
+
+//{ enabled: true, from: 40, to: 60, process: [
+//{ name: "everything", title: "" },
+//{ name: "notepad", title: "" }  // sets as active window
+//]},
+
+// Move cursor to the center of the last active window and minimize both windows
+{ enabled: true, from: 40, to: 60,cursorPosition:{/*horizontally*/x:0.5,/*vertically*/y:0.5},autoMinimize: true, process: [
+{ name: "everything", title: "" },
+{ name: "notepad", title: "" }  // sets as active window
+]},
+
+// Move cursor to the center of the Everything window and minimize only Everything
+//{ enabled: true, from: 40, to: 60, process: [
+//{ name: "everything", title: "", cursorPosition:{/*horizontally*/x:0.5,/*vertically*/y:0.5},autoMinimize:true },
+//{ name: "notepad", title: "" }  // sets as active window
+//]},
+
+// use WindowFromPoint to detect dynamically opened child windows (opened AFTER activation). If false, WindowFromPoint is never called
+{ enabled: true, from: 61, to: 89, cursorPosition:{x:0.5,y:0.6}, autoMinimize: true,useWindowFromPoint:true, process: { name: "aimp", title: "" }},
+
+//{ enabled: true, from: 21, to: 40, sendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);sp.SendVKey(vk.TAB);sp.SendVKey(vk.TAB);sp.SendVKey(vk.TAB);" },
+//{ enabled: true, from: 40, to: 60, sendKeys: "sp.SendVKey(vk.F11);" }, 
+
+{ enabled: true, from: 90, to: 100,  actions: [
+// if the process is chrome then F11 + cursor to the center of the window
+{ whenProcess: { name: "chrome" },  doSendKeys: "sp.SendVKey(vk.F11);" , cursorPosition: {/*horizontally*/x:0.5,/*vertically*/y:0.5}}, 
+// if the process is Everything64 then alt+ → → ↓ ↓ +enter
+{ whenProcess: { name: "Everything64" , title: "" }, doSendKeys: "sp.SendVKey(vk.LMENU);sp.SendVKey(vk.RIGHT);sp.SendVKey(vk.RIGHT);sp.SendVKey(vk.DOWN);sp.SendVKey(vk.DOWN);sp.SendVKey(vk.RETURN);" ,cursorPosition: {x:0.5,y:0.5}}, 
+// if the window is not chrome or Everything64, then the strokeplus window will open.
+{ default: true, doProcess: { name: "strokesplus", title: "" }}
+]},
+
+//IMPORTANT: Specific conditions (with title) must come BEFORE general ones (without title).
+//For example: first { title: "test" }, then { title: "" }.
+//{ enabled: true, from: 0, to: 10, actions: [
+//{ whenProcess: { name: "chrome" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_1]);" }, // if the process is chrome then Ctrl+1
+//{ whenProcess: { name: "notepad" , title: "test" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);" }, // if the process is notepad and the title is test then Ctrl+F
+//{ whenProcess: { name: "notepad" , title: "" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_A]);" }, // if notepad process and there is no title (for all notepad windows) Ctrl+A
+//{ default: true, doProcess: { name: "strokesplus", title: "" }} // if the window is not chrome or notepad, then the strokeplus window will open.
+//]},
+
+
+]},
+
+/*
+██╗     ███████╗███████╗████████╗        ██╗
+██║     ██╔════╝██╔════╝╚══██╔══╝       ███║
+██║     █████╗  █████╗     ██║    ████╗ ╚██║
+██║     ██╔══╝  ██╔══╝     ██║    ╚═══╝  ██║
+███████╗███████╗██║        ██║           ██║
+╚══════╝╚══════╝╚═╝        ╚═╝           ╚═╝
+*/left: {areas: [
+
+{ enabled: true, from: 40, to: 60, process: { name: "strokesplus", title: "settings" }},
+{ enabled: true, from: 61, to: 100, process: { name: "strokesplus", title: "console" }},
+]},
+
+/*
+██████╗ ██╗ ██████╗ ██╗  ██╗████████╗        ██╗
+██╔══██╗██║██╔════╝ ██║  ██║╚══██╔══╝       ███║
+██████╔╝██║██║  ███╗███████║   ██║    ████╗ ╚██║
+██╔══██╗██║██║   ██║██╔══██║   ██║    ╚═══╝  ██║
+██║  ██║██║╚██████╔╝██║  ██║   ██║           ██║
+╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝           ╚═╝
+
+*/right: {areas: [
+
+{ enabled: true, from: 41, to: 70, autoMinimize: true, process: [
+{ name: "notepad", title: "" },    
+{ name: "winword", title: "" } ,                      
+]},   
+
+
+]}, 
+
+/*
+
+██████╗  ██████╗ ████████╗████████╗ ██████╗ ███╗   ███╗        ██╗
+██╔══██╗██╔═══██╗╚══██╔══╝╚══██╔══╝██╔═══██╗████╗ ████║       ███║
+██████╔╝██║   ██║   ██║      ██║   ██║   ██║██╔████╔██║ ████╗ ╚██║
+██╔══██╗██║   ██║   ██║      ██║   ██║   ██║██║╚██╔╝██║ ╚═══╝  ██║
+██████╔╝╚██████╔╝   ██║      ██║   ╚██████╔╝██║ ╚═╝ ██║        ██║
+╚═════╝  ╚═════╝    ╚═╝      ╚═╝    ╚═════╝ ╚═╝     ╚═╝        ╚═╝
+
+*/ bottom: { areas: [
+
+
+
+]}, 
+
+/*
+████████╗ ██████╗ ██████╗        ██████╗  
+╚══██╔══╝██╔═══██╗██╔══██╗       ╚════██╗
+   ██║   ██║   ██║██████╔╝ ████╗  █████╔╝
+   ██║   ██║   ██║██╔═══╝  ╚═══╝ ██╔═══╝ 
+   ██║   ╚██████╔╝██║            ███████╗
+   ╚═╝    ╚═════╝ ╚═╝            ╚══════╝
+*/display2: {top: {areas: [
+
+//{ enabled: true, from: 0, to: 15, process: { run: "C:\\Telegram\\Telegram.exe", title: "" }},
+//{ enabled: true, from: 0, to: 15, process: { run: "C:\\Telegram\\Telegram.exe", title: "" ,cursorPosition:{x:0.5,y:0.5} }},
+
+{ enabled: true, from: 0, to: 15, process: { name: "telegram", title: "" ,cursorPosition:{x:0.5,y:0.5} ,autoMinimize:true }},
+               
+//{ enabled: true, from: 40, to: 60, process: { name: "everything", title: "" }},
+//{ enabled: true, from: 40, to: 60, process: { name: "everything", title: "", cursorPosition:{/*horizontally*/x:0.5,/*vertically*/y:0.5},autoMinimize:true}},
+
+//{ enabled: true, from: 40, to: 60, process: [
+//{ name: "everything", title: "" },
+//{ name: "notepad", title: "" }  // sets as active window
+//]},
+
+// Move cursor to the center of the last active window and minimize both windows
+{ enabled: true, from: 40, to: 60,cursorPosition:{/*horizontally*/x:0.5,/*vertically*/y:0.5},autoMinimize: true, process: [
+{ name: "everything", title: "" },
+{ name: "notepad", title: "" }  // sets as active window
+]},
+
+// Move cursor to the center of the Everything window and minimize only Everything
+//{ enabled: true, from: 40, to: 60, process: [
+//{ name: "everything", title: "", cursorPosition:{/*horizontally*/x:0.5,/*vertically*/y:0.5},autoMinimize:true },
+//{ name: "notepad", title: "" }  // sets as active window
+//]},
+
+// use WindowFromPoint to detect dynamically opened child windows (opened AFTER activation). If false, WindowFromPoint is never called
+{ enabled: true, from: 61, to: 89, cursorPosition:{x:0.5,y:0.6}, autoMinimize: true,useWindowFromPoint:true, process: { name: "aimp", title: "" }},
+
+//{ enabled: true, from: 21, to: 40, sendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);sp.SendVKey(vk.TAB);sp.SendVKey(vk.TAB);sp.SendVKey(vk.TAB);" },
+//{ enabled: true, from: 40, to: 60, sendKeys: "sp.SendVKey(vk.F11);" }, 
+
+//{ enabled: true, from: 90, to: 100,  actions: [
+//// if the process is chrome then F11 + cursor to the center of the window
+//{ whenProcess: { name: "chrome" },  doSendKeys: "sp.SendVKey(vk.F11);" , cursorPosition: {/*horizontally*/x:0.5,/*vertically*/y:0.5}}, 
+//// if the process is Everything64 then alt+ → → ↓ ↓ +enter
+//{ whenProcess: { name: "Everything64" , title: "" }, doSendKeys: "sp.SendVKey(vk.LMENU);sp.SendVKey(vk.RIGHT);sp.SendVKey(vk.RIGHT);sp.SendVKey(vk.DOWN);sp.SendVKey(vk.DOWN);sp.SendVKey(vk.RETURN);" ,cursorPosition: {x:0.5,y:0.5}}, 
+//// if the window is not chrome or Everything64, then the strokeplus window will open.
+//{ default: true, doProcess: { name: "strokesplus", title: "" }}
+//]},
+
+//IMPORTANT: Specific conditions (with title) must come BEFORE general ones (without title).
+//For example: first { title: "test" }, then { title: "" }.
+//{ enabled: true, from: 0, to: 10, actions: [
+//{ whenProcess: { name: "chrome" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_1]);" }, // if the process is chrome then Ctrl+1
+//{ whenProcess: { name: "notepad" , title: "test" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_F]);" }, // if the process is notepad and the title is test then Ctrl+F
+//{ whenProcess: { name: "notepad" , title: "" }, doSendKeys: "sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_A]);" }, // if notepad process and there is no title (for all notepad windows) Ctrl+A
+//{ default: true, doProcess: { name: "strokesplus", title: "" }} // if the window is not chrome or notepad, then the strokeplus window will open.
+//]},
+
+
+]},
+
+/*
+
+██╗     ███████╗███████╗████████╗       ██████╗ 
+██║     ██╔════╝██╔════╝╚══██╔══╝       ╚════██╗
+██║     █████╗  █████╗     ██║    ████╗  █████╔╝
+██║     ██╔══╝  ██╔══╝     ██║    ╚═══╝ ██╔═══╝ 
+███████╗███████╗██║        ██║          ███████╗
+╚══════╝╚══════╝╚═╝        ╚═╝          ╚══════╝
+*/left: {areas: [
+
+
+]},
+
+/*
+
+██████╗ ██╗ ██████╗ ██╗  ██╗████████╗        ██████╗ 
+██╔══██╗██║██╔════╝ ██║  ██║╚══██╔══╝        ╚════██╗
+██████╔╝██║██║  ███╗███████║   ██║    ████╗   █████╔╝
+██╔══██╗██║██║   ██║██╔══██║   ██║    ╚═══╝  ██╔═══╝ 
+██║  ██║██║╚██████╔╝██║  ██║   ██║           ███████╗
+╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝           ╚══════╝
+*/right: {areas: [
+
+
+]},                          
+        
+/*
+
+██████╗  ██████╗ ████████╗████████╗ ██████╗ ███╗   ███╗        ██████╗ 
+██╔══██╗██╔═══██╗╚══██╔══╝╚══██╔══╝██╔═══██╗████╗ ████║        ╚════██╗
+██████╔╝██║   ██║   ██║      ██║   ██║   ██║██╔████╔██║ ████╗   █████╔╝
+██╔══██╗██║   ██║   ██║      ██║   ██║   ██║██║╚██╔╝██║ ╚═══╝  ██╔═══╝ 
+██████╔╝╚██████╔╝   ██║      ██║   ╚██████╔╝██║ ╚═╝ ██║        ███████╗
+╚═════╝  ╚═════╝    ╚═╝      ╚═╝    ╚═════╝ ╚═╝     ╚═╝        ╚══════╝
+*/bottom: { areas: [
+
+
+]},
+
+}}}};
+
+const screens = Screen.AllScreens;
+// extract display key from DeviceName
+function getDisplayKey(deviceName) {
+  const m = deviceName.match(/DISPLAY(\d+)/i);
+  return m ? `display${m[1]}` : null;}
+// Pre-compute and cache displayData and pixel zones for each screen in one pass
+const displayDataMap = {};
+const pixelZones = {};
+
+for (let i = 0; i < screens.Length; i++) {
+  const screen = screens[i];
+  const dk = getDisplayKey(screen.DeviceName);
+  if (!dk) continue; 
+  // Skip if display is disabled in CONFIG.displays
+  const displaySettings = CONFIG.displays[dk];
+  if (!displaySettings || !displaySettings.enabled) continue; 
+  // Get zone configuration from global displayConfig
+  const zoneConfig = displayConfig.displays[dk];
+  if (!zoneConfig) continue; 
+  // Cache display data
+  displayDataMap[screen.DeviceName] = {
+    config: zoneConfig,
+    enabledAreas: displaySettings.areas,
+    displayKey: dk}; 
+  // Build pixel-based zones
+  const enabledAreas = displaySettings.areas;
+  const b = screen.Bounds;
+  const mapPixels = (areas, dim) => areas.map(a => ({
+    fromPx: Math.round(a.from * dim / 100),
+    toPx: Math.round(a.to * dim / 100)})); 
+  pixelZones[dk] = {
+    top:    enabledAreas.top    ? mapPixels(zoneConfig.top.areas, b.Width)  : [], bottom: enabledAreas.bottom ? mapPixels(zoneConfig.bottom.areas, b.Width)  : [],
+    left:   enabledAreas.left   ? mapPixels(zoneConfig.left.areas, b.Height) : [],right:  enabledAreas.right  ? mapPixels(zoneConfig.right.areas, b.Height) : [] };}
+
+function getDisplayConfig(screen) {
+  return displayDataMap[screen.DeviceName] || null;}
+
+function log_edge(message, type = 'Info', color = null) {
+    if (!CONFIG.logs) return;
+    color ? sp.ConsoleLog(message, type, color) : sp.ConsoleLog(message, type);}
+
+const FRAME_MS   = CONFIG.frameMs;  
+const sw         = clr.System.Diagnostics.Stopwatch.StartNew();
+let lastFrameTs = 0;   // last frame time (MS)
+let lastZoneKey = null;
+const EDGE_ZONE_SIZE = CONFIG.edgeZoneSize;
+// Track windows that should be auto-minimized when cursor leaves
+const trackedWindows = new Map(); // key: window handle (as string), value: { window }
+const childWindowsByGroup = new Map();
+// Cache for windowGroups structure (rebuild only when trackedWindows changes)
+let cachedWindowGroups = {
+    groups: null,           // Map<groupId, Array> structure
+    lastTrackedWindowsSize: 0,  // Track size changes (rebuild when size changes)
+    groupsWithMaximized: new Map() };  // Map<groupId, boolean> - groups that have at least one maximized window
+const useWindowFromPointByGroup = new Map(); // key: groupId (string), value: boolean (true = useWindowFromPoint enabled for this process group)
+
+// Execute action (sendKeys or process)
+function executeAction(action, cursorPosition = null, autoMinimize = false, useWindowFromPointFromArea = false) {
+    if (action.doSendKeys) {
+        // Move cursor BEFORE sending keys (if cursorPosition specified in action)
+        if (action.cursorPosition && action.cursorPosition.x !== undefined && action.cursorPosition.y !== undefined) {
+            try {
+                const win = sp.ForegroundWindow();
+                if (win) {
+                    const rect = win.Rectangle;
+                    const newX = rect.Left + rect.Width * action.cursorPosition.x;
+                    const newY = rect.Top + rect.Height * action.cursorPosition.y;
+                    sp.MouseMove(new Point(Math.round(newX), Math.round(newY)));
+                    CONFIG.logs && sp.ConsoleLog(`  • Cursor moved to: ${Math.round(newX)}, ${Math.round(newY)} (${action.cursorPosition.x*100}%, ${action.cursorPosition.y*100}%)`, 'KeyAction', System.Drawing.Color.Cyan);
+                }
+            } catch(e) {}
+        }
+        eval(action.doSendKeys);
+        CONFIG.logs && sp.ConsoleLog(`Activated keys: ${action.doSendKeys}`, 'KeyAction', action.whenProcess ? System.Drawing.Color.Gold : null);
+    }
+    if (action.doProcess) {
+        // Use cursorPosition from action if specified, otherwise use parameter
+        const useCursorPosition = action.doProcess.cursorPosition !== undefined ? action.doProcess.cursorPosition : cursorPosition;
+        // Use autoMinimize from action if specified, otherwise use parameter
+        const useAutoMinimize = action.doProcess.autoMinimize !== undefined
+            ? action.doProcess.autoMinimize
+            : autoMinimize;
+        // Use useWindowFromPoint from area level (passed as parameter) - applies to all processes in this area
+        activateProcess(action.doProcess, useCursorPosition, useAutoMinimize, useWindowFromPointFromArea);}}
+
+function activateArea(area) {
+    try {
+        // Get cursorPosition, autoMinimize, and useWindowFromPoint options from area level (applies to all processes if not overridden)
+        let areaCursorPosition = area.cursorPosition !== undefined ? area.cursorPosition : null;
+        const areaAutoMinimize = area.autoMinimize !== undefined ? area.autoMinimize : false;
+        const areaUseWindowFromPoint = area.useWindowFromPoint === true; // Get useWindowFromPoint from area level        
+        if (area.actions) {
+            // Get current window info once
+            let currentProcessName = "", currentTitle = "";
+            try {
+                const currentWindow = sp.ForegroundWindow();
+                currentProcessName = currentWindow.Process.MainModule.ModuleName.toLowerCase();
+                currentTitle = currentWindow.Title.toLowerCase();
+            } catch(e) {
+                // Ignore errors
+            }            
+            // Try to find matching action, save default
+            let defaultAction = null;
+            for (let action of area.actions) {
+                // Get cursorPosition from action level (can override area level)
+                const actionCursorPosition = action.cursorPosition !== undefined ? action.cursorPosition : areaCursorPosition;
+                if (action.whenProcess) {
+                    const procMatch = action.whenProcess.name.toLowerCase();
+                    const titleMatch = action.whenProcess.title ? action.whenProcess.title.toLowerCase() : "";
+                    if (currentProcessName.includes(procMatch) && (!titleMatch || currentTitle.includes(titleMatch))) {
+                        executeAction(action, actionCursorPosition !== null ? actionCursorPosition : areaCursorPosition, areaAutoMinimize, areaUseWindowFromPoint);
+                        return;}
+                } else if (action.default) {
+                    defaultAction = action;}}           
+            // Execute default action if no match found
+            if (defaultAction) executeAction(defaultAction, areaCursorPosition, areaAutoMinimize, areaUseWindowFromPoint);
+        } else {
+            // Backwards compatibility: old format
+            if (area.process) activateProcess(area.process, areaCursorPosition, areaAutoMinimize, areaUseWindowFromPoint);
+            if (area.sendKeys) {
+                eval(area.sendKeys);
+                CONFIG.logs && sp.ConsoleLog(`Activated keys: ${area.sendKeys}`, 'KeyAction');
+            }}} catch(e) {
+        CONFIG.logs && sp.ConsoleError('Error in activateArea: ' + e.message, 'Error');}}
+
+function isAtScreenEdge(mousePos, bounds) {
+    const edge = CONFIG.edgeZoneSize;
+    return { isLeft: mousePos.X <= bounds.Left + edge,isRight: mousePos.X >= bounds.Right - edge,isTop: mousePos.Y <= bounds.Top + edge,isBottom: mousePos.Y >= bounds.Bottom - edge};}
+
+function isInEdgeZone(mousePos, bounds, side, zonePx) {
+  const edge = EDGE_ZONE_SIZE;
+  switch (side) {
+    case 'top': return mousePos.Y <= bounds.Top + edge && mousePos.X >= bounds.Left + zonePx.fromPx && mousePos.X <= bounds.Left + zonePx.toPx;
+    case 'bottom': return mousePos.Y >= bounds.Bottom - edge && mousePos.X >= bounds.Left + zonePx.fromPx && mousePos.X <= bounds.Left + zonePx.toPx;
+    case 'left': return mousePos.X <= bounds.Left + edge && mousePos.Y >= bounds.Top + zonePx.fromPx && mousePos.Y <= bounds.Top + zonePx.toPx;
+    case 'right': return mousePos.X >= bounds.Right - edge && mousePos.Y >= bounds.Top + zonePx.fromPx && mousePos.Y <= bounds.Top + zonePx.toPx;
+    default: return false;}}
+
+function getActiveZone(mouseLocation, screen, displayData, edges) {
+  if (!displayData) return null;  
+  const b = screen.Bounds;
+  if (!edges) edges = isAtScreenEdge(mouseLocation, b);
+  if (!edges.isTop && !edges.isBottom && !edges.isLeft && !edges.isRight) return null;
+  
+  const zones = pixelZones[displayData.displayKey];
+  const sides = [['top', edges.isTop], ['bottom', edges.isBottom], ['left', edges.isLeft], ['right', edges.isRight]]; 
+
+  for (const [sideName, isActive] of sides) {
+    if (!isActive || !displayData.enabledAreas[sideName]) continue;
+    const list = zones[sideName];
+    if (!list) continue;
+    
+    for (let i = 0; i < list.length; i++) {
+      if (isInEdgeZone(mouseLocation, b, sideName, list[i])) {
+        return `${displayData.displayKey}:${sideName}:${i}`;}}}
+  return null;}
+
+function activateProcess(processConfig, cursorPosition = null, autoMinimize = false, useWindowFromPointFromArea = false){
+    const cfgs = Array.isArray(processConfig) ? processConfig : [processConfig];
+    const exeNameFromPath = p =>p.split(/[\\/]/).pop().replace(/\.[^.]+$/, '').toLowerCase();
+    if (CONFIG.logs) {
+        log_edge(`→ activateProcess start: ${JSON.stringify(cfgs.map(c => c.name || c.run || '?'))}`, 'Perf');}    
+    // Generate stable group ID based on process names (same processes = same groupId)
+    const processNames = cfgs.map(c => {
+        if (c.name) return c.name.toLowerCase();
+        if (c.run) return exeNameFromPath(c.run);
+        return '';
+    }).filter(n => n).sort().join('|');
+    const groupId = processNames || 'default';    
+    // Check if useWindowFromPoint is enabled:
+    // 1) On area level (useWindowFromPointFromArea parameter) - applies to all processes 2) On process level (cfg.useWindowFromPoint) - process-specific (higher priority)
+    const useWindowFromPointForGroup = useWindowFromPointFromArea || cfgs.some(cfg => cfg.useWindowFromPoint === true);
+    useWindowFromPointByGroup.set(groupId, useWindowFromPointForGroup);
+    if (CONFIG.logs && useWindowFromPointForGroup) {
+        log_edge(`  • useWindowFromPoint enabled for groupId: ${groupId}`, 'Perf', System.Drawing.Color.Green);}    
+    // find windows 
+    const handles = [];
+    const cfgWithoutWindows = [];          // cfg, where nothing was found
+    const cursorPositions = [];            // track cursor position for each window (null = don't move)
+    const autoMinimizeFlags = [];          // track which windows need auto-minimize
+
+    for (let cfgIdx = 0; cfgIdx < cfgs.length; cfgIdx++) {
+        const cfg = cfgs[cfgIdx];
+        // Use cursorPosition from cfg if specified, otherwise use parameter
+        const cfgCursorPosition = cfg.cursorPosition !== undefined ? cfg.cursorPosition : cursorPosition;
+        // Use autoMinimize from cfg if specified, otherwise use parameter
+        const cfgAutoMinimize = cfg.autoMinimize !== undefined ? cfg.autoMinimize : autoMinimize;        
+        // 1) get process name
+        const procName = cfg.name
+                       ? cfg.name.toLowerCase()
+                       : (cfg.run ? exeNameFromPath(cfg.run) : "");
+        const title    = cfg.title || "";
+        // 2)  if name is present - search for windows
+        if (procName) {
+            if (CONFIG.logs) { log_edge(`  • FindWindows for "${procName}" (title="${title}")`, 'Perf'); }
+            const infos = helper.FindWindows(procName, title);
+            if (CONFIG.logs) { log_edge(`    → FindWindows returned ${infos.Length}`, 'Perf'); }
+            if (infos.Length > 0) {
+                for (let i = 0; i < infos.Length; i++) {
+                    handles.push(infos[i].Handle);
+                    cursorPositions.push(cfgCursorPosition);
+                    autoMinimizeFlags.push(cfgAutoMinimize);
+                }} else {
+                cfgWithoutWindows.push(cfg);   // for RunProgram
+            }} else {
+            cfgWithoutWindows.push(cfg);}}       // no name, we will run
+    // Run programs for configs without windows (even if other windows were found) This allows running multiple programs where some are already open
+    if (cfgWithoutWindows.length > 0) {
+        for (const cfg of cfgWithoutWindows) if (cfg.run) {
+            if (CONFIG.logs) { log_edge(`  • RunProgram "${cfg.run}"`, 'Perf'); }
+            sp.RunProgram(cfg.run,     // fileName
+                          '',          // arguments
+                          'open',      // verb
+                          'normal',    // windowstyle
+                          true,        // useShellExecute
+                          false,       // noWindow
+                          false); }      // waitForExit
+        // If no windows were found at all, return after launching
+        if (handles.length === 0) {
+            return;}} // first call - launch only
+    // Activate / minimize found windows
+    const fgWin = sp.ForegroundWindow();
+    const fgHandle = fgWin.HWnd;
+    const anyActive = handles.some(h => h.Equals(fgHandle));
+    if (CONFIG.logs) { log_edge(`  • ${handles.length} handle(s) anyActive=${anyActive}`, 'Perf'); }
+    if (anyActive) {
+        // Minimize all if any is active
+        const minimizedGroupIds = new Set(); // Track which groups were minimized
+        for (const h of handles) {
+            const hStr = h.ToString();
+            const tracked = trackedWindows.get(hStr);
+            if (tracked && tracked.groupId) {
+                minimizedGroupIds.add(tracked.groupId);}
+            trackedWindows.delete(hStr); // Remove from tracking when minimized
+            sp.WindowFromHandle(h).Minimize();}
+        // Invalidate windowGroups cache once after all deletions
+        cachedWindowGroups.groups = null;
+        cachedWindowGroups.lastTrackedWindowsSize = trackedWindows.size;        
+        // Clean up useWindowFromPointByGroup for minimized groups if no windows are tracked anymore
+        for (const groupId of minimizedGroupIds) {
+            let hasTrackedWindows = false;
+            for (const [hStr, tracked] of trackedWindows) {
+                if (tracked.groupId === groupId) {
+                    hasTrackedWindows = true;
+                    break;}}
+            if (!hasTrackedWindows) {
+                useWindowFromPointByGroup.delete(groupId);
+               // if (CONFIG.logs) {log_edge(`  • useWindowFromPoint disabled for groupId: ${groupId} (all windows minimized)`, 'Perf', System.Drawing.Color.Orange);}
+}}
+        } else {
+        // Find index of last window with cursorPosition specified (to move cursor only once)
+        let lastCursorPositionIndex = -1;
+        for (let i = handles.length - 1; i >= 0; i--) {
+            if (cursorPositions[i] !== null && cursorPositions[i] !== undefined) {
+                lastCursorPositionIndex = i;
+                break;}}        
+        // PHASE 1: Activate all windows quickly (without Sleep between activations)
+        const windowsToTrack = [];
+        for (let i = 0; i < handles.length; i++) {
+            const h = handles[i];
+            if (!h.Equals(fgHandle)) {
+                const win = sp.WindowFromHandle(h);
+                forceActivate(win);
+                // Store window info for later processing (after activation completes)
+                windowsToTrack.push({ index: i, handle: h, window: win });}}        
+        // PHASE 2: Single Sleep for all windows (wait for all to activate)
+        sp.Sleep(30);        
+        // PHASE 3: Add to tracking and process cursorPosition (windows are now fully activated)
+        for (const { index: i, handle: h, window: win } of windowsToTrack) {
+                // Add to tracked windows if auto-minimize is enabled for this specific window
+                if (autoMinimizeFlags[i]) {
+                    const hStr = h.ToString();
+                    // Check if window is already tracked - reuse tracking data if same window
+                    const existing = trackedWindows.get(hStr);
+                    const cursorWasInside = existing ? existing.cursorWasInside : false;                   
+                    // Store window with timestamp to ignore first checks and group ID
+                    const wasNew = !trackedWindows.has(hStr);
+                    // Initialize cachedRect when window is added (used later for cursor checking)
+                    const initialRect = win.Rectangle;
+                    // Check if window is maximized when adding to tracking
+                    let initialIsMaximized = false;
+                    try {initialIsMaximized = win.Maximized;
+                    } catch(e) {}                    
+                    trackedWindows.set(hStr, { 
+                        window: win, 
+                        addedTime: sw.ElapsedMilliseconds,
+                        groupId: groupId,  // Windows activated together share same groupId
+                        cursorWasInside: cursorWasInside,  // Preserve state if window already tracked
+                        consecutiveOutsideFrames: existing ? existing.consecutiveOutsideFrames : 0,  // Counter for frames outside
+                        cachedRect: initialRect,  // Cache rectangle from activation (always initialized)
+                        lastRectUpdate: sw.ElapsedMilliseconds,  // Track when rectangle was last updated
+                        isMaximized: initialIsMaximized,  // Cache maximized state (updated only when rect changes)
+                        cachedVisible: true });  // Cache visible state (updated only when rect changes)
+                    // Update windowGroups cache size when new window is added (incremental update will add it)
+                    if (wasNew) {
+                        cachedWindowGroups.lastTrackedWindowsSize = trackedWindows.size;
+                        if (CONFIG.logs) {log_edge(`  • [windowGroups INCREMENTAL] New window will be added: ${hStr}`, 'Perf', System.Drawing.Color.Cyan);}}
+                    if (CONFIG.logs) { log_edge(`  • Window added to tracking: ${hStr}, groupId: ${groupId}, cursorWasInside: ${cursorWasInside}`, 'Perf'); }
+                    // If child window checking is enabled, find and restore child windows
+                    // This allows checking child windows by rectangle (fast) instead of WindowFromPoint (slow)
+                    if (CONFIG.checkChildWindows) {
+                        try {
+                            const mainProcessId = win.Process.Id;
+                            const mainHStr = hStr;                            
+                            // First, restore previously tracked child windows (that were auto-minimized)
+                            const childWindowsSet = childWindowsByGroup.get(groupId);
+                            if (childWindowsSet && childWindowsSet.size > 0) {
+                                let restoredCount = 0;
+                                const toRemove = []; // Windows to remove from set (closed windows)
+                                for (const childHStr of childWindowsSet) {
+                                    try {
+                                        const childHandle = new IntPtr(parseInt(childHStr));
+                                        const childWin = sp.WindowFromHandle(childHandle);
+                                        if (!childWin) {
+                                            // Window doesn't exist anymore - mark for removal
+                                            toRemove.push(childHStr);
+                                            continue;}
+                                        if (childWin.Minimized) {
+                                            // This was a child window that was auto-minimized - restore it
+                                            if (!childWin.HWnd.Equals(fgHandle)) {
+                                                forceActivate(childWin);}
+                                            // Add back to tracking after restoration
+                                            addChildWindowToTracking(childHStr, childWin, groupId, mainProcessId, null);
+                                            restoredCount++;
+                                            if (CONFIG.logs) {log_edge(`  • Child window restored: ${childHStr}`, 'Perf', System.Drawing.Color.LimeGreen);}}
+                                        // If window exists but not minimized - it's already visible, will be found by FindWindowsByPidFiltered
+                                    } catch(e) {
+                                        // Window might be closed, mark for removal
+                                        toRemove.push(childHStr);}}
+                                // Remove closed windows from set
+                                for (const hStr of toRemove) {
+                                    childWindowsSet.delete(hStr);}
+                                if (restoredCount > 0) {
+                                    sp.Sleep(30);}} // Wait for windows to restore                           
+                            // Then, find and add all windows of the same process (including newly opened ones)
+                            // Use filtered version: minWidth=50, minHeight=50, exclude main window handle
+                            const childWindowInfos = helper.FindWindowsByPidFiltered(mainProcessId, 50, 50, h);
+                            if (childWindowInfos && childWindowInfos.Length > 0) {
+                                let childWindowsAdded = 0;
+                                for (let wIdx = 0; wIdx < childWindowInfos.Length; wIdx++) {
+                                    const childWindowInfo = childWindowInfos[wIdx];
+                                    try {
+                                        const childHStr = childWindowInfo.Handle.ToString();
+                                        // Get window object from handle
+                                        const childWin = sp.WindowFromHandle(childWindowInfo.Handle);
+                                        if (childWin) {
+                                            // Check if window is minimized (was restored above)
+                                            if (childWin.Minimized) {continue;}                                            
+                                            // Add to tracking (visibility and size already checked by plugin)
+                                            if (addChildWindowToTracking(childHStr, childWin, groupId, mainProcessId, childWindowInfo)) {childWindowsAdded++;}}
+                                    } catch(e) {}} // Ignore errors for individual windows
+                                if (childWindowsAdded > 0) {
+                                    if (CONFIG.logs) { log_edge(`  • Total ${childWindowsAdded} child window(s) added to tracking for main window ${hStr}`, 'Perf'); }
+                                } else {if (CONFIG.logs) { log_edge(`  • No new child windows found for process PID: ${mainProcessId} (found ${childWindowInfos.Length} total windows of this process)`, 'Perf'); }}
+                            } else {if (CONFIG.logs) { log_edge(`  • No windows found for process PID: ${mainProcessId}`, 'Perf'); }}
+                        } catch(e) {if (CONFIG.logs) { log_edge(`  • Error finding child windows: ${e.message}`, 'Perf'); }}}}               
+                // Move cursor to specified position in LAST window with cursorPosition specified
+                if (i === lastCursorPositionIndex && cursorPositions[i]) {
+                    // Block physical input ONLY during cursor move to prevent interference
+                    sp.ConsumePhysicalInput(true, 0); // 0 = must manually re-enable
+                    try {
+                        // Use cached rect from tracking if available (already obtained above), otherwise get fresh
+                        const tracked = trackedWindows.get(h.ToString());
+                        const rect = tracked ? tracked.cachedRect : win.Rectangle;
+                        // Only move cursor if window has valid size
+                        if (rect && rect.Width > 0 && rect.Height > 0) {
+                            const pos = cursorPositions[i];
+                            // pos.x and pos.y are percentages (0.0-1.0)
+                            const targetX = rect.Left + rect.Width * pos.x;
+                            const targetY = rect.Top + rect.Height * pos.y;
+                            sp.MouseMove(new Point(Math.round(targetX), Math.round(targetY)));
+                            // Small delay to ensure cursor move completed
+                            sp.Sleep(10);
+                            if (CONFIG.logs) { log_edge(`  • Cursor moved to LAST window position: ${targetX}, ${targetY} (${(pos.x * 100).toFixed(0)}%, ${(pos.y * 100).toFixed(0)}%)`, 'Perf'); }
+                        } else {
+                            if (CONFIG.logs) { log_edge(`  • Last window has invalid size, skipping cursor move`, 'Perf'); }
+                        }
+                    } catch(e) {
+                        CONFIG.logs && sp.ConsoleError('Error moving cursor to position: ' + e.message, 'Error');
+                    } finally {
+                        // Always unblock physical input after cursor move
+                        sp.ConsumePhysicalInput(false);}}}}}
+
+// Activate window immediately without flashing by simulating key press
+function forceActivate(win) {
+  //sp.SendVKey(vk.MENU); //alt  
+    sp.SendVKey(vk.F13);        
+    sp.Sleep(3);
+    win.Activate();}
+
+// function to add child window to tracking
+function addChildWindowToTracking(childHStr, childWin, groupId, mainProcessId, childWindowInfo) {
+    try {
+        if (!childWin || !childWin.Visible) {
+            return false; } // Window not visible
+        const childRect = childWin.Rectangle;
+        // Only add windows with valid size 
+        if (!childRect || childRect.Width <= 50 || childRect.Height <= 50) {
+            return false;  } // Window too small
+        // Don't add if already tracked
+        if (trackedWindows.has(childHStr)) {
+            return false;} // Already tracked
+        // Add to trackedWindows
+        trackedWindows.set(childHStr, {
+            window: childWin,
+            addedTime: sw.ElapsedMilliseconds,
+            groupId: groupId,
+            cursorWasInside: false,
+            consecutiveOutsideFrames: 0,
+            cachedRect: childRect,  // Cache rectangle from activation
+            lastRectUpdate: sw.ElapsedMilliseconds,
+            cachedVisible: true  });  // Cache visible state
+        // Update windowGroups cache size when new child window is added 
+        cachedWindowGroups.lastTrackedWindowsSize = trackedWindows.size;
+        // Mark this window as child window (store in persistent map)
+        if (!childWindowsByGroup.has(groupId)) {
+            childWindowsByGroup.set(groupId, new Set());}
+        childWindowsByGroup.get(groupId).add(childHStr);
+        if (CONFIG.logs) {
+            if (childWindowInfo && childWindowInfo.Title !== undefined) {
+                log_edge(`  • Child window added to tracking: ${childHStr}, PID: ${mainProcessId}, groupId: ${groupId}, size: ${childRect.Width}x${childRect.Height}, title: ${childWindowInfo.Title}`, 'Perf');
+            } else {
+                log_edge(`  • Restored and re-added child window to tracking: ${childHStr}, groupId: ${groupId}`, 'Perf');}}
+        return true; // Successfully added
+    } catch(e) {
+        // Ignore errors
+        return false;}}
+
+// Disabling the old handler when reloading the script
+let oldHandler = sp.GetStoredObject("mouseMoveEvent");
+if (oldHandler && oldHandler.GetType().FullName.includes('EventConnection')) {
+    oldHandler.disconnect();
+    sp.DeleteStoredObject("mouseMoveEvent");}
+// Initialization in the latest engine
+if(__spEngineWrapper.Engine.Name == sp.EngineList().Last().Engine.Name) {
+    if (CONFIG.logs) { log_edge('Initializing in last engine: ' + __spEngineWrapper.Engine.Name, 'Init'); }
+
+let lastMouseX = -1, lastMouseY = -1;
+const MIN_DELTA_PX = 5;
+// Cache for screen and display data to avoid repeated lookups
+let lastScreen = null;
+let lastScreenDeviceName = null;
+let lastDisplayData = null;
+let lastScreenBounds = null; 
+// Cache for window under cursor process ID (created only when useWindowFromPoint is enabled)
+let cachedWindowUnderCursor = null;
+
+var mouseMoveEvent = MouseHook.OnMouseHookMoveEventAsync.connect(
+function (sender, ev) {
+    try {
+        // 1) time throttling 
+        const now = sw.ElapsedMilliseconds;
+        if (now - lastFrameTs < FRAME_MS) return;
+        lastFrameTs = now;       
+        // 2) delta throttling (move earlier for early exit)
+        const x = ev.Location.X, y = ev.Location.Y;
+        if (Math.abs(x - lastMouseX) < MIN_DELTA_PX && Math.abs(y - lastMouseY) < MIN_DELTA_PX)
+            return;
+        lastMouseX = x; lastMouseY = y;        
+        // 3) early return: cursor not at edge
+        const mousePos = ev.Location;
+        // Use cached screen if mouse position hasn't changed significantly or get new one
+        let scr = lastScreen;
+        if (!scr || !lastScreenBounds || 
+            mousePos.X < lastScreenBounds.Left || mousePos.X >= lastScreenBounds.Right ||
+            mousePos.Y < lastScreenBounds.Top || mousePos.Y >= lastScreenBounds.Bottom) {
+            scr = Screen.FromPoint(mousePos);
+            if (!scr) return;
+            lastScreen = scr;
+            lastScreenBounds = scr.Bounds; // Cache bounds to avoid repeated property access
+            lastScreenDeviceName = scr.DeviceName;
+            lastDisplayData = getDisplayConfig(scr);}        
+        // Simple edge check
+        const edge = isAtScreenEdge(mousePos, scr.Bounds);
+        if (!edge.isLeft && !edge.isRight && !edge.isTop && !edge.isBottom) {
+            lastZoneKey = null; // Reset when leaving edge
+        } else {
+            // 4) config display 
+            const dispData = lastDisplayData || getDisplayConfig(scr);
+            if (!dispData) {
+                lastZoneKey = null;
+                return;}            
+            // 5) determine active zone
+            const zoneKey = getActiveZone(mousePos, scr, dispData, edge);
+            if (!zoneKey || zoneKey === lastZoneKey) {
+                lastZoneKey = zoneKey || null;
+                return;}
+            lastZoneKey = zoneKey;            
+            // Parse key → get side and idx
+            const [displayKey, side, idxStr] = zoneKey.split(':');
+            const idx = parseInt(idxStr, 10);           
+            activateArea(dispData.config[side].areas[idx]);           
+            if (CONFIG.logs) {sp.ConsoleLog(`Zone: ${displayKey} ${side}[${idx}]`, 'Zone', System.Drawing.Color.Olive);}
+            return; } // Exit early when zone activated    
+        // 6) Check tracked windows for auto-minimize (only when cursor NOT at edge)
+        if (trackedWindows.size > 0) {
+            const windowsToRemove = [];
+            // Track groups that had windows removed - skip auto-minimize for them this frame
+            const groupsWithRemovedWindows = new Set();            
+            // Cache windowGroups structure (rebuild only when trackedWindows changes)
+            const needsRebuild = !cachedWindowGroups.groups || cachedWindowGroups.lastTrackedWindowsSize !== trackedWindows.size;            
+            let windowGroups;
+            if (needsRebuild) {
+                // Rebuild windowGroups from scratch
+                if (CONFIG.logs) {log_edge(`  • [windowGroups REBUILD] trackedWindows.size=${trackedWindows.size}, cache.size=${cachedWindowGroups.lastTrackedWindowsSize || 0}`, 'Perf', System.Drawing.Color.Cyan);}
+                windowGroups = new Map(); // groupId -> array of {hStr, tracked, rect}
+                cachedWindowGroups.lastTrackedWindowsSize = trackedWindows.size;
+            } else {
+                // Use cached windowGroups
+                windowGroups = cachedWindowGroups.groups;}            
+            // Always clear maximized flags before checking windows
+            cachedWindowGroups.groupsWithMaximized.clear();            
+            // Build or update windowGroups
+            for (const [hStr, tracked] of trackedWindows) {
+                try {
+                    const win = tracked.window;
+                    // Quick validation checks first
+                    if (!win || tracked.cachedVisible === false) {
+                        windowsToRemove.push(hStr);
+                        // Track groupId for this removed window - skip auto-minimize for this group this frame
+                        if (tracked.groupId) {
+                            groupsWithRemovedWindows.add(tracked.groupId);
+                            // Window is CLOSED (not minimized) - remove from childWindowsByGroup
+                            const childSet = childWindowsByGroup.get(tracked.groupId);
+                            if (childSet) childSet.delete(hStr);
+                        }
+                        continue;}                   
+                    const groupId = tracked.groupId || 0;
+                    const hasUseWindowFromPoint = useWindowFromPointByGroup.get(groupId) === true;
+                    const timeSinceAdded = now - (tracked.addedTime || 0);
+                    if (timeSinceAdded < 100 && !hasUseWindowFromPoint) {
+                        continue; } // Skip check for first 100ms after activation (unless useWindowFromPoint is enabled)                
+                    // Cache rectangle to avoid repeated property access
+                    let rect = tracked.cachedRect;
+                    if (CONFIG.updateWindowRectCache) {
+                       // Periodic update enabled: check at configured interval if rectangle changed
+                        if (!rect || (now - (tracked.lastRectUpdate || 0)) > CONFIG.windowRectCacheUpdateInterval) {
+                            // Update cachedVisible at same interval as rect
+                            try {
+                                tracked.cachedVisible = win.Visible;
+                                if (!tracked.cachedVisible) {
+                                    windowsToRemove.push(hStr);
+                                    if (tracked.groupId) groupsWithRemovedWindows.add(tracked.groupId);
+                                    continue;}
+                            } catch(e) {
+                                windowsToRemove.push(hStr);
+                                if (tracked.groupId) groupsWithRemovedWindows.add(tracked.groupId);
+                                continue;}
+                            const newRect = win.Rectangle;
+                            // Only update if rectangle actually changed (position or size)
+                            if (!rect || 
+                                rect.Left !== newRect.Left || rect.Top !== newRect.Top ||
+                                rect.Width !== newRect.Width || rect.Height !== newRect.Height) {
+                                rect = newRect;
+                                tracked.cachedRect = rect;
+                                tracked.lastRectUpdate = now;
+                                // Update isMaximized ONLY when rectangle changes 
+                                const wasMaximized = tracked.isMaximized;
+                                try {
+                                    tracked.isMaximized = win.Maximized;
+                                } catch(e) {
+                                    tracked.isMaximized = false;}                                
+                                if (wasMaximized === true && tracked.isMaximized === false) {
+                                    tracked.cursorWasInside = false;
+                                    tracked.consecutiveOutsideFrames = 0;}                                
+                                if (CONFIG.logs) {log_edge(`  • [Cache UPDATE] Window rectangle changed for ${hStr} (L:${rect.Left} T:${rect.Top} W:${rect.Width} H:${rect.Height}, max:${tracked.isMaximized})`, 'Perf', System.Drawing.Color.Orange);}
+                            } else {
+                                tracked.lastRectUpdate = now;}}
+                    } else {
+                        if (!rect) {
+                            rect = win.Rectangle;
+                            tracked.cachedRect = rect;
+                            // Also check maximized when initializing rect
+                            try {
+                                tracked.isMaximized = win.Maximized;
+                            } catch(e) {tracked.isMaximized = false;}
+                            if (CONFIG.logs) {log_edge(`  • [Cache INIT] Window rectangle cached (update disabled) for ${hStr}`, 'Perf', System.Drawing.Color.Orange);}}}                    
+                    // Validate rectangle and pre-compute bounds
+                    if (!rect || rect.Width <= 0 || rect.Height <= 0) {
+                        continue;}// Skip invalid rectangles
+                    // Check cached isMaximized - if true, mark entire group as having maximized window
+                    if (tracked.isMaximized === true) {
+                        // Mark this group as having a maximized window (skip auto-minimize for entire group)
+                        cachedWindowGroups.groupsWithMaximized.set(groupId, true); continue;}                    
+                    // Skip this window if its group already has a maximized window. This ensures entire group is excluded from auto-minimize when any window is maximized
+                    if (cachedWindowGroups.groupsWithMaximized.get(groupId) === true) {continue;}                    
+                    // Pre-compute bounds as simple numbers
+                    const rectLeft = rect.Left;
+                    const rectRight = rect.Right;
+                    const rectTop = rect.Top;
+                    const rectBottom = rect.Bottom;                    
+                    // Build or update windowGroups based on needsRebuild 
+                    if (needsRebuild) {
+                        // Full rebuild: create new structure
+                        if (!windowGroups.has(groupId)) {
+                            windowGroups.set(groupId, []);}
+                        windowGroups.get(groupId).push({ hStr, tracked, rect, win, rectLeft, rectRight, rectTop, rectBottom });
+                    } else {
+                        // Update existing: find window in cache and update rect coordinates
+                        const group = windowGroups.get(groupId);
+                        if (group) {
+                     let found = false;
+                      for (let i = 0; i < group.length; i++) {
+                       if (group[i].hStr === hStr) {group[i].rect = rect;group[i].rectLeft = rectLeft;group[i].rectRight = rectRight;group[i].rectTop = rectTop;group[i].rectBottom = rectBottom;
+                                    found = true;break;}}
+                            // New window in existing group - add it
+                            if (!found) {
+                                group.push({ hStr, tracked, rect, win, rectLeft, rectRight, rectTop, rectBottom });}
+                        } else {
+                            // New group - create it
+                            windowGroups.set(groupId, [{ hStr, tracked, rect, win, rectLeft, rectRight, rectTop, rectBottom }]);}}
+                } catch(e) {
+                    // Window might be closed or invalid, remove from tracking
+                    windowsToRemove.push(hStr);
+                    // Track groupId for this removed window - skip auto-minimize for this group this frame
+                    if (tracked.groupId) {
+                        groupsWithRemovedWindows.add(tracked.groupId);
+                        // Window is CLOSED - remove from childWindowsByGroup 
+                        const childSet = childWindowsByGroup.get(tracked.groupId);
+                        if (childSet) childSet.delete(hStr);
+                    }
+                    if (CONFIG.logs) { log_edge(`  • Removing invalid window from tracking: ${hStr}`, 'Perf'); }}}           
+            // Remove windows from cache that are no longer in trackedWindows            
+            if (windowsToRemove.length > 0) {
+                for (const [groupId, windowsInGroup] of windowGroups) {
+                    for (let i = windowsInGroup.length - 1; i >= 0; i--) {
+                        if (!trackedWindows.has(windowsInGroup[i].hStr)) {
+                            windowsInGroup.splice(i, 1);}}
+                    // Remove empty groups
+                    if (windowsInGroup.length === 0) {
+                        windowGroups.delete(groupId);}}                
+                // When a window is removed from a group (e.g., child window closed),
+                // reset tracking state for remaining windows in that group . This prevents immediate auto-minimize when cursor is outside after closing child window
+                if (groupsWithRemovedWindows.size > 0) {
+                    for (const [hStr, tracked] of trackedWindows) {
+                        if (groupsWithRemovedWindows.has(tracked.groupId)) {
+                            tracked.cursorWasInside = false;
+                            tracked.consecutiveOutsideFrames = 0;}}}}            
+            // Save to cache (after incremental updates or full rebuild)
+            if (needsRebuild) {
+                if (CONFIG.logs) {
+                    let totalWindows = 0;
+                    for (const arr of windowGroups.values()) { totalWindows += arr.length; }
+                    log_edge(`  • [windowGroups BUILT] ${windowGroups.size} group(s) with ${totalWindows} total window(s)`, 'Perf', System.Drawing.Color.Cyan);}}
+            cachedWindowGroups.groups = windowGroups;            
+            // Remove groups that have maximized windows
+            // This handles case: window A added to group, then window B (maximized) detected - need to remove window A too
+            for (const groupId of cachedWindowGroups.groupsWithMaximized.keys()) {
+                if (windowGroups.has(groupId)) {
+                    windowGroups.delete(groupId);
+                    if (CONFIG.logs) {log_edge(`  • [windowGroups] Removed group ${groupId} (has maximized window)`, 'Perf', System.Drawing.Color.Yellow);}}}            
+            // Early exit: if windowGroups is empty (all windows are maximized), skip all cursor checking
+            if (!windowGroups || windowGroups.size === 0) {
+                return;}          
+            // Check cursor position against all windows (single pass)
+            const mx = mousePos.X, my = mousePos.Y;            
+            // Check if any group uses WindowFromPoint FIRST
+            let anyGroupUsesWindowFromPoint = false;
+            if (CONFIG.checkChildWindows) {
+                for (const [groupId] of windowGroups) {
+                    if (useWindowFromPointByGroup.get(groupId) === true) {
+                        anyGroupUsesWindowFromPoint = true;
+                        break;}}}            
+            // Build cursor position map for all groups in single pass. Map: groupId -> { cursorInGroup, cursorInWindowIndex }
+            const cursorInGroupMap = new Map();
+            for (const [groupId, windowsInGroup] of windowGroups) {
+                for (let idx = 0; idx < windowsInGroup.length; idx++) {
+                    const {rectLeft, rectRight, rectTop, rectBottom} = windowsInGroup[idx];
+                    if (mx >= rectLeft && mx <= rectRight && my >= rectTop && my <= rectBottom) {
+                        cursorInGroupMap.set(groupId, { inGroup: true, windowIndex: idx, wasChildWindow: false });
+                        break;}}}            
+            // Check if cursor is in ANY main window
+            const cursorInAnyMainWindow = cursorInGroupMap.size > 0;            
+            let windowUnderCursorProcessId = null;
+            if (!cursorInAnyMainWindow && anyGroupUsesWindowFromPoint) {
+                // Initialize cache only when needed
+                if (!cachedWindowUnderCursor) {
+                    cachedWindowUnderCursor = { 
+                        processId: null, 
+                        lastUpdate: 0, 
+                        lastMouseX: -1, 
+                        lastMouseY: -1, 
+                        updateInterval: CONFIG.childWindowCheckInterval };}
+     // Get window under cursor process ID (cached, update every updateInterval ms OR on very large movement)
+     const timeSinceLastUpdate = now - cachedWindowUnderCursor.lastUpdate;
+     const veryLargeMouseMoved = Math.abs(mx - cachedWindowUnderCursor.lastMouseX) > CONFIG.childWindowLargeMovementPx || Math.abs(my - cachedWindowUnderCursor.lastMouseY) > CONFIG.childWindowLargeMovementPx;                
+            if (timeSinceLastUpdate > cachedWindowUnderCursor.updateInterval || veryLargeMouseMoved) {
+                 try {
+                     const windowUnderCursor = sp.WindowFromPoint(mousePos, false);
+                     if (windowUnderCursor) {
+                            windowUnderCursorProcessId = windowUnderCursor.Process.Id;
+                            cachedWindowUnderCursor.processId = windowUnderCursorProcessId;
+                        } else {
+                            cachedWindowUnderCursor.processId = null;}
+                    } catch(e) {cachedWindowUnderCursor.processId = null;}
+                    cachedWindowUnderCursor.lastUpdate = now;
+                    cachedWindowUnderCursor.lastMouseX = mx;
+                    cachedWindowUnderCursor.lastMouseY = my;
+                } else {
+                    windowUnderCursorProcessId = cachedWindowUnderCursor.processId;}                
+                // If cursor is in child window, add to cursorInGroupMap
+                if (windowUnderCursorProcessId !== null) {
+                    for (const [groupId, windowsInGroup] of windowGroups) {
+                        if (cursorInGroupMap.has(groupId)) continue; // Already found in main window                        
+                        for (let idx = 0; idx < windowsInGroup.length; idx++) {
+                            const {win, tracked} = windowsInGroup[idx];
+                            try {
+                                const trackedProcessId = win.Process.Id;
+                                if (trackedProcessId === windowUnderCursorProcessId) {
+                                    cursorInGroupMap.set(groupId, { inGroup: true, windowIndex: idx, wasChildWindow: true });
+                                    if (!tracked.cursorWasInside && CONFIG.logs) {
+                                log_edge(`  • Cursor entered CHILD window of tracked process (PID: ${trackedProcessId}) for group ${groupId}`, 'Perf', System.Drawing.Color.DeepSkyBlue);}break;}
+                            } catch(e) {}}}}}            
+            for (const [groupId, windowsInGroup] of windowGroups) {
+                // Skip auto-minimize for groups that had windows removed this frame
+                if (groupsWithRemovedWindows.has(groupId)) {continue;}                
+                // Get cursor state from pre-computed map
+                const cursorState = cursorInGroupMap.get(groupId);
+                const cursorInGroup = cursorState ? cursorState.inGroup : false;
+                const cursorInWindowIndex = cursorState ? cursorState.windowIndex : -1;
+                const wasChildWindow = cursorState ? cursorState.wasChildWindow : false;                
+                // Update cursorWasInside flag for windows in group
+                if (cursorInGroup && cursorInWindowIndex >= 0) {
+                    // Check if cursor was already inside ANY window in this group 
+                    const anyWasInsideBefore = windowsInGroup.some(w => w.tracked.cursorWasInside);
+                    // Mark that cursor was inside this window
+                    const {tracked} = windowsInGroup[cursorInWindowIndex];
+                    if (!tracked.cursorWasInside) {
+                        tracked.cursorWasInside = true;
+                        if (!anyWasInsideBefore && !wasChildWindow && CONFIG.logs) {
+                            log_edge(`  • Cursor entered tracked window group: ${groupId}`, 'Perf', System.Drawing.Color.LimeGreen);}}
+                    // Reset counter for all windows in group
+                    for (const {tracked} of windowsInGroup) {
+                        tracked.consecutiveOutsideFrames = 0;
+                    }} else {
+                    // Cursor is outside all windows in group
+                    // Only minimize if cursor was inside at least once AND cursor outside for 3+ frames (to prevent false triggers on fast movement)
+                    let shouldMinimize = false;
+                    let anyWasInside = false;                   
+                    for (const {tracked} of windowsInGroup) {
+                        if (tracked.cursorWasInside) {
+                            anyWasInside = true;
+                            tracked.consecutiveOutsideFrames = (tracked.consecutiveOutsideFrames || 0) + 1;
+                            // Require 3 consecutive frames outside before minimizing (prevents false triggers)
+                            if (tracked.consecutiveOutsideFrames >= CONFIG.autoMinimizeFrames) {
+                                shouldMinimize = true; }}}
+                    if (shouldMinimize && anyWasInside) {
+                        for (const {hStr, win, tracked} of windowsInGroup) {
+                            // Reset state when minimizing
+                            tracked.cursorWasInside = false;
+                            tracked.consecutiveOutsideFrames = 0;
+                            win.Minimize();
+                            windowsToRemove.push(hStr);
+                            if (CONFIG.logs) { log_edge(`  • Auto-minimized window (cursor left group ${groupId}): ${hStr}`, 'Perf'); }}}}}
+            // Remove minimized/invalid windows from tracking
+            // NOTE: We do NOT remove from childWindowsByGroup here - we keep the reference. so that child windows can be restored on next activation
+            const beforeSize = trackedWindows.size;
+            for (const hStr of windowsToRemove) {
+                trackedWindows.delete(hStr);}
+            // Invalidate cache when windows are removed
+            if (windowsToRemove.length > 0 && trackedWindows.size !== beforeSize) {
+                cachedWindowGroups.groups = null;
+                cachedWindowGroups.lastTrackedWindowsSize = trackedWindows.size;
+                if (CONFIG.logs) {
+                    log_edge(`  • [windowGroups INVALIDATED] ${windowsToRemove.length} window(s) removed`, 'Perf', System.Drawing.Color.Cyan);} 
+                // Check all groups in useWindowFromPointByGroup and remove if no windows are tracked
+                for (const [groupId] of useWindowFromPointByGroup) {
+                    let hasTrackedWindows = false;
+                    for (const [hStr, tracked] of trackedWindows) {
+                        if (tracked.groupId === groupId) {
+                            hasTrackedWindows = true;
+                            break;}}
+                    if (!hasTrackedWindows) {
+                        useWindowFromPointByGroup.delete(groupId);
+//                        if (CONFIG.logs) {log_edge(`  • useWindowFromPoint disabled for groupId: ${groupId} (no tracked windows)`, 'Perf', System.Drawing.Color.Orange);}
+}}}}} 
+             catch (ex) {
+        CONFIG.logs && sp.ConsoleError('Mouse handler error: ' + ex.message, 'Error');}});
+sp.StoreObject("mouseMoveEvent", mouseMoveEvent);
+    if (CONFIG.logs) { log_edge('Mouse handler initialized', 'Init'); }
+} else {
+    if (CONFIG.logs) { log_edge('Skipping initialization in non-last engine: ' + __spEngineWrapper.Engine.Name, 'Init'); }}
