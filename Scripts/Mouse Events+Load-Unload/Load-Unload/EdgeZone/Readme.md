@@ -6,18 +6,19 @@
 https://github.com/user-attachments/assets/dad460c5-b9ac-4a42-ab47-1062adc03c96
 
 
+<details> <summary>changelog</summary>
+<h6>v3</h6> 
++window auto-hide<br> 
++mouse cursor positioning<br>
+<h6>v2.1</h6>  
+Activate window immediately without flashing by simulating an Alt key press<br> 
+<h6>v2</h6>  
++Now finds all visible windows (using plugin instead of sp.AllApplications)<br>  
++improved performance<br> 
++separate simple window autohide script
+</details>
 
-#### v3
-> +window auto-hide  
-> +mouse cursor positioning
 
-#### v2.1
-> Activate window immediately without flashing by simulating an Alt key press
-
-#### v2
-> +Now finds all visible windows (using plugin instead of sp.AllApplications)  
-> +improved performance  
-> +separate simple window autohide script
 ---
 
 for Hot Keys
