@@ -1,0 +1,164 @@
+//v1.1 – Added "Mark as Cropped / Unmark Cropped" via Ctrl+Click
+
+var enableTopMost_crop = true;  // true - window stays on top when cropped, false - normal behavior
+
+var MIN_WINDOW_SIZE_CROP = 50; // minimum window size (width and height) in pixels
+var MIN_CROP_SIZE = 50;        // minimum cutout region size (width/height) in pixels
+var STYLE_REFRESH_DELAY = 50;  // delay in milliseconds after window style changes
+var REGION_APPLY_DELAY_CROP = 10;  // delay in milliseconds after applying cutout region
+
+var GWL_STYLE = -16;
+var WS_REMOVE_MASK = 0x00FC0000; // WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME
+
+var IntPtrT = host.typeOf(clr.System.IntPtr);
+var Int32T = host.typeOf(clr.System.Int32);
+var BooleanT = host.typeOf(clr.System.Boolean);
+
+var actionWindow = action.Window;
+if (actionWindow && actionWindow.IsValid() && !actionWindow.Minimized && actionWindow.Visible) {
+    if (actionWindow.Region != null) {
+        removeWindowCrop(actionWindow);
+    } else {
+        var windowRect = actionWindow.Rectangle;
+        var bounds = action.Bounds;
+        var cropRect = clipRectToBounds(
+            { X: bounds.X - windowRect.X, Y: bounds.Y - windowRect.Y, Width: bounds.Width, Height: bounds.Height },
+            { Width: windowRect.Width, Height: windowRect.Height }
+        );
+        if (cropRect.Width >= MIN_CROP_SIZE && cropRect.Height >= MIN_CROP_SIZE) {
+            cropWindowToArea(actionWindow, cropRect.X, cropRect.Y, cropRect.Width, cropRect.Height);
+        }
+    }
+}
+if (!NativeModules.WinRegionAPI) {
+    var winRegionTB = sp.NativeModule().DefineType("WinRegionAPI", "Class,Public,SequentialLayout,Serializable");
+    winRegionTB.DefinePInvokeMethod("SetWindowRgn", "user32.dll", [IntPtrT, IntPtrT, BooleanT], Int32T, "PreserveSig");
+    winRegionTB.DefinePInvokeMethod("DeleteObject", "gdi32.dll", [IntPtrT], BooleanT, "PreserveSig");
+    winRegionTB.Create();
+}
+if (!NativeModules.User32) {
+    var user32TB = sp.NativeModule().DefineType("User32", "Class,Public,SequentialLayout,Serializable");
+    user32TB.DefinePInvokeMethod("GetWindowLong", "user32.dll", [IntPtrT, Int32T], Int32T, "PreserveSig");
+    user32TB.DefinePInvokeMethod("SetWindowLong", "user32.dll", [IntPtrT, Int32T, Int32T], Int32T, "PreserveSig");
+    user32TB.Create();
+}
+
+function clipRectToBounds(rect, bounds) {
+    if (rect.X < 0) { rect.Width += rect.X; rect.X = 0; }
+    if (rect.Y < 0) { rect.Height += rect.Y; rect.Y = 0; }
+    if (rect.X + rect.Width > bounds.Width) { rect.Width = bounds.Width - rect.X; }
+    if (rect.Y + rect.Height > bounds.Height) { rect.Height = bounds.Height - rect.Y; }
+    // Checking for negative dimensions after trimming
+    if (rect.Width < 0) rect.Width = 0;
+    if (rect.Height < 0) rect.Height = 0;
+    return rect;
+}
+
+function refreshWindowStyle(window) {
+    var tempRect = window.Rectangle;
+    window.Rectangle = new System.Drawing.Rectangle(tempRect.X, tempRect.Y, tempRect.Width + 1, tempRect.Height);
+    sp.Sleep(STYLE_REFRESH_DELAY);
+    window.Rectangle = tempRect;
+    window.Refresh();
+    sp.Sleep(STYLE_REFRESH_DELAY);
+}
+
+function cropWindowToArea(window, cropX, cropY, cropWidth, cropHeight) {
+    try {
+        if (!window || !window.IsValid() || !NativeModules.User32) {
+            return false;
+        }        
+        var rect = window.Rectangle;
+        if (rect.Width < MIN_WINDOW_SIZE_CROP || rect.Height < MIN_WINDOW_SIZE_CROP || cropWidth < MIN_CROP_SIZE || cropHeight < MIN_CROP_SIZE) {
+            return false;
+        }        
+        var hWnd = window.HWnd;
+        var hWndStr = hWnd.ToInt64().toString();
+        
+        // Saving the original state of the window BEFORE any changes
+        var originalStyle = NativeModules.User32.GetWindowLong(hWnd, GWL_STYLE);
+        var originalSize = window.Size;
+        
+        sp.StoreBool('windowWasTopMost_' + hWndStr, window.TopMost);
+        sp.StorePoint('windowOriginalLocation_' + hWndStr, window.Location);
+        sp.StorePoint('windowOriginalSize_' + hWndStr, new Point(originalSize.Width, originalSize.Height));
+        sp.StoreBool('windowWasMaximized_' + hWndStr, window.Maximized);
+        sp.StoreNumber('windowOriginalStyle_' + hWndStr, originalStyle);
+         
+        // Removing the window title and frames
+        NativeModules.User32.SetWindowLong(hWnd, GWL_STYLE, originalStyle & ~WS_REMOVE_MASK);
+        refreshWindowStyle(window);
+        
+        // Apply the region - leaving only the gesture area
+        window.Region = new System.Drawing.Region(new System.Drawing.Rectangle(cropX, cropY, cropWidth, cropHeight));
+        sp.Sleep(REGION_APPLY_DELAY_CROP);
+        
+        // Checking the success of the application
+        if (window.Region == null) {         
+            return false;
+        }  
+        //  MARK AS CROPPED
+        sp.StoreBool('windowIsCropped_' + hWndStr, true);      
+        // TopMost if enabled
+        if (enableTopMost_crop) {
+            window.TopMost = true;
+        }       
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function removeWindowCrop(window) {
+    if (!window || !window.IsValid() || !NativeModules.WinRegionAPI) {
+        return false;
+    }   
+    try {
+        var hWnd = window.HWnd;
+        var hWndStr = hWnd.ToInt64().toString();
+        var wasTopMost = sp.GetStoredBool('windowWasTopMost_' + hWndStr);
+        var wasMaximized = sp.GetStoredBool('windowWasMaximized_' + hWndStr);
+        var originalLocation = sp.GetStoredPoint('windowOriginalLocation_' + hWndStr);
+        var originalSize = sp.GetStoredPoint('windowOriginalSize_' + hWndStr);
+        var originalStyle = sp.GetStoredNumber('windowOriginalStyle_' + hWndStr);
+        
+        try {
+            NativeModules.WinRegionAPI.SetWindowRgn(hWnd, clr.System.IntPtr.Zero, true);
+            sp.Sleep(STYLE_REFRESH_DELAY * 2);
+        } catch (e) {
+            window.Region = null;
+        }        
+        // Restoring the original window style (title and frames)
+        if (originalStyle != null && NativeModules.User32) {
+            NativeModules.User32.SetWindowLong(hWnd, GWL_STYLE, originalStyle);
+            refreshWindowStyle(window);
+        }        
+        // Restoring the position and size of the window
+        if (originalLocation != null && originalSize != null) {
+            window.Location = originalLocation;
+            window.Size = new System.Drawing.Size(originalSize.X, originalSize.Y);
+            sp.Sleep(STYLE_REFRESH_DELAY);
+            if (wasMaximized) {
+                window.Maximize();
+                sp.Sleep(STYLE_REFRESH_DELAY);
+            }
+        }        
+        // Clearing saved settings
+        sp.DeleteStoredBool('windowWasTopMost_' + hWndStr);
+        sp.DeleteStoredBool('windowWasMaximized_' + hWndStr);
+        sp.DeleteStoredPoint('windowOriginalLocation_' + hWndStr);
+        sp.DeleteStoredPoint('windowOriginalSize_' + hWndStr);
+        sp.DeleteStoredNumber('windowOriginalStyle_' + hWndStr);
+        // UNMARK CROPPED
+        sp.DeleteStoredBool('windowIsCropped_' + hWndStr);
+        
+        // Restoring TopMost to its original state
+        if (wasTopMost != null) {
+            window.TopMost = wasTopMost;
+        }        
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
