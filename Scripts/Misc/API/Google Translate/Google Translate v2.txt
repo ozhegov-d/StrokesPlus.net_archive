@@ -1,0 +1,247 @@
+// Global HTTP client
+if (typeof __translateHttpClient === "undefined") {
+  var handler = new HttpClientHandler();
+  handler.AutomaticDecompression = host.flags(
+    System.Net.DecompressionMethods.GZip,
+    System.Net.DecompressionMethods.Deflate
+  );
+  __translateHttpClient = new HttpClient(handler);
+
+  // Timeout for the request (so that the script does not hang)
+  try { __translateHttpClient.Timeout = clr.System.TimeSpan.FromSeconds(5); } catch(e) {}
+
+  // reduces the lag on the first real translation
+  __translateWarmed = false;
+}
+
+// reduces the lag on the first real translation
+if (!__translateWarmed) {
+  __translateWarmed = true;
+  try {
+    // easy request (may fall - doesn’t matter)
+    __translateHttpClient.GetAsync("https://translate.googleapis.com").Wait();
+  } catch(e) {}
+}
+
+(function(){
+  // === Settings ===
+  var copyPosition = 'down';
+  var enableCopy   = true;
+  var enableSwap   = true;
+
+  // --- New toggles ---
+  var ESC_ON_SAME_CLIP = true; // Esc, if the cliboard has not changed (or is empty)
+  var CLIP_WAIT_MS     = 150; // delay after Ctrl+C
+
+  // === Define Max Text Length ===
+  // Maximum text size that will be translated (anything higher then esc)
+  var maxTextLength = 2500; 
+
+  // --- Copy selected text with ESC fallback ---
+  var _prevClip = "";
+  try { _prevClip = clip.GetText() || ""; } catch(_) { _prevClip = ""; }
+
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+
+  var _newClip = "";
+  var _trimmed = "";
+  var maxWait  = CLIP_WAIT_MS;
+  var step     = 10;
+
+  for (var t = 0; t < maxWait; t += step) {
+    sp.Sleep(step);
+    try { _newClip = clip.GetText() || ""; } catch(_) { _newClip = ""; }
+    _trimmed = _newClip.trim();
+    if (_trimmed && _newClip !== _prevClip) break;
+  }
+
+  // Empty
+  if (!_trimmed) {
+    if (ESC_ON_SAME_CLIP) sp.SendVKey(vk.ESCAPE);
+    return;
+  }
+
+  // Hasn't changed
+  if (_newClip === _prevClip) {
+    if (ESC_ON_SAME_CLIP) {
+      sp.SendVKey(vk.ESCAPE);
+      return;
+    }
+  }
+  if (_trimmed.length > maxTextLength) {
+    try { clip.SetText(_prevClip); } catch(e) {} // Let's restore the old clipboard
+    if (ESC_ON_SAME_CLIP) sp.SendVKey(vk.ESCAPE);
+    return;
+  }
+  var src = _trimmed;
+
+// for example
+//  var hasRu = /[А-Яа-яЁё]/.test(src);      // detect Cyrillic
+//  var sl    = hasRu ? 'ru'   : 'auto';   // source: 'ru' if Russian detected, otherwise auto-detect
+//  var tl    = hasRu ? 'en'   : 'ru';     // target: 'en' when Russian, otherwise 'ru'
+
+  var sl = 'auto';
+  var tl = 'en';
+
+  // Translate API
+  var url = "https://translate.googleapis.com/translate_a/single"
+          + "?client=gtx&sl=" + sl
+          + "&tl=" + tl
+          + "&dt=t&q=" + encodeURIComponent(src);
+
+  // === Net: timeout + retry + early return ===
+  var raw = "";
+  try {
+    raw = __translateHttpClient.GetAsync(url).Result
+              .Content.ReadAsStringAsync().Result;
+  } catch(e1) {
+    sp.Sleep(150);
+    try {
+      raw = __translateHttpClient.GetAsync(url).Result
+                .Content.ReadAsStringAsync().Result;
+    } catch(e2) {
+      return;
+    }
+  }
+
+  var tr = "";
+  try {
+    tr = JSON.parse(raw)[0].map(function(p){ return p[0]; }).join("");
+  } catch(eParse) {
+    return;
+  }
+
+  var trTrim = (tr || "").trim();
+  if (!trTrim) {
+    return;
+  }
+  var rawText = tr;
+
+function wrapFast(txt, len) {
+    txt = (txt || "").trim();
+    if (!txt) return "";
+    if (txt.length <= len) return txt;
+
+    var res = [];
+    var i = 0;
+
+    while (i < txt.length) {
+      var j = i + len;
+      if (j >= txt.length) { res.push(txt.substring(i)); break; }
+
+      var k = txt.lastIndexOf(" ", j);
+      if (k <= i) k = j;
+
+      res.push(txt.substring(i, k).trim());
+      i = k + 1;
+    }
+    return res.join("\n");
+  }
+
+  var wrapLen = Math.round(20 + 40 * Math.min(1, tr.length / 200));
+  var body    = wrapFast(tr, wrapLen);
+
+  if (!body.trim()) return; // extra safety
+
+  var Forms   = clr.System.Windows.Forms;
+  var Drawing = clr.System.Drawing;
+
+  var f = new Forms.Form();
+  f.FormBorderStyle = Forms.FormBorderStyle.None;
+  f.BackColor       = Drawing.Color.Black;
+  f.Opacity         = 0.85;
+  f.TopMost         = true;
+  f.ShowInTaskbar   = false;
+  f.AutoSize        = true;
+  f.AutoSizeMode    = Forms.AutoSizeMode.GrowAndShrink;
+  f.Padding         = new Forms.Padding(10);
+
+  var lbl = new Forms.Label();
+  lbl.AutoSize     = true;
+  lbl.Text         = body;
+  lbl.ForeColor    = Drawing.Color.White;
+  lbl.Font         = new Drawing.Font("Segoe UI Semibold", 12);
+  f.Controls.Add(lbl);
+
+  if (enableCopy) {
+    var btnCopy = new Forms.Button();
+    btnCopy.Text      = "Copy";
+    btnCopy.AutoSize  = true;
+    btnCopy.FlatStyle = Forms.FlatStyle.Flat;
+    btnCopy.BackColor = Drawing.Color.White;
+    btnCopy.ForeColor = Drawing.Color.Black;
+    f.Controls.Add(btnCopy);
+    btnCopy.Click.connect(function(){
+    clip.SetText(rawText); 
+    f.Close();
+  });
+  }
+
+  if (enableSwap) {
+    var btnSwap = new Forms.Button();
+    btnSwap.Text      = "Swap";
+    btnSwap.AutoSize  = true;
+    btnSwap.FlatStyle = Forms.FlatStyle.Flat;
+    btnSwap.BackColor = Drawing.Color.White;
+    btnSwap.ForeColor = Drawing.Color.Black;
+    f.Controls.Add(btnSwap);
+    btnSwap.Click.connect(function(){
+      f.Hide();
+      clip.SetText(rawText);
+      sp.Sleep(30);
+      sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]);
+      f.Close();
+    });
+  }
+
+  var pad = f.Padding.All;
+  var y   = pad;
+  if (copyPosition === 'up') {
+    var x = pad;
+    if (enableCopy) { btnCopy.Location = new Drawing.Point(x, y); x += btnCopy.PreferredSize.Width + 5; }
+    if (enableSwap) { btnSwap.Location = new Drawing.Point(x, y); }
+    y += Math.max(
+      enableCopy ? btnCopy.PreferredSize.Height : 0,
+      enableSwap ? btnSwap.PreferredSize.Height : 0
+    ) + 5;
+    lbl.Location = new Drawing.Point(pad, y);
+  } else {
+    lbl.Location = new Drawing.Point(pad, y);
+    y += lbl.PreferredSize.Height + 5;
+    var x2 = pad;
+    if (enableCopy) { btnCopy.Location = new Drawing.Point(x2, y); x2 += btnCopy.PreferredSize.Width + 5; }
+    if (enableSwap) { btnSwap.Location = new Drawing.Point(x2, y); }
+  }
+
+  var dragging = false, sx = 0, sy = 0;
+  function md(s,e){ if(e.Button===Forms.MouseButtons.Left){ dragging=true; sx=e.X; sy=e.Y; } }
+  function mm(s,e){ if(dragging){ var p=f.Location; f.Location=new Drawing.Point(p.X+e.X-sx, p.Y+e.Y-sy); } }
+  function mu(s,e){ if(e.Button===Forms.MouseButtons.Left) dragging=false; }
+
+  var ctrls = [f,lbl];
+  if (enableCopy) ctrls.push(btnCopy);
+  if (enableSwap) ctrls.push(btnSwap);
+  ctrls.forEach(function(c){
+    c.MouseDown.connect(md);
+    c.MouseMove.connect(mm);
+    c.MouseUp.connect(mu);
+    c.DoubleClick.connect(function(){ f.Close(); });
+  });
+
+  f.KeyPreview = true;
+  f.KeyDown.connect(function(s,e){ if(e.KeyCode===Forms.Keys.Escape) f.Close(); });
+  f.Deactivate.connect(function(){ f.Close(); });
+
+  f.Shown.connect(function(){
+    f.BringToFront(); f.Activate();
+    try{ sp.WindowFromHandle(f.Handle).Activate(); }catch(e){}
+  });
+
+  var pt = sp.GetCurrentMousePoint();
+  f.StartPosition = Forms.FormStartPosition.Manual;
+
+  var offsetY = wrapLen < 30 ? -40 : -150;
+  f.Location = new Drawing.Point(pt.X + 20, pt.Y + offsetY);
+
+  f.ShowDialog();
+})();
