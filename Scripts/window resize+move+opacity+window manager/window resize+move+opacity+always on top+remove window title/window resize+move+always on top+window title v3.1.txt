@@ -1,0 +1,184 @@
+//v3.1 + if (!window.Maximized || isCroppedWindow(window)) {
+
+var enableScript = true;  // true/false enable or disable the entire script 
+var enableTitlebarToggle = true; // window title  (ctrl+alt+click)  
+var enableAlwaysOnTop = true;    // always on top (ctrl+shift+click)  
+var enableWindowMove = true;     // move window   (ctrl+click)  
+var enableWindowResize = true;   // resize window (alt+click)  
+var resizeMinChange = 2; // Minimum pixel change to update size
+
+var GWL_STYLE = -16;
+var WS_CAPTION = 0x00C00000;
+var WS_SYSMENU = 0x00080000;
+
+if(!NativeModules.User32) {
+    var IntPtrT = host.typeOf(clr.System.IntPtr);
+    var Int32T = host.typeOf(clr.System.Int32);
+    var user32TB = sp.NativeModule().DefineType("User32", "Class,Public,SequentialLayout,Serializable");
+    user32TB.DefinePInvokeMethod("GetWindowLong", "user32.dll", [IntPtrT, Int32T], Int32T, "PreserveSig");
+    user32TB.DefinePInvokeMethod("SetWindowLong", "user32.dll", [IntPtrT, Int32T, Int32T], Int32T, "PreserveSig");
+    user32TB.Create();
+}
+
+function getWindowAtCursor() {
+    return sp.WindowFromPoint(sp.GetCurrentMousePoint(), true);
+}
+
+function isCroppedWindow(window) {
+    try {
+        if (!window || !window.IsValid()) return false;
+        var hWndStr = window.HWnd.ToInt64().toString();
+        return sp.GetStoredBool('windowIsCropped_' + hWndStr) === true;
+    } catch(e) {
+        return false;
+    }
+}
+
+function updateWindowStyle(window) {
+    var currentRect = window.Rectangle;
+    window.Rectangle = new System.Drawing.Rectangle(currentRect.X, currentRect.Y, currentRect.Width + 1, currentRect.Height);
+    sp.Sleep(10);
+    window.Rectangle = currentRect;
+    window.Refresh();
+}
+
+function clearMoveWindowState() {
+    sp.DeleteStoredHandle("MoveWindowHandle");
+    sp.DeleteStoredBool("MoveWindowActive");
+    sp.DeleteStoredBool("MoveWindowWasMaximized");
+    sp.DeleteTimer("MoveWindow");
+    sp.DeleteStoredPoint("MoveWindowMouseStart");
+    sp.DeleteStoredPoint("MoveWindowStart");
+}
+
+function clearResizeWindowState() {
+    sp.DeleteStoredPoint("ResizeLastCursorPos");
+    sp.DeleteStoredObject("ResizeStartRegion");
+    sp.DeleteStoredObject("ResizeWindow");
+    sp.DeleteStoredBool("ResizeWindowActive");
+    sp.DeleteTimer("ResizeWindowTimer");
+}
+
+if (enableScript && click && click.Down) {
+    var ctrlDown = (sp.GetKeyState(vk.LCONTROL) & 0x8000) !== 0;
+    var altDown = (sp.GetKeyState(vk.LMENU) & 0x8000) !== 0;
+    var shiftDown = (sp.GetKeyState(vk.LSHIFT) & 0x8000) !== 0;
+    var window = getWindowAtCursor();
+    
+    if (!window) {
+        // Window not found - do nothing
+    } else if (enableTitlebarToggle && ctrlDown && altDown) {
+        // Ctrl + Alt - switch title
+        var style = NativeModules.User32.GetWindowLong(window.HWnd, GWL_STYLE);
+        style = (style & WS_CAPTION) ? style & ~(WS_CAPTION | WS_SYSMENU) : style | (WS_CAPTION | WS_SYSMENU);
+        NativeModules.User32.SetWindowLong(window.HWnd, GWL_STYLE, style);
+        updateWindowStyle(window);
+    } else if (enableAlwaysOnTop && ctrlDown && shiftDown) {
+        // Ctrl + Shift - switching "on top of all"
+        window.TopMost = !window.TopMost;
+        sp.MessageBox(`The window "${window.Title}" is now ${window.TopMost ? 'always on top' : 'in normal mode'}.`, "Notification");
+    } else if (ctrlDown || altDown) {
+        if (enableWindowMove && ctrlDown && !sp.GetStoredBool("MoveWindowActive")) {
+            // Ctrl - moving window
+          if (!window.Maximized || isCroppedWindow(window)) {
+            var wasMaximized = window.Maximized;
+            if (wasMaximized) {
+                window.Activate();
+                sp.Sleep(50); 
+            }           
+            sp.StoreBool("MoveWindowActive", true);
+            sp.StoreBool("MoveWindowWasMaximized", wasMaximized);
+            sp.StoreHandle("MoveWindowHandle", window.HWnd);
+            sp.StorePoint("MoveWindowMouseStart", sp.GetCurrentMousePoint());
+            sp.StorePoint("MoveWindowStart", window.Location);
+            
+            sp.CreateTimer("MoveWindow", 20, 1, String.raw`
+                var wnd = sp.WindowFromHandle(sp.GetStoredHandle("MoveWindowHandle"));
+                var ctrlPressed = (sp.GetKeyState(vk.LCONTROL) & 0x8000) !== 0;
+                var leftButtonDown = sp.IsButtonDown(MouseButtons.Left);
+                var escapePressed = (sp.GetKeyState(vk.ESCAPE) & 0x8000) !== 0;
+                
+                if (!wnd || !wnd.IsValid() || !ctrlPressed || !leftButtonDown || escapePressed) {
+                    sp.DeleteTimer("MoveWindow");
+                    sp.DeleteStoredHandle("MoveWindowHandle");
+                    sp.DeleteStoredBool("MoveWindowActive");
+                    sp.DeleteStoredBool("MoveWindowWasMaximized");
+                    sp.DeleteStoredPoint("MoveWindowMouseStart");
+                    sp.DeleteStoredPoint("MoveWindowStart");
+                } else {
+                    // Move the window only if there is a real change in position
+                    var startMousePt = sp.GetStoredPoint("MoveWindowMouseStart");
+                    var currMousePt = sp.GetCurrentMousePoint();
+                    var deltaX = currMousePt.X - startMousePt.X;
+                    var deltaY = currMousePt.Y - startMousePt.Y;
+                    
+                    if (deltaX !== 0 || deltaY !== 0) {
+                        var currWinPt = wnd.Location;
+                        wnd.Location = new Point(currWinPt.X + deltaX, currWinPt.Y + deltaY);
+                        sp.StorePoint("MoveWindowMouseStart", currMousePt);
+                    }
+                }
+            `);
+}
+        } else if (enableWindowResize && altDown && !window.Maximized && !sp.GetStoredBool("ResizeWindowActive")) {
+            // Alt - resizing window (only for non-maximized windows)
+            sp.StoreBool("ResizeWindowActive", true);
+            sp.StoreObject("ResizeStartRegion", sp.GetRegionFromPoint(window.Rectangle, sp.GetCurrentMousePoint(), 3, 3));
+            sp.StorePoint("ResizeLastCursorPos", sp.GetCurrentMousePoint());
+            sp.StoreObject("ResizeWindow", window);
+            
+            sp.CreateTimer("ResizeWindowTimer", 20, 1, String.raw`
+                if (!(sp.GetKeyState(vk.LMENU) & 0x8000)) {
+                    sp.DeleteStoredPoint("ResizeLastCursorPos");
+                    sp.DeleteStoredObject("ResizeStartRegion");
+                    sp.DeleteStoredObject("ResizeWindow");
+                    sp.DeleteStoredBool("ResizeWindowActive");
+                    sp.DeleteTimer("ResizeWindowTimer");
+                } else {
+                    var startRegion = sp.GetStoredObject("ResizeStartRegion");
+                    var lastPoint = sp.GetStoredPoint("ResizeLastCursorPos");
+                    var currentPoint = sp.GetCurrentMousePoint();
+                    var resizeTarget = sp.GetStoredObject("ResizeWindow");
+                    
+                    if (resizeTarget && resizeTarget.Rectangle && resizeTarget.IsValid()) {
+                        var xDiff = lastPoint.X - currentPoint.X;
+                        var yDiff = lastPoint.Y - currentPoint.Y;
+                        
+                        // Checking for minimal change
+                        if (Math.abs(xDiff) >= ${resizeMinChange} || Math.abs(yDiff) >= ${resizeMinChange}) {
+                            var currentRect = resizeTarget.Rectangle;
+                            var newRect = new Rectangle(new Point(currentRect.X, currentRect.Y), new Size(currentRect.Width, currentRect.Height));
+                            var row = startRegion.Row;
+                            var col = startRegion.Column;
+                            
+                            if (row === 1) {
+                                if (col === 1) { newRect.Location = new Point(currentRect.X - xDiff, currentRect.Y - yDiff); newRect.Width += xDiff; newRect.Height += yDiff; }
+                                else if (col === 2) { newRect.Location = new Point(currentRect.X, currentRect.Y - yDiff); newRect.Height += yDiff; }
+                                else if (col === 3) { newRect.Location = new Point(currentRect.X, currentRect.Y - yDiff); newRect.Width -= xDiff; newRect.Height += yDiff; }
+                            } else if (row === 2) {
+                                if (col === 1) { newRect.Location = new Point(currentRect.X - xDiff, currentRect.Y); newRect.Width += xDiff; }
+                                else if (col === 2) { newRect.Location = new Point(currentRect.X - parseInt(xDiff / 2), currentRect.Y - parseInt(yDiff / 2)); newRect.Width += xDiff; newRect.Height += yDiff; }
+                                else if (col === 3) { newRect.Width -= xDiff; }
+                            } else if (row === 3) {
+                                if (col === 1) { newRect.Location = new Point(currentRect.X - xDiff, currentRect.Y); newRect.Width += xDiff; newRect.Height -= yDiff; }
+                                else if (col === 2) { newRect.Height -= yDiff; }
+                                else if (col === 3) { newRect.Width -= xDiff; newRect.Height -= yDiff; }
+                            }
+                            
+                            resizeTarget.Rectangle = newRect;
+                            sp.StorePoint("ResizeLastCursorPos", currentPoint);
+                        }
+                    }
+                }
+            `);
+        }
+    }
+} else if (click && !click.Down) {
+    // Handling mouse button release
+    if (sp.GetStoredBool("MoveWindowActive")) {
+        clearMoveWindowState();
+    }
+    if (sp.GetStoredBool("ResizeWindowActive")) {
+        clearResizeWindowState();
+    }
+}
