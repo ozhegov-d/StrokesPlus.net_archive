@@ -1,0 +1,380 @@
+// SETTINGS
+var copyPosition = 'down'; // up
+var enableCopy   = true;   // Copy button
+var enableSwap   = true;
+var ESC_ON_SAME_CLIP = true; // Esc, if the cliboard has not changed (or is empty)
+var CLIP_WAIT_MS = 120;      // Maximum wait time (in milliseconds) for text to be copied to the clipboard after sending Ctrl+C.
+var maxTextLength = 2500;    // Maximum text size that will be translated (anything higher then esc)
+var DEBUG_LOGS = false;
+/*
+English (en), Russian (ru), German (de), French (fr) , Spanish (es) , Portuguese (pt), Portuguese Brazil (pt-BR) ,Portuguese Portugal (pt-PT)
+Italian (it),Chinese Simplified (zh-Hans),Chinese Traditional (zh-Hant),Japanese (ja),Korean (ko),Arabic (ar),Turkish (tr),Hindi (hi)
+Ukrainian (uk),Polish (pl),Dutch (nl), Vietnamese (vi),Thai (th),Indonesian (id)
+*/
+var sourceLanguage = 'auto';
+// Translate to:
+var targetLanguage = 'en';
+// If source is (zh-Hans) > translate to (en)
+var targetLanguageIfSourceIsTarget = 'zh-Hans';  // function isTextInLanguage(text, lang) {
+
+// Global HTTP client setup
+if (typeof __translateHttpClient === "undefined") {
+  var handler = new HttpClientHandler();
+  handler.AutomaticDecompression = host.flags(
+    System.Net.DecompressionMethods.GZip,
+    System.Net.DecompressionMethods.Deflate
+  );
+  __translateHttpClient = new HttpClient(handler);
+  __translateHttpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+  __translateHttpClient.Timeout = clr.System.TimeSpan.FromSeconds(10);
+  
+  __translateToken = null;
+  __translateTokenExp = null; // Token expiration time from JWT (exp timestamp in milliseconds)
+}
+
+(function(){
+  var _logStart = Date.now();
+  var Drawing = clr.System.Drawing;
+  
+  var log = DEBUG_LOGS ? function(msg, label, color) {
+    sp.ConsoleLog("[" + (Date.now() - _logStart) + "ms] " + msg, label || "Translate", color || null);
+  } : function() {}; // Empty function, does nothing
+  
+  var error = DEBUG_LOGS ? function(msg, label) {
+    sp.ConsoleError("[" + (Date.now() - _logStart) + "ms] " + msg, label || "Translate");
+  } : function() {};
+
+// Decode JWT token to get expiration time
+function decodeJWTExp(token) {
+    try {
+      var parts = token.split('.');
+      if (parts.length !== 3) return null;
+      
+      // Decode Base64Url (replace URL-safe chars and add padding)
+      var base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) base64 += '=';
+      var bytes = clr.System.Convert.FromBase64String(base64);
+      var payloadJson = clr.System.Text.Encoding.UTF8.GetString(bytes);
+      var payload = JSON.parse(payloadJson);
+      
+      if (payload.exp) {
+        return payload.exp * 1000;
+      }
+    } catch(e) {
+      error("JWT decode failed: " + e.message, "Auth");
+    }
+    return null;
+  }
+
+// Function to reset the token
+function resetToken() {
+    __translateToken = null;
+    __translateTokenExp = null;
+  }
+
+// The token can work longer than specified in exp, so use it until you get 401
+// Only in case of 401 errors, we request a new token
+function getTranslateToken() {
+    var now = Date.now();
+    
+    // If there is a token, use it (even if the exp has expired, the server can accept it)
+    if (__translateToken) {
+      if (__translateTokenExp) {
+        var remainingSec = Math.floor((__translateTokenExp - now) / 1000);
+        if (remainingSec > 0) {
+          var remainingMin = Math.floor(remainingSec / 60);
+          log("🔑 Using cached token (exp in " + remainingMin + "m " + (remainingSec % 60) + "s)", "Auth");
+        } else {
+          log("🔑 Using cached token (expired " + Math.abs(Math.floor(remainingSec / 60)) + "m ago, but may still work)", "Auth");
+        }
+      } else {
+        log("🔑 Using cached token", "Auth");
+      }
+      return __translateToken;
+    }
+    
+    // No token - get a new one
+    log("🔑 Fetching new auth token...", "Auth", Drawing.Color.Orange);
+    
+    try {
+      var res = __translateHttpClient.GetAsync("https://edge.microsoft.com/translate/auth").Result;
+      
+      if (!res.IsSuccessStatusCode) {
+        error("Auth failed: HTTP " + res.StatusCode.ToString(), "Auth");
+        resetToken();
+        return null;
+      }
+      
+      var token = res.Content.ReadAsStringAsync().Result.trim();
+      if (token.length < 100) {
+        error("Invalid token received", "Auth");
+        resetToken();
+        return null;
+      }
+      
+      // Decode the JWT and get the real expiry time
+      var exp = decodeJWTExp(token);
+      if (!exp) {
+        error("Failed to decode token expiration", "Auth");
+        resetToken();
+        return null;
+      }      
+      __translateToken = token;
+      __translateTokenExp = exp;
+      
+      // Showing the real lifetime of the token
+      var validForSec = Math.floor((exp - now) / 1000);
+      var validForMin = Math.floor(validForSec / 60);
+      log("✅ Got new token (valid for " + validForMin + "m " + (validForSec % 60) + "s)", "Auth", Drawing.Color.Orange);
+      return token;
+    } catch(e) {
+      error("Token fetch failed: " + e.message, "Auth");
+      resetToken();
+      return null;
+    }
+  }
+
+  // Copy selected text
+  var _prevClip = "";
+  try { _prevClip = clip.GetText() || ""; } catch(_) {}
+  
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+  
+  // clipboard
+  var _newClip = "", src = "", t = 0, step = 8;
+  while (t < CLIP_WAIT_MS) {
+    sp.Sleep(step);
+    t += step;
+    try { _newClip = clip.GetText() || ""; } catch(_) {}
+    if (_newClip !== _prevClip) {
+      src = _newClip.trim();
+      if (src) break;
+    }
+  }
+  var isTooLong = src.length > maxTextLength;
+  if (!src || (_newClip === _prevClip && ESC_ON_SAME_CLIP) || isTooLong) {
+    if (isTooLong) {
+      try { clip.SetText(_prevClip); } catch(e) {}
+    }
+    if (ESC_ON_SAME_CLIP) sp.SendVKey(vk.ESCAPE);
+    return;
+  }
+
+// Function to check if the text is in a specific language
+function isTextInLanguage(text, lang) {
+    switch(lang) {
+      case 'ru': return /[а-яё]/i.test(text);
+      case 'en': return /[a-z]/i.test(text) && !/[а-яё\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7a3\u0600-\u06ff]/i.test(text);
+      case 'zh': case 'zh-Hans': case 'zh-Hant': return /[\u4e00-\u9fff]/i.test(text);
+      case 'ja': return /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]/i.test(text);
+      case 'ko': return /[\uac00-\ud7a3]/i.test(text);
+      case 'ar': return /[\u0600-\u06ff]/i.test(text);
+      default: return false; // For other languages, we rely on server auto-detection
+    }
+  }  
+  // Determine the target language: if the text is in targetLanguage, → translate it into targetLanguageIfSourceIsTarget
+  var isSourceInTargetLanguage = isTextInLanguage(src, targetLanguage);
+  var tl = isSourceInTargetLanguage ? targetLanguageIfSourceIsTarget : targetLanguage;
+  
+  var langInfo = "🔍 Source language: " + sourceLanguage + (sourceLanguage === 'auto' ? " (auto-detected by server)" : " (from settings)") + "\n";
+  langInfo += "🔍 Target language: " + tl + (isSourceInTargetLanguage ? " (" + targetLanguage + "→" + targetLanguageIfSourceIsTarget + ")" : " (other→" + targetLanguage + ")") + "\n";
+  var srcPreview = src.length > 100 ? src.substring(0, 100) + "..." : src;
+  langInfo += "📝 Source text (" + src.length + " chars): " + srcPreview;
+  log(langInfo, "Translate");
+
+  // Translation
+  var token = getTranslateToken();
+  if (!token) return;
+  
+  var tr = null;
+  
+function createContent() {
+    return new clr.System.Net.Http.StringContent(
+      JSON.stringify([{ Text: src }]),
+      clr.System.Text.Encoding.UTF8,
+      "application/json"
+    );
+  }
+  
+// Function to execute a translation request
+function translateRequest(targetLang) {
+    var url = "https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=" + targetLang;
+    if (sourceLanguage !== 'auto') {
+      url += "&from=" + sourceLanguage;
+    }   
+    __translateHttpClient.DefaultRequestHeaders.Authorization = 
+      new clr.System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+    
+    log("📤 Request URL: " + url, "Translate");
+    log("📤 Request body: " + JSON.stringify([{ Text: src.length > 200 ? src.substring(0, 200) + "..." : src }]), "Translate");
+    
+    var content = createContent();
+    var res = __translateHttpClient.PostAsync(url, content).Result;
+    var statusCode = res.StatusCode.ToString();
+    
+    log("📥 Response status: " + statusCode + (statusCode === "Unauthorized" ? " ⚠️" : ""), "Translate");
+    
+    if (res.IsSuccessStatusCode) {
+      var responseBody = res.Content.ReadAsStringAsync().Result;
+      log("📥 Response body: " + responseBody, "Translate");
+      var json = JSON.parse(responseBody);
+      
+      if (json[0] && json[0].translations && json[0].translations[0]) {
+        return json[0].translations[0].text.trim();
+      }
+    } else if (statusCode === "Unauthorized") {
+      throw new Error("Unauthorized");
+    } else {
+      try {
+        var errBody = res.Content.ReadAsStringAsync().Result.substring(0, 500);
+        error("📥 Error response: " + errBody, "Translate");
+      } catch(e) {}
+      throw new Error("HTTP " + statusCode);
+    }
+  } 
+  try {
+    tr = translateRequest(tl);
+    if (tr) {
+      log("✅ Translation extracted: " + (tr.length > 100 ? tr.substring(0, 100) + "..." : tr), "Translate");
+    }
+  } catch(e) {
+    if (e.message === "Unauthorized") {
+      // 401 - token has expired, update and repeat
+      log("⚠️ 401 Unauthorized - refreshing token and retrying...", "Translate", Drawing.Color.Orange);
+      resetToken();
+      token = getTranslateToken();
+      
+      if (token) {
+        try {
+          tr = translateRequest(tl);
+          if (tr) {
+            log("✅ Translation extracted after retry: " + (tr.length > 100 ? tr.substring(0, 100) + "..." : tr), "Translate");
+          }
+        } catch(retryError) {
+          error("❌ Translation failed after retry: " + retryError.message, "Translate");
+        }
+      } else {
+        error("❌ Failed to refresh token", "Translate");
+      }
+    } else {
+      error("Translation exception: " + e.message, "Translate");
+    }
+  } finally {
+    __translateHttpClient.DefaultRequestHeaders.Authorization = null;
+  }
+  
+  if (!tr) {
+    error("💥 Translation failed", "Engine");
+    return;
+  }
+// Text wrapping
+function wrapFast(txt, len) {
+    if (!txt || txt.length <= len) return txt.trim();
+    var res = [], i = 0, j, k;
+    while (i < txt.length) {
+      j = i + len;
+      if (j >= txt.length) { res.push(txt.substring(i).trim()); break; }
+      k = txt.lastIndexOf(" ", j);
+      if (k <= i) k = j;
+      res.push(txt.substring(i, k).trim());
+      i = k + 1;
+    }
+    return res.join("\n");
+  }
+  var wrapLen = 20 + Math.min(40, Math.floor(tr.length / 5));
+  var body = wrapFast(tr, wrapLen);
+  if (!body) return;
+
+  // UI
+  var Forms = clr.System.Windows.Forms;
+  var f = new Forms.Form(), lbl = new Forms.Label();
+  
+  f.FormBorderStyle = Forms.FormBorderStyle.None;
+  f.BackColor = Drawing.Color.Black;
+  f.Opacity = 0.85;
+  f.TopMost = true;
+  f.ShowInTaskbar = false;
+  f.AutoSize = true;
+  f.AutoSizeMode = Forms.AutoSizeMode.GrowAndShrink;
+  f.Padding = new Forms.Padding(10);
+  
+  lbl.AutoSize = true;
+  lbl.Text = body;
+  lbl.ForeColor = Drawing.Color.White;
+  lbl.Font = new Drawing.Font("Segoe UI Semibold", 12);
+  f.Controls.Add(lbl);
+
+// Button Creation Function
+function createButton(text, onClick) {
+    var btn = new Forms.Button();
+    btn.Text = text;
+    btn.AutoSize = true;
+    btn.FlatStyle = Forms.FlatStyle.Flat;
+    btn.BackColor = Drawing.Color.White;
+    btn.ForeColor = Drawing.Color.Black;
+    btn.Click.connect(onClick);
+    f.Controls.Add(btn);
+    return btn;
+  }
+
+// Button positioning function
+function positionButtons(btnCopy, btnSwap, copyPos) {
+    var y = f.Padding.All, x = f.Padding.All;
+    if (copyPos === 'up') {
+      if (btnCopy) { btnCopy.Location = new Drawing.Point(x, y); x += btnCopy.PreferredSize.Width + 5; }
+      if (btnSwap) { btnSwap.Location = new Drawing.Point(x, y); }
+      y += Math.max(btnCopy ? btnCopy.PreferredSize.Height : 0, btnSwap ? btnSwap.PreferredSize.Height : 0) + 5;
+      lbl.Location = new Drawing.Point(f.Padding.All, y);
+    } else {
+      lbl.Location = new Drawing.Point(f.Padding.All, y);
+      y += lbl.PreferredSize.Height + 5;
+      x = f.Padding.All;
+      if (btnCopy) { btnCopy.Location = new Drawing.Point(x, y); x += btnCopy.PreferredSize.Width + 5; }
+      if (btnSwap) { btnSwap.Location = new Drawing.Point(x, y); }
+    }
+  }
+  var btnCopy, btnSwap;
+  if (enableCopy || enableSwap) {
+    if (enableCopy) {
+      btnCopy = createButton("Copy", function(){ clip.SetText(tr); f.Close(); });
+    }
+    if (enableSwap) {
+      btnSwap = createButton("Swap", function(){
+        f.Hide(); clip.SetText(tr); sp.Sleep(20);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]); f.Close();
+      });
+    }
+    positionButtons(btnCopy, btnSwap, copyPosition);
+  } else {
+    lbl.Location = new Drawing.Point(f.Padding.All, f.Padding.All);
+  }
+  var dragging = false, sx = 0, sy = 0;
+  function md(s,e){ if(e.Button===Forms.MouseButtons.Left){ dragging=true; sx=e.X; sy=e.Y; } }
+  function mm(s,e){ if(dragging){ var p=f.Location; f.Location=new Drawing.Point(p.X+e.X-sx, p.Y+e.Y-sy); } }
+  function mu(s,e){ if(e.Button===Forms.MouseButtons.Left) dragging=false; }
+  
+  [f, lbl, btnCopy, btnSwap].forEach(function(c){ 
+    if (c) {
+      c.MouseDown.connect(md); 
+      c.MouseMove.connect(mm); 
+      c.MouseUp.connect(mu); 
+      c.DoubleClick.connect(function(){ f.Close(); });
+    }
+  });
+  f.KeyPreview = true;
+  f.KeyDown.connect(function(s,e){ if(e.KeyCode===Forms.Keys.Escape) f.Close(); });
+  f.Deactivate.connect(function(){ f.Close(); });
+
+  f.Shown.connect(function(){
+    f.BringToFront(); f.Activate();
+    try { sp.WindowFromHandle(f.Handle).Activate(); } catch(e) {}
+  });
+
+  var pt = sp.GetCurrentMousePoint();
+  f.StartPosition = Forms.FormStartPosition.Manual;
+  f.Location = new Drawing.Point(pt.X + 20, pt.Y + (wrapLen < 30 ? -40 : -150));
+
+  f.ShowDialog();
+  
+  log("✅ Done", "Engine");
+})();
