@@ -12,6 +12,8 @@ For example, if you perform a gesture on Engine 1 (which hasn't finished yet) an
 To prevent the engines from slowing down, you need to assign the Hook to the 3rd or 4th engine.  
 (Note: If you are using sp.EngineList().Last in your code, you will need 4 engines in total, and you should assign the Hook to the 3rd engine).  
 
+**Options - Script - Max Script Pool Size**
+
 var ENGINE_INDEX = 2;  // 0=E0, 1=E1, 2=E2, 3=E3 (Max Script Pool Size=4 -> E3 is last)   
 
 ----
