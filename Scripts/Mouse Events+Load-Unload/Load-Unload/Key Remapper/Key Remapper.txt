@@ -1,0 +1,668 @@
+// SETTINGS 
+var DEFAULT_REMAP_ENABLED = true;   // whether it is enabled by default
+var ENGINE_INDEX = 2;               // 0=E0, 1=E1, 2=E2, 3=E3 (Max Script Pool Size=4 -> E3 is last) 
+var REMAP_TOGGLE_KEY = vk.PAUSE;    // null = no toggle  (REMAP on/off)
+
+var GLOBAL_TAP_MODE = true;
+// true  = TAP (tap output on every KeyDown; holding key repeats because Windows repeats KeyDown)
+// false = HOLD (for non-combo rules only; combo rules still TAP for safety)
+//         In HOLD mode, KeyUp is not sent until the key is released.
+
+var DEBUG_LOG = false;
+// ---------------------------------------
+// RULE format:
+// mods(Modifier keys) - ctlr/shift/alt/win
+ 
+// { key: vk.X , to: null } , //block
+// { key: vk.X , to: vk.X } ,
+// { key: vk.X , to: [vk.X, vk.X ]  } ,
+// { key: vk.X, send:{ mods:[vk.X], key: vk.X } } ,
+// { key: vk.X, send:{ mods:[vk.X, vk.X], key: vk.X } } ,
+// { key: vk.X, sendKeys:"hello" } ,
+
+// { mods:[vk.X, vk.X], to: null },
+// { mods:[vk.X, vk.X], key: vk.X, to: vk.X }, 
+// { mods:[vk.X],       key: vk.X, to: vk.X }, 
+// { mods:[vk.X],       key: vk.X, send:{ mods:[vk.X, vk.X], key: vk.X } },
+// { mods:[vk.X],       key: vk.X, send:{ mods:[vk.X],       key: vk.X } },
+// { mods:[vk.X],       key: vk.X, to: null },  // Block: mods+key -> nothing (disable)
+// { mods:[vk.X, vk.X], to: null },  // Block: mods-only -> nothing (disable)
+
+// { app: "chrome", key: vk.X, to: vk.X }
+// { app: "chrome", rules: [ ... ] }  or  { app: ["chrome","msedge"], rules: [ ... ] }
+
+var RULES = [
+
+// To reassign the Win key, you must first lock it, and then reassign it (specifically for Win+Key combinations)
+// { key: vk.LWIN, to: null }, // Only Left Win Locked (Right Win Works)
+// next
+// { mods:[vk.LWIN], key: vk.VK_P, to: vk.F1 },
+ 
+// This works even without suppressing the Win key."
+// { key: vk.LWIN, to: vk.CAPITAL }, // win -> caps
+
+// To block Office 
+  { mods:[vk.LSHIFT, vk.LCONTROL, vk.LMENU, vk.LWIN], to: null },   // Blocks all 4 modifiers
+  { mods:[vk.RSHIFT, vk.RCONTROL, vk.RMENU, vk.RWIN], to: null },   
+
+
+//{ mods:[vk.LSHIFT, vk.LCONTROL, vk.LWIN], key: vk.VK_A, to: vk.F1 },   // shift+ctrl+win+A -> F1
+//{ mods:[vk.LSHIFT, vk.LCONTROL, vk.LWIN], key: vk.VK_A, send:{ mods:[vk.LCONTROL], key: vk.VK_F } }, 
+    
+// Win+V -> блокировать
+//{ mods:[vk.LWIN], key: vk.VK_V, to: null },
+
+//{ app: ["notepad", "everything" ] , rules: [
+//      { key: vk.LWIN, to: null },
+//      { key: vk.F1, send:{ mods:[vk.LCONTROL], key: vk.VK_A } },
+//      { mods:[vk.LWIN], key: vk.VK_1, send: { mods: [vk.LCONTROL], key: vk.VK_A } },
+//      { mods:[vk.LWIN], key: vk.VK_2, send: { mods: [vk.LCONTROL], key: vk.VK_F } },
+  
+//]},
+
+//{ app: "telegram", rules: [
+//    { key: vk.F1, send:{ mods:[vk.LCONTROL], key: vk.VK_F } },
+//    { key: vk.VK_I, to: vk.NUMPAD7 },
+//    { key: vk.VK_K, to: vk.NUMPAD4 },
+//]},
+
+//{ app: "chrome", rules: [ 
+//    { key: vk.F3, send:{ mods:[vk.LCONTROL], key: vk.VK_F } },
+//    { key: vk.F1, send: { mods: [vk.LCONTROL], key: vk.VK_1 } },
+//    { key: vk.F2, send: { mods: [vk.LCONTROL], key: vk.VK_2 } },
+//]},
+
+//    { key: vk.OEM_6, to: vk.UP },         // ] -> Up
+//    { mods:[vk.RCONTROL], key: vk.OEM_6, to: vk.END }, // ctrl+] -> END
+
+//    { key: vk.OEM_4, to: vk.DOWN },       // [ -> Down
+//    { mods:[vk.RCONTROL], key: vk.OEM_4, to: vk.HOME }, // Ctrl+[ -> HOME
+
+//{ key: vk.RCONTROL, to: vk.F1 }, // RCtrl -> f1
+//{ key: vk.RCONTROL, send:{ mods:[vk.RCONTROL], key: vk.VK_1 } }, //RCtrl -> RCtrl+1
+
+//{ key: 0xA3, to: vk.F1 }, // 0xA3 = 163 (VK_RCONTROL)
+//{ key: vk.LWIN, to: vk.F1 }, // win -> f1
+
+//{ key: vk.F12, to: vk.LMENU }, // F12 -> alt
+//{ key: vk.F12, to: vk.CAPITAL }, // F12 -> caps lock
+
+//{ key: vk.RSHIFT, to: vk.TAB }, // RSHIFT > TAB
+//{ key: vk.CAPITAL, to: vk.LCONTROL}, // capslock -> ctrl
+//{ key: vk.CAPITAL, to: vk.LSHIFT}, // capslock -> LSHIFT
+//{ key: vk.CAPITAL, to: [vk.LSHIFT, vk.LCONTROL] }, // capslock -> CTRL+SHIFT 
+
+//{ key: vk.LWIN, to: vk.LSHIFT}, // LWIN -> LSHIFT
+//{ key: vk.LWIN, to: [vk.LSHIFT, vk.LCONTROL] },
+
+//{ key: vk.F12, send:{ mods:[vk.LCONTROL, vk.LSHIFT], key: vk.VK_I } }, // F12 -> Ctrl+Shift+I
+
+//{ key: vk.CAPITAL, send:{ mods:[vk.LCONTROL], key: vk.VK_1 } }, // CapsLock -> Ctrl + 1
+//{ key: vk.CAPITAL, send:{ mods:[vk.LCONTROL , vk.LSHIFT], key: vk.VK_I } }, // CapsLock -> Ctrl+shift + i
+
+      //NumPad 
+//    { key: vk.VK_I, to: vk.NUMPAD7},         
+//    { key: vk.VK_K, to: vk.NUMPAD4 },      
+//    { key: vk.OEM_COMMA, to: vk.NUMPAD1 },      
+//    { key: vk.VK_O, to: vk.NUMPAD8 },       
+//    { key: vk.VK_L, to: vk.NUMPAD5 },         
+//    { key: vk.OEM_PERIOD, to: vk.NUMPAD2 },       
+//    { key: vk.VK_P, to: vk.NUMPAD9 },      
+//    { key: vk.OEM_1, to: vk.NUMPAD6 },         
+//    { key: vk.OEM_2, to: vk.NUMPAD3 },     
+
+//{ key: vk.VK_0, to: [vk.NUMPAD1, vk.NUMPAD2 , vk.NUMPAD3 , vk.NUMPAD4 ] }, // 0 -> 1234 
+//{ key: vk.VK_0, to: [vk.RIGHT, vk.DOWN, vk.LEFT] }, 
+//{ key: vk.VK_0, sendKeys:"hello" }, 
+//{ mods:[vk.LCONTROL], key: vk.VK_Q, sendKeys:"{TAB}" }, // Ctrl+Q -> Tab
+
+//{ mods:[vk.LWIN], key: vk.VK_T, send: { mods: [vk.LWIN], key: vk.VK_T }, thenKey: vk.VK_S }, // win + T -> win + T (sleep 200)then S
+
+//{ mods:[vk.LCONTROL, vk.LMENU], key: vk.VK_A, to: vk.F12 },   // Ctrl+Alt+A -> F12
+
+//    { mods:[vk.LCONTROL], key: vk.VK_1, send:{ mods:[vk.LSHIFT], key: vk.VK_1 } },   // Ctrl+1 -> Shift+1
+//    { mods:[vk.LSHIFT],   key: vk.VK_1, send:{ mods:[vk.LCONTROL], key: vk.VK_1 } }, // Shift+1 -> Ctrl+1
+//    { mods:[vk.LCONTROL, vk.LSHIFT], key: vk.VK_1, send:{ mods:[vk.LSHIFT], key: vk.VK_2 } }, // Ctrl+Shift+1 -> Shift+2 
+  
+];
+// ---------------------------------------
+
+function getEngineAt(list, i) { try { return list[i]; } catch { try { return list.get_Item(i); } catch {} }return null; }
+function dbg(msg) {if (!DEBUG_LOG) return;try { StrokesPlus.Console.Error("[Remap] " + msg); } catch {}}
+function notify(text) {try { sp.ShowBalloonTip("S+ Remap", text, "Info", 100); } catch {}}
+
+function setModState(mods, isDown) {
+    if (!mods || !mods.length) return;
+    for (var i = 0; i < mods.length; i++) {
+        if (isDown) sp.SendVKeyDown(mods[i]);
+    else sp.SendVKeyUp(mods[i]);}}
+
+function vkToString(vk) {
+    if (!DEBUG_LOG) return ""; 
+    try {
+        if (vk == null) return "null";
+        if (vk.ToString) return vk.ToString();
+        return "" + vk;
+    } catch {}
+    return "unknown";
+}
+
+function vkArrayToString(arr) {
+    if (!DEBUG_LOG) return ""; 
+    if (!Array.isArray(arr)) return vkToString(arr);
+    var names = [];
+    for (var i = 0; i < arr.length; i++) {
+        names.push(vkToString(arr[i]));
+    }
+    return "[" + names.join(",") + "]";
+}
+
+function ruleActionStr(r) {
+    if (!DEBUG_LOG) return ""; 
+    try {
+        if (r.sendKeys) return "sendKeys=" + r.sendKeys;
+        if (r.to === null) return "to=null (BLOCK)";
+        if (r.to) {
+            if (Array.isArray(r.to)) {
+                return "to=" + vkArrayToString(r.to);
+            }
+            return "to=" + vkToString(r.to);
+        }
+        if (r.send && r.send.key) {
+            var mm = (r.send.mods && r.send.mods.length) ? ("mods=" + r.send.mods.length) : "mods=0";
+            var kk = vkToString(r.send.key);
+            return "send(" + mm + ", key=" + kk + ")";
+        }
+    } catch {}
+    return "action=NONE";
+}
+
+var MOD_CTRL  = 1;
+var MOD_ALT   = 2;
+var MOD_SHIFT = 4;
+var MOD_WIN   = 8;
+
+var PHYS_MASK = 0;
+
+var SUP_LCTRL  = 1 << 0;
+var SUP_RCTRL  = 1 << 1;
+var SUP_LALT   = 1 << 2;
+var SUP_RALT   = 1 << 3;
+var SUP_LSHIFT = 1 << 4;
+var SUP_RSHIFT = 1 << 5;
+var SUP_LWIN   = 1 << 6;
+var SUP_RWIN   = 1 << 7;
+
+var MOD_DESC = [
+    { bit: 1,  L: vk.LCONTROL, R: vk.RCONTROL, SL: 1, SR: 2 },
+    { bit: 2,  L: vk.LMENU,    R: vk.RMENU,    SL: 4, SR: 8 },
+    { bit: 4,  L: vk.LSHIFT,   R: vk.RSHIFT,   SL: 16, SR: 32 },
+    { bit: 8,  L: vk.LWIN,     R: vk.RWIN,     SL: 64, SR: 128 }
+];
+
+function suppressTriggerSides(triggerMask) {
+    var tm = (triggerMask | 0);
+    if (!tm) return 0;
+    var released = 0;
+    for (var i = 0; i < MOD_DESC.length; i++) {
+        var d = MOD_DESC[i];
+        if (!(tm & d.bit)) continue;
+        try { if (sp.GetKeyState(d.L) & 0x8000) { sp.SendVKeyUp(d.L); released |= d.SL; } } catch {}
+        try { if (sp.GetKeyState(d.R) & 0x8000) { sp.SendVKeyUp(d.R); released |= d.SR; } } catch {}
+    }return released;}
+
+function restoreSidesIfPhysDown(sideMask) {
+    if (!sideMask) return;
+    for (var i = 0; i < MOD_DESC.length; i++) {
+    var d = MOD_DESC[i];
+    if ((sideMask & d.SL) && (sp.GetKeyState(d.L) & 0x8000)) sp.SendVKeyDown(d.L);
+    if ((sideMask & d.SR) && (sp.GetKeyState(d.R) & 0x8000)) sp.SendVKeyDown(d.R);}}
+
+var MODIFIER_CODES = new Set([160, 161, 162, 163, 164, 165, 91, 92]);
+
+function isModifierVKey(vk) {return vk && MODIFIER_CODES.has(vkToCode(vk));}
+
+function isAllModifiers(arr) {
+    if (!Array.isArray(arr) || arr.length === 0) return false;
+    for (var i = 0; i < arr.length; i++) {
+        if (!isModifierVKey(arr[i])) return false;
+    }
+    return true;
+}
+
+function isModifierTarget(to) {if (!to) return false; return isModifierVKey(to) || (Array.isArray(to) && isAllModifiers(to));}
+function applyModifierArray(rule, code, modeName) {
+    // Helper function to apply array of modifiers and mark as active remap mods
+    for (var i = 0; i < rule.to.length; i++) {
+        sp.SendVKeyDown(rule.to[i]);
+    }
+    ACTIVE_REMAP_MODS = rule.to.slice(); // Copy array
+    ACTIVE_HOLD[code] = rule;
+    if (DEBUG_LOG) {
+        var names = [];
+        for (var i = 0; i < rule.to.length; i++) {
+            names.push(vkToString(rule.to[i]));
+        }
+        dbg("Apply vkCode=" + code + " mode=" + modeName + " → mods [" + names.join("+") + "] (active remap)");
+    }
+}
+var RESTORE_ON_KEYUP = Object.create(null); // vkCode -> sideMask
+var TAP_UP = Object.create(null);       // vkCode -> true
+var ACTIVE_HOLD = Object.create(null);  // vkCode -> rule
+var ACTIVE_REMAP_MODS = null;          // Array of active modifiers from remapping (e.g., [vk.LSHIFT, vk.LCONTROL])
+
+function clearState() {PHYS_MASK = 0;TAP_UP = Object.create(null);ACTIVE_HOLD = Object.create(null);RESTORE_ON_KEYUP = Object.create(null);ACTIVE_REMAP_MODS = null;}
+
+function keyToModBit(k) {
+    if (k === vk.LCONTROL || k === vk.RCONTROL) return MOD_CTRL;
+    if (k === vk.LMENU    || k === vk.RMENU)    return MOD_ALT;
+    if (k === vk.LSHIFT   || k === vk.RSHIFT)   return MOD_SHIFT;
+    if (k === vk.LWIN     || k === vk.RWIN)     return MOD_WIN;
+    return 0;}
+
+function updatePhysMask(e) {
+    var bit = keyToModBit(e.Key);
+    if (!bit) return;
+    if (e.KeyState === KeyState.Down) PHYS_MASK |= bit;
+    else if (e.KeyState === KeyState.Up) PHYS_MASK &= ~bit;}
+
+function modsOk(ruleMask) {if (!ruleMask) return true;return PHYS_MASK === ruleMask;}
+
+function weight4(mask) {
+    return ((mask & MOD_CTRL)  ? 1 : 0) +
+           ((mask & MOD_ALT)   ? 1 : 0) +
+           ((mask & MOD_SHIFT) ? 1 : 0) +
+           ((mask & MOD_WIN)   ? 1 : 0); }
+
+function vkCodeOf(e) {try { return e.LowLevelKeyboardHookStruct.vkCode; } catch {}return -1;}
+function vkToCode(vkEnum) {try { return System.Convert.ToInt32(vkEnum); } catch {}return 0;}
+
+function getFgAppInfo() {
+    try {
+        var w = sp.ForegroundWindow();
+        if (!w) return null;
+        var exe = "";
+        var title = "";
+        try { exe = (w.ExecutableName == null) ? "" : ("" + w.ExecutableName); } catch (ex) {}
+        try { title = (w.Title == null) ? "" : ("" + w.Title); } catch (tx) {}
+        return { exe: exe.toLowerCase(), title: title.toLowerCase() };
+    } catch (e) {}
+    return null;
+}
+function appMatchesRule(rule, fgInfo) {
+    if (!rule || !rule.app || !fgInfo) return true;
+    var app = rule.app;
+    try {
+        if (typeof app === "string") {
+            var a = ("" + app).toLowerCase();
+            return fgInfo.exe.indexOf(a) >= 0 || fgInfo.title.indexOf(a) >= 0;
+        }
+        if (Array.isArray(app)) {
+            for (var ai = 0; ai < app.length; ai++) {
+                var x = ("" + app[ai]).toLowerCase();
+                if (fgInfo.exe.indexOf(x) >= 0 || fgInfo.title.indexOf(x) >= 0) return true;
+            }
+            return false;
+        }
+    } catch (e) {}
+    return true;
+}
+
+var engines = sp.EngineList();
+var targetEngine = getEngineAt(engines, ENGINE_INDEX);
+
+if (targetEngine && __spEngineWrapper.Engine.Name === targetEngine.Engine.Name) {
+    var RULES_FLAT = [];
+    for (var fi = 0; fi < RULES.length; fi++) {
+        var item = RULES[fi];
+        if (item && item.rules && Array.isArray(item.rules)) {
+            var appVal = item.app;
+            for (var rj = 0; rj < item.rules.length; rj++) {
+                var rr = item.rules[rj];
+                var copy = {};
+                for (var k in rr) { try { copy[k] = rr[k]; } catch (e) {} }
+                if (appVal !== undefined && appVal !== null) copy.app = appVal;
+                RULES_FLAT.push(copy);
+            }
+        } else {
+            RULES_FLAT.push(item);
+        }
+    }
+    var RULES_BY_CODE = Object.create(null);
+    var RULES_BY_CODE_HAS_APP = Object.create(null);
+    var MODS_ONLY_RULES = [];
+    var MODS_ONLY_HAS_APP = false;
+    for (var i = 0; i < RULES_FLAT.length; i++) {
+        var r = RULES_FLAT[i];
+        if (!r.mods) r.mods = [];
+        
+        var mask = 0;
+        for (var j = 0; j < r.mods.length; j++) mask |= keyToModBit(r.mods[j]);
+        r.triggerMask = mask;
+        r.triggerWeight = weight4(mask);
+        r.priority = (r.priority != null) ? (r.priority | 0) : 0;
+        r.__idx = i;
+        r.keyCode = r.key ? vkToCode(r.key) : 0;
+
+        // Check for "none" or null target
+        if (r.to === null || r.to === "none" || r.to === "NONE") {r.to = null; }
+        if (DEBUG_LOG) {dbg("rule[" + i + "] key=" + vkToString(r.key) + " -> keyCode=" + r.keyCode + " triggerMask=" + r.triggerMask + " weight=" + r.triggerWeight + " priority=" + r.priority + " " + ruleActionStr(r));}
+        // Handle rules with only mods (no key)
+        if (!r.keyCode && r.mods.length > 0) {
+            MODS_ONLY_RULES.push(r);
+            if (r.app) MODS_ONLY_HAS_APP = true;
+            continue;
+        }
+        if (!r.keyCode) continue;
+        if (!RULES_BY_CODE[r.keyCode]) RULES_BY_CODE[r.keyCode] = [];
+        RULES_BY_CODE[r.keyCode].push(r);
+        if (r.app) RULES_BY_CODE_HAS_APP[r.keyCode] = true;
+}
+// sort groups
+function ruleCmp(a, b) {
+        var ap = a.priority | 0, bp = b.priority | 0;
+        if (ap !== bp) return bp - ap; // priority desc
+        var aw = a.triggerWeight | 0, bw = b.triggerWeight | 0;
+        if (aw !== bw) return bw - aw; // weight desc
+        return (a.__idx | 0) - (b.__idx | 0); // idx asc
+    }
+    try {
+        var _keys = Object.keys(RULES_BY_CODE);
+        for (var ki = 0; ki < _keys.length; ki++) {
+            var k = _keys[ki];
+            RULES_BY_CODE[k].sort(ruleCmp);
+        }
+    } catch (e) {try { StrokesPlus.Console.Error("[Remap] sort error: " + e.message); } catch {}}
+
+function findMatchingRuleByCode(code, fgInfo) {
+    var group = RULES_BY_CODE[code];
+    if (!group || group.length === 0) return null;
+    for (var i = 0; i < group.length; i++) {
+        var rule = group[i];
+        if (!modsOk(rule.triggerMask)) continue;
+        if (!appMatchesRule(rule, fgInfo)) continue;
+        return rule;
+    }
+    return null;
+}
+
+function findModsOnlyRule(pressedKey, fgInfo) {
+    // pressedKey: when modifier key is pressed, only match if rule's mods contain THIS key (e.g. LWIN vs RWIN)
+    if (MODS_ONLY_RULES.length === 0) return null;
+    for (var i = 0; i < MODS_ONLY_RULES.length; i++) {
+        var rule = MODS_ONLY_RULES[i];
+        if (!modsOk(rule.triggerMask)) continue;
+        if (!appMatchesRule(rule, fgInfo)) continue;
+        if (pressedKey != null) {
+            var keyInRule = false;
+            for (var j = 0; j < rule.mods.length; j++) {
+                if (rule.mods[j] === pressedKey || vkToCode(rule.mods[j]) === vkToCode(pressedKey)) { keyInRule = true; break; }
+            }
+            if (!keyInRule) continue;
+        }
+        return rule;
+    }
+    return null;
+}
+if (DEBUG_LOG) {var keys = Object.keys(RULES_BY_CODE);dbg("built groups=" + keys.length);}
+    // init
+    sp.StoreBool("RemapEnabled", DEFAULT_REMAP_ENABLED);
+    clearState();
+
+    var existing = sp.GetStoredObject("simpleRemapperHook");
+    var hasConn = false;
+    try {
+        hasConn = (existing != null) && (("" + existing.GetType().FullName).includes("EventConnection"));
+    } catch {}
+    if (!hasConn) {
+        var conn = KeyboardHook.OnKeyboardHookEvent.connect(function(sender, e) {
+            try {
+                if (e.InjectedByHost) return;
+
+                var isUp         = (e.KeyState === KeyState.Up);
+                var isDownEdge   = (e.KeyState === KeyState.Down);
+                var isRepeatNone = (e.KeyState === KeyState.None);
+
+                var code = vkCodeOf(e);
+                if (code < 0) return;
+
+                if (isRepeatNone && (!RULES_BY_CODE[code] || RULES_BY_CODE[code].length === 0)) return;
+                var isDown = isDownEdge || isRepeatNone;
+                if (!isDown && !isUp) return;
+
+                if (isDownEdge || isUp) updatePhysMask(e);
+
+                // toggle
+                if (REMAP_TOGGLE_KEY != null && e.Key === REMAP_TOGGLE_KEY) {
+                    if (isUp) {
+                        var en = sp.GetStoredBool("RemapEnabled");
+                        en = !en;
+                        sp.StoreBool("RemapEnabled", en);
+                        clearState();
+                        notify("Remap " + (en ? "ON" : "OFF"));
+                        if (DEBUG_LOG) dbg("Toggle -> " + en);}
+                    e.Consume = true;
+                    return;}
+
+                if (!sp.GetStoredBool("RemapEnabled")) return;
+
+               // KeyUp
+               if (isUp) {
+               var hr = ACTIVE_HOLD[code];
+               var isHoldRule = hr && (!GLOBAL_TAP_MODE || isModifierTarget(hr.to));
+    
+               if (isHoldRule || TAP_UP[code]) {
+               e.Consume = true;
+        
+               if (isHoldRule) {
+               if (hr.to) {
+                   if (Array.isArray(hr.to) && isAllModifiers(hr.to)) {
+                       // Release all modifiers from array
+                       for (var i = 0; i < hr.to.length; i++) {
+                           sp.SendVKeyUp(hr.to[i]);
+                       }
+                       ACTIVE_REMAP_MODS = null;
+                   } else {
+                       sp.SendVKeyUp(hr.to);
+                   }
+               } else if (hr.send && hr.send.key) {
+               sp.SendVKeyUp(hr.send.key);
+               setModState(hr.send.mods, false);
+               }
+               delete ACTIVE_HOLD[code];}
+        
+               var m = RESTORE_ON_KEYUP[code];
+               if (m) {
+               restoreSidesIfPhysDown(m);
+               delete RESTORE_ON_KEYUP[code];}}   
+               delete TAP_UP[code];
+               return;}
+                // KeyDown / None 
+                var needFg = (MODS_ONLY_HAS_APP && isModifierVKey(e.Key)) || RULES_BY_CODE_HAS_APP[code];
+                var fgInfo = needFg ? getFgAppInfo() : null;
+                if (isModifierVKey(e.Key)) {
+                    var modsOnlyRule = findModsOnlyRule(e.Key, fgInfo);
+                    if (modsOnlyRule) {
+                        e.Consume = true;
+                        if (modsOnlyRule.to === null) {
+                            // Block: do nothing
+                            if (DEBUG_LOG) dbg("Blocked mods-only rule (to=null)");
+                            return;
+                        }
+                        // Apply mods-only rule
+                        if (modsOnlyRule.to) {
+                            if (Array.isArray(modsOnlyRule.to)) {
+                                for (var i = 0; i < modsOnlyRule.to.length; i++) {
+                                    sp.SendVKeyDown(modsOnlyRule.to[i]);
+                                    sp.SendVKeyUp(modsOnlyRule.to[i]);
+                                    if (i < modsOnlyRule.to.length - 1) sp.Sleep(10);
+                                }
+                            } else {
+                                sp.SendVKeyDown(modsOnlyRule.to);
+                                sp.SendVKeyUp(modsOnlyRule.to);
+                            }
+                            if (DEBUG_LOG) dbg("Applied mods-only rule -> " + vkToString(modsOnlyRule.to));
+                        } else if (modsOnlyRule.send && modsOnlyRule.send.key) {
+                            if (modsOnlyRule.send.mods && modsOnlyRule.send.mods.length) {
+                                sp.SendModifiedVKeys(modsOnlyRule.send.mods, [modsOnlyRule.send.key]);
+                            } else {
+                                sp.SendVKeyDown(modsOnlyRule.send.key);
+                                sp.SendVKeyUp(modsOnlyRule.send.key);
+                            }
+                            if (DEBUG_LOG) dbg("Applied mods-only rule -> send");
+                        }
+                        return;
+                    }
+                }                
+                var group = RULES_BY_CODE[code];
+                if (!group || group.length === 0) return;
+                // Blocking repetitions for ALREADY active modifiers
+                var existingHold = ACTIVE_HOLD[code];
+                if (existingHold && isModifierTarget(existingHold.to)) {
+                    e.Consume = true;
+                    return;}
+                if (!GLOBAL_TAP_MODE && existingHold) {
+                    e.Consume = true;
+                    return;}
+                // Find matching rule
+                var rule = findMatchingRuleByCode(code, fgInfo);                
+                // Check if this key should be sent with active remap modifiers
+                if (ACTIVE_REMAP_MODS && ACTIVE_REMAP_MODS.length > 0) {
+                    // Only apply remap mods if this key is not itself being remapped
+                    var isRemapSource = (existingHold != null);
+                    if (!rule && !isRemapSource) {
+                        // Consume FIRST to prevent Windows from processing
+                        e.Consume = true;
+                        sp.SendModifiedVKeys(ACTIVE_REMAP_MODS, [e.Key]);
+                        if (DEBUG_LOG) {
+                            var modNames = [];
+                            for (var mi = 0; mi < ACTIVE_REMAP_MODS.length; mi++) {
+                                modNames.push(vkToString(ACTIVE_REMAP_MODS[mi]));
+                            }
+                            dbg("Applied remap mods [" + modNames.join("+") + "] to key=" + code);
+                        }
+                        return;
+                    }
+                }
+                if (!rule) return;
+                // Consume event FIRST to prevent Windows from processing it
+                e.Consume = true;                
+                // Handle to: null (block/disable)
+                if (rule.to === null) {
+                    if (DEBUG_LOG) dbg("Blocked rule (to=null) for keyCode=" + code);
+                    return;
+                }
+                var comboTrigger = (rule.triggerMask !== 0);
+                // For combo rules: suppress modifiers ONLY if we're NOT using them in the output
+                var releasedSides = 0;
+                if (comboTrigger) {
+                    var needSuppress = true;
+                    if (rule.send && rule.send.mods && rule.send.mods.length > 0 && rule.mods.length > 0) {
+                        if (rule.send.mods.length >= rule.mods.length) {
+                            // Check if all trigger mods are in output mods
+                            var allFound = true;
+                            for (var ti = 0; ti < rule.mods.length; ti++) {
+                                var found = false;
+                                for (var oi = 0; oi < rule.send.mods.length; oi++) {
+                                    if (rule.send.mods[oi] === rule.mods[ti]) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) {
+                                    allFound = false;
+                                    break;
+                                }
+                            }
+                            needSuppress = !allFound;
+                        }
+                    }
+                    if (needSuppress) {
+                        releasedSides = suppressTriggerSides(rule.triggerMask);
+                    }
+                }
+                var isTargetModifier = isModifierTarget(rule.to); 
+                var useTap = GLOBAL_TAP_MODE && !isTargetModifier || rule.sendKeys || comboTrigger;
+                if (DEBUG_LOG) dbg("keyCode=" + code + " isTargetModifier=" + !!isTargetModifier + " useTap=" + useTap);
+               // TAP mode 
+               if (useTap) {
+                    if (rule.sendKeys) {
+                        sp.SendKeys(rule.sendKeys);
+                    } else if (rule.to) {
+    if (Array.isArray(rule.to)) {
+        if (isAllModifiers(rule.to)) {
+            // Array of modifiers - hold ALL and mark as active remap mods (even in TAP mode for modifiers)
+            applyModifierArray(rule, code, "TAP");
+        } else {
+            // Array of non-modifier keys - sent sequentially
+            for (var i = 0; i < rule.to.length; i++) {
+                sp.SendVKeyDown(rule.to[i]);
+                sp.SendVKeyUp(rule.to[i]);
+                if (i < rule.to.length - 1) sp.Sleep(10); // delay between clicks 
+            }
+        }
+    } else {
+        // One key
+        sp.SendVKeyDown(rule.to);
+        sp.SendVKeyUp(rule.to);}
+                } else if (rule.send && rule.send.key) {
+                       if (rule.send.mods && rule.send.mods.length) 
+                       sp.SendModifiedVKeys(rule.send.mods, [rule.send.key]);
+                       else { 
+                       sp.SendVKeyDown(rule.send.key); 
+                       sp.SendVKeyUp(rule.send.key); }    
+                       // press an additional key after the main action
+                       if (rule.thenKey) {
+                       sp.Sleep(200);   // so that it has time to load, for example, the menu
+                       sp.SendVKeyDown(rule.thenKey);
+                       sp.SendVKeyUp(rule.thenKey);}}
+                    // Only set TAP_UP if we didn't hold modifiers as active remap mods
+                    if (!(Array.isArray(rule.to) && isAllModifiers(rule.to))) {
+                        TAP_UP[code] = true;
+                    }
+                    if (releasedSides) RESTORE_ON_KEYUP[code] = (RESTORE_ON_KEYUP[code] | 0) | releasedSides;
+                    if (DEBUG_LOG) dbg("Apply vkCode=" + code + " mode=TAP");
+                    return;
+                } 
+                else {
+                    // HOLD mode (non-combo only)
+                    if (rule.to) {
+    if (Array.isArray(rule.to)) {
+        if (isAllModifiers(rule.to)) {
+            // Array of modifiers - hold ALL and mark as active remap mods
+            applyModifierArray(rule, code, "HOLD");
+        } else {
+            // Array of non-modifier keys - hold ALL at the same time
+            for (var i = 0; i < rule.to.length; i++) {
+                sp.SendVKeyDown(rule.to[i]);
+            }
+            ACTIVE_HOLD[code] = rule;
+            if (DEBUG_LOG) {
+                var names = [];
+                for (var i = 0; i < rule.to.length; i++) {
+                    names.push(vkToString(rule.to[i]));
+                }
+                dbg("Apply vkCode=" + code + " mode=HOLD → [" + names.join("+") + "]");
+            }
+        }
+    } else {
+        // One key
+        sp.SendVKeyDown(rule.to);
+        ACTIVE_HOLD[code] = rule;
+        if (DEBUG_LOG) dbg("Apply vkCode=" + code + " mode=HOLD → " + vkToString(rule.to));}
+
+
+                    } else if (rule.send && rule.send.key) {
+                        setModState(rule.send.mods, true);
+                        sp.SendVKeyDown(rule.send.key);
+                        ACTIVE_HOLD[code] = rule;
+                    } else {
+                        sp.SendKeys(rule.sendKeys || "");}
+
+                    if (releasedSides) RESTORE_ON_KEYUP[code] = (RESTORE_ON_KEYUP[code] | 0) | releasedSides;
+                    return;}
+            } catch (err) {
+                try { StrokesPlus.Console.Error("simpleRemapperHook: " + err.message); } catch {}}});
+
+        sp.StoreObject("simpleRemapperHook", conn);}
+    else if (DEBUG_LOG) {dbg("Hook already exists (EventConnection)");}}
