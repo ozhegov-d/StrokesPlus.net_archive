@@ -1,4 +1,8 @@
 #### StrokesPlus_Search in your Scripts
+
+v3.1  
+> Visual improvements
+
 v3
 > +Searches everywhere  
 +Displays all matches
