@@ -1,0 +1,66 @@
+// Modes: "exe" = by process name, "title" = by window (title+class), "all" = ignore everywhere (except Load/Unload)
+var ignoreMode = "all";
+
+var wnd = ignoreMode === "all" ? null : sp.ForegroundWindow();
+var fileName = wnd ? clr.System.IO.Path.GetFileName(wnd.Process.MainModule.FileName) : "";
+var title = wnd ? (wnd.Title || fileName) : "";
+var className = wnd ? wnd.ClassName : "";
+
+var criterionKey = ignoreMode === "exe" ? fileName : (ignoreMode === "title" ? title + "|" + className : "all");
+var displayName = ignoreMode === "all" ? "all applications" : (ignoreMode === "exe" ? fileName : title);
+
+function getIgnoredKey(ignored) {
+    if (ignoreMode === "exe") return ignored.FileName ? ignored.FileName.Value : null;
+    if (ignoreMode === "title") return (ignored.OwnerWindowText ? ignored.OwnerWindowText.Value : "") + "|" + (ignored.OwnerClassName ? ignored.OwnerClassName.Value : "");
+    return (ignored.FileName && ignored.FileName.Value === ".*") ? "all" : null;
+}
+var ignoredApp = null;
+var list = sp_config.IgnoredApplications;
+var count = list.Count;
+for (var i = 0; i < count; i++) {
+    var ignored = list[i];
+    if (getIgnoredKey(ignored) === criterionKey) {
+        ignoredApp = ignored;
+        break;
+    }
+}
+var matchCriteria = function (value) {
+    var mc = new MatchCriteria();
+    mc.Value = value;
+    return mc;
+};
+if (ignoredApp) {
+    list.Remove(ignoredApp);
+    sp.MessageBox("Removed from ignored list: " + displayName, "Ignored List");
+    sp_config.Save();
+} else {
+    var newIgnored = new IgnoredApplication();
+    newIgnored.Active = true;
+
+    if (ignoreMode === "all") {
+        newIgnored.Description = "All: ignore all applications";
+        var mcAll = function () {
+            var mc = new MatchCriteria();
+            mc.Value = ".*";
+            mc.IsRegex = true;
+            return mc;
+        };
+        newIgnored.FileName = mcAll();
+        newIgnored.OwnerWindowText = mcAll();
+        newIgnored.OwnerClassName = mcAll();
+    } else if (ignoreMode === "exe") {
+        newIgnored.Description = "Exe: " + fileName;
+        newIgnored.FileName = matchCriteria(fileName);
+        newIgnored.OwnerWindowText = matchCriteria("");
+        newIgnored.OwnerClassName = matchCriteria("");
+    } else {
+        newIgnored.Description = "Title: " + title + " (Class=" + className + ")";
+        newIgnored.OwnerWindowText = matchCriteria(title);
+        newIgnored.OwnerClassName = matchCriteria(className);
+        newIgnored.FileName = matchCriteria("");
+    }
+
+    list.Add(newIgnored);
+    sp.MessageBox("Added to ignored list: " + displayName, "Ignored List");
+    sp_config.Save();
+}
