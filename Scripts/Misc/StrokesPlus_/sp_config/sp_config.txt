@@ -1,0 +1,264 @@
+// Outputs all sp_config properties to the console with descriptions (grouped with separators).
+sp.ConsoleShow();
+
+var safeStr = function (val) {
+    if (val == null) return "null";
+    if (typeof val === "string") return val;
+    if (typeof val.ToString === "function") try { return val.ToString(); } catch (e) { return "[?]"; }
+    return String(val);
+};
+var isList = function (val) {
+    if (val == null) return false;
+    if (typeof val.Count !== "number") return false;
+    try {
+        if (val.Count === 0) return true;
+        var _ = val[0];
+        return true;
+    } catch (e) { return false; }
+};
+var isDictionary = function (val) {
+    if (val == null) return false;
+    return val.Keys !== undefined && typeof val.Count === "number";
+};
+var logValue = function (name, val, tag, desc) {
+    var suffix = (desc && desc.length) ? " (" + desc + ")" : "";
+    if (val == null) { sp.ConsoleLog("  " + name + " = null" + suffix, tag); return; }
+    if (isList(val)) {
+        sp.ConsoleLog("  " + name + " = [List, Count=" + val.Count + "]" + suffix, tag);
+        for (var i = 0; i < val.Count; i++) {
+            try { sp.ConsoleLog("    [" + i + "]: " + safeStr(val[i]), tag); } catch (e) { sp.ConsoleLog("    [" + i + "]: ?", tag); }
+        }
+        return;
+    }
+    if (isDictionary(val)) {
+        sp.ConsoleLog("  " + name + " = [Dictionary, Count=" + val.Count + "]" + suffix, tag);
+        try {
+            var en = val.Keys.GetEnumerator();
+            while (en.MoveNext()) {
+                var k = en.Current;
+                try { var v = val[k]; sp.ConsoleLog("    " + safeStr(k) + " = " + safeStr(v), tag); } catch (e) { sp.ConsoleLog("    " + safeStr(k) + " = ?", tag); }
+            }
+        } catch (e) {
+            sp.ConsoleLog("    (enum error: " + e + ")", tag);
+        }
+        return;
+    }
+    sp.ConsoleLog("  " + name + " = " + safeStr(val) + suffix, tag);
+};
+
+// Descriptions only (no property name prefix)
+var descMap = {
+    "HintAppFont": "font for application name in gesture hint",
+    "HintActionFont": "font for action name in hint",
+    "HintTipFont": "font for hint text",
+    "HintFadeSteps": "hint fade animation steps (0 = no animation)",
+    "HintHideAppName": "hide application name in hint",
+    "HintPadding": "hint popup layout",
+    "HintBackColor": "hint popup layout",
+    "HintTextColor": "hint popup layout",
+    "HintLocation": "hint popup layout",
+    "CaptureEnabled": "whether mouse/keyboard capture (hooks) is enabled",
+    "TouchPadFingers": "number of touchpad fingers (e.g. 3)",
+    "PreventCaptureOnFullScreenWindows": "do not capture in fullscreen windows",
+    "UseLegacyClearGestureMethod": "legacy gesture clear method",
+    "TouchFloaterMinAlpha": "floater transparency min",
+    "TouchFloaterMaxAlpha": "floater transparency max",
+    "TouchFloaterFadeMilliseconds": "fade in/out duration",
+    "TouchFloaterTapsForMenu": "taps to open floater menu (e.g. 3)",
+    "TouchFloaterTapInterval": "max interval between taps (ms)",
+    "TouchFloaterLocation": "floater coordinates",
+    "TouchAltFloaterLocation": "floater coordinates",
+    "TouchControlFloaterLocation": "floater coordinates",
+    "TouchShiftFloaterLocation": "floater coordinates",
+    "TouchSpecialFloaterLocation": "floater coordinates",
+    "FloaterLayouts": "floater layouts",
+    "SelectedFloaterLayout": "floater layouts",
+    "TextExpansionTokenLengthLimit": "max token length",
+    "TextExpansionTokenClearDelay": "delay after clearing token (ms)",
+    "TextExpansionTokenBeforeClearDelay": "",
+    "TextExpansionClipboardRestoreDelay": "delay before restoring clipboard",
+    "TextExpansionClipboardPasteDelay": "delay before paste",
+    "TextExpansionClipboardLockTimeout": "clipboard lock timeout",
+    "DisableTextExpansionTriggerUseEnter": "disable trigger on Enter/Space/Tab",
+    "DisableTextExpansionTriggerUseSpace": "disable trigger on Enter/Space/Tab",
+    "DisableTextExpansionTriggerUseTab": "disable trigger on Enter/Space/Tab",
+    "SpaceResetsTextExpansionToken": "space resets token",
+    "DisableSendSpaceLeftDeleteOnTextExpansionMatch": "",
+    "ScriptEngineLockAttempts": "script engine lock attempts",
+    "MaxScriptEnginePoolSize": "script engine pool size (e.g. 4)",
+    "LogScriptErrorsToConsoleOnly": "log script errors to console only",
+    "MacroOptionsMinimumSleepDelay": "macro record/playback options",
+    "MacroOptionsMinimumMouseDelta": "macro record/playback options",
+    "MacroOptionsSleepMultiplier": "macro record/playback options",
+    "MouseHookExclusionZones": "zones where gestures are ignored (e.g. taskbar)",
+    "KeepHotkeysActiveWhenDisabled": "hotkeys stay active when S+ is disabled",
+    "DisableSingleTrayClick": "disable single click on tray icon action",
+    "SendKeysForAppCommands": "send keys for app commands",
+    "MouseAccelerationX": "mouse acceleration (for gestures)",
+    "MouseAccelerationY": "mouse acceleration (for gestures)",
+    "EnableWMIMethodForProcessFileName": "use WMI for process file name",
+    "EnableMouseHookEventSubscription": "mouse/keyboard hook event subscriptions",
+    "EnableKeyboardHookEventSubscription": "mouse/keyboard hook event subscriptions",
+    "FireOnDeviceChange": "respond to device change",
+    "UseNewClassesOnly": "new classes/settings (internal flags)",
+    "UseNewSettings": "new classes/settings (internal flags)",
+    "EditorReplacementTokens": "editor replacement tokens",
+    "UserLibraries": "paths to user libraries",
+    "SelectedCulture": "culture/language (e.g. en-US)",
+    "SavedStrings": "saved strings (dictionary)",
+    "CurrentTheme": "themes",
+    "Themes": "themes",
+    "Version": "StrokesPlus.net version",
+    "LastSettingsSectionName": "last selected items in settings",
+    "LastOptionsSubtabName": "last selected items in settings",
+    "LastGlobalActionCategory": "last selected items in settings",
+    "LastGlobalActionName": "last selected items in settings",
+    "LastGlobalActionSubtabName": "last selected items in settings",
+    "LastGlobalActionSubSubtabName": "last selected items in settings",
+    "LastGlobalActionTextExpansionCategory": "last selected items in settings",
+    "LastGlobalActionTextExpansionName": "last selected items in settings",
+    "LastApplication": "last selected items in settings",
+    "LastApplicationCategory": "last selected items in settings",
+    "LastApplicationActionName": "last selected items in settings",
+    "LastApplicationSubtabName": "last selected items in settings",
+    "LastApplicationSubSubtabName": "last selected items in settings",
+    "LastApplicationTextExpansionCategory": "last selected items in settings",
+    "LastApplicationTextExpansionName": "last selected items in settings",
+    "LastApplicationMouseExclusionZone": "last selected items in settings",
+    "LastFloaterName": "last selected items in settings",
+    "LastFloaterSubtabName": "last selected items in settings",
+    "LastHotkeyCategory": "last selected items in settings",
+    "LastHotkeyName": "last selected items in settings",
+    "LastIgnoredWindowName": "last ignored window name in list",
+    "LastMacroCategory": "last selected items in settings",
+    "LastMacroName": "last selected items in settings",
+    "LastPlugInTabName": "last selected items in settings",
+    "LastMouseExclusionZone": "last selected items in settings",
+    "NewerSettingUpdatesCompleted": "list of completed setting migrations",
+    "IgnoredApplications": "ignored windows/applications list"
+};
+
+// Category for each property (order of first occurrence = category order in output)
+var categoryMap = {
+    "HintAppFont": "Hints",
+    "HintActionFont": "Hints",
+    "HintTipFont": "Hints",
+    "HintFadeSteps": "Hints",
+    "HintHideAppName": "Hints",
+    "HintPadding": "Hints",
+    "HintBackColor": "Hints",
+    "HintTextColor": "Hints",
+    "HintLocation": "Hints",
+    "CaptureEnabled": "Capture & gestures",
+    "TouchPadFingers": "Capture & gestures",
+    "PreventCaptureOnFullScreenWindows": "Capture & gestures",
+    "UseLegacyClearGestureMethod": "Capture & gestures",
+    "TouchFloaterMinAlpha": "Floaters (touch/pen)",
+    "TouchFloaterMaxAlpha": "Floaters (touch/pen)",
+    "TouchFloaterFadeMilliseconds": "Floaters (touch/pen)",
+    "TouchFloaterTapsForMenu": "Floaters (touch/pen)",
+    "TouchFloaterTapInterval": "Floaters (touch/pen)",
+    "TouchFloaterLocation": "Floaters (touch/pen)",
+    "TouchAltFloaterLocation": "Floaters (touch/pen)",
+    "TouchControlFloaterLocation": "Floaters (touch/pen)",
+    "TouchShiftFloaterLocation": "Floaters (touch/pen)",
+    "TouchSpecialFloaterLocation": "Floaters (touch/pen)",
+    "FloaterLayouts": "Floaters (touch/pen)",
+    "SelectedFloaterLayout": "Floaters (touch/pen)",
+    "TextExpansionTokenLengthLimit": "Text Expansion",
+    "TextExpansionTokenClearDelay": "Text Expansion",
+    "TextExpansionTokenBeforeClearDelay": "Text Expansion",
+    "TextExpansionClipboardRestoreDelay": "Text Expansion",
+    "TextExpansionClipboardPasteDelay": "Text Expansion",
+    "TextExpansionClipboardLockTimeout": "Text Expansion",
+    "DisableTextExpansionTriggerUseEnter": "Text Expansion",
+    "DisableTextExpansionTriggerUseSpace": "Text Expansion",
+    "DisableTextExpansionTriggerUseTab": "Text Expansion",
+    "SpaceResetsTextExpansionToken": "Text Expansion",
+    "DisableSendSpaceLeftDeleteOnTextExpansionMatch": "Text Expansion",
+    "ScriptEngineLockAttempts": "Scripts",
+    "MaxScriptEnginePoolSize": "Scripts",
+    "LogScriptErrorsToConsoleOnly": "Scripts",
+    "MacroOptionsMinimumSleepDelay": "Macros",
+    "MacroOptionsMinimumMouseDelta": "Macros",
+    "MacroOptionsSleepMultiplier": "Macros",
+    "MouseHookExclusionZones": "Zones & other",
+    "KeepHotkeysActiveWhenDisabled": "Zones & other",
+    "DisableSingleTrayClick": "Zones & other",
+    "SendKeysForAppCommands": "Zones & other",
+    "MouseAccelerationX": "Zones & other",
+    "MouseAccelerationY": "Zones & other",
+    "EnableWMIMethodForProcessFileName": "Zones & other",
+    "EnableMouseHookEventSubscription": "Zones & other",
+    "EnableKeyboardHookEventSubscription": "Zones & other",
+    "FireOnDeviceChange": "Zones & other",
+    "UseNewClassesOnly": "Zones & other",
+    "UseNewSettings": "Zones & other",
+    "EditorReplacementTokens": "Zones & other",
+    "UserLibraries": "Zones & other",
+    "SelectedCulture": "Zones & other",
+    "SavedStrings": "Zones & other",
+    "CurrentTheme": "Themes & version",
+    "Themes": "Themes & version",
+    "Version": "Themes & version",
+    "LastSettingsSectionName": "Last selected in settings",
+    "LastOptionsSubtabName": "Last selected in settings",
+    "LastGlobalActionCategory": "Last selected in settings",
+    "LastGlobalActionName": "Last selected in settings",
+    "LastGlobalActionSubtabName": "Last selected in settings",
+    "LastGlobalActionSubSubtabName": "Last selected in settings",
+    "LastGlobalActionTextExpansionCategory": "Last selected in settings",
+    "LastGlobalActionTextExpansionName": "Last selected in settings",
+    "LastApplication": "Last selected in settings",
+    "LastApplicationCategory": "Last selected in settings",
+    "LastApplicationActionName": "Last selected in settings",
+    "LastApplicationSubtabName": "Last selected in settings",
+    "LastApplicationSubSubtabName": "Last selected in settings",
+    "LastApplicationTextExpansionCategory": "Last selected in settings",
+    "LastApplicationTextExpansionName": "Last selected in settings",
+    "LastApplicationMouseExclusionZone": "Last selected in settings",
+    "LastFloaterName": "Last selected in settings",
+    "LastFloaterSubtabName": "Last selected in settings",
+    "LastHotkeyCategory": "Last selected in settings",
+    "LastHotkeyName": "Last selected in settings",
+    "LastIgnoredWindowName": "Last selected in settings",
+    "LastMacroCategory": "Last selected in settings",
+    "LastMacroName": "Last selected in settings",
+    "LastPlugInTabName": "Last selected in settings",
+    "LastMouseExclusionZone": "Last selected in settings",
+    "NewerSettingUpdatesCompleted": "Other",
+    "IgnoredApplications": "Other"
+};
+
+var configType = sp_config.GetType();
+var configProps = configType.GetProperties();
+var sep = "----------------------";
+
+// Group properties by category
+var propsByCategory = {};
+for (var i = 0; i < configProps.Length; i++) {
+    var p = configProps[i];
+    var cat = categoryMap[p.Name] || "Other";
+    if (!propsByCategory[cat]) propsByCategory[cat] = [];
+    propsByCategory[cat].push(p);
+}
+
+var categoryOrder = ["Hints", "Capture & gestures", "Floaters (touch/pen)", "Text Expansion", "Scripts", "Macros", "Zones & other", "Themes & version", "Last selected in settings", "Other"];
+
+for (var c = 0; c < categoryOrder.length; c++) {
+    var cat = categoryOrder[c];
+    var props = propsByCategory[cat];
+    if (!props || props.length === 0) continue;
+    sp.ConsoleLog(sep, "sp_config");
+    sp.ConsoleLog(cat, "sp_config");
+    for (var j = 0; j < props.length; j++) {
+        var p = props[j];
+        try {
+            var val = p.GetValue(sp_config, null);
+            logValue(p.Name, val, "sp_config", descMap[p.Name]);
+        } catch (e) {
+            sp.ConsoleLog("  " + p.Name + " (error: " + e + ")", "sp_config");
+        }
+    }
+}
+sp.ConsoleLog(sep, "sp_config");
