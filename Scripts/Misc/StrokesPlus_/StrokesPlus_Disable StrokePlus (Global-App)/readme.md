@@ -1,5 +1,10 @@
-Disabling StrokePlus in a specific program/window using a hotkey
+Disable StrokePlus (Global/App) using a hotkey
+
+Important Note:  
+Don't forget to enable this so that when StrokesPlus is disabled, hotkeys still work:  
+Options - Advanced - Keep Registered Hot Keys Active When Disabled 
 
 options:  
-"file" - ignores all windows of the process (by file name).  
-"window" - ignores only a specific window/tab (by window title and class).  
+"exe" = by process name,   
+"title" = by window (title+class),  
+"all" = ignore everything (except Load/Unload)  
