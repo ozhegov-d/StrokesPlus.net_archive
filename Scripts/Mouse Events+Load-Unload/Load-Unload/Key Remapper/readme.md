@@ -16,6 +16,11 @@ To prevent the engines from slowing down, you need to assign the Hook to the 3rd
 
 var ENGINE_INDEX = 2;  // 0=E0, 1=E1, 2=E2, 3=E3 (Max Script Pool Size=4 -> E3 is last)   
 
+**For games, use** 
+> var GLOBAL_TAP_MODE = false;
+
+and this [script](https://github.com/ozhegov-d/StrokesPlus.net_archive/tree/main/Scripts/Misc/StrokesPlus_/StrokesPlus_Disable%20StrokePlus%20(Global-App)) (to block gestures but keep load/unload)
+
 ----
 RULES format:  
  mods(Modifier keys) - ctlr/shift/alt/win  
