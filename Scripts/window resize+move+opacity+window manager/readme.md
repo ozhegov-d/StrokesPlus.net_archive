@@ -1,10 +1,13 @@
 ### Crop And Lock
+v2  
+ClickThrough  
+Window dimming on hover  
 
-https://github.com/user-attachments/assets/649a4157-e156-40d6-b110-72329654035a
-
+https://github.com/user-attachments/assets/10bf5ba8-fc53-41df-bb43-95e3aa71c3ff
 
 Crops the current window (does not create a new one).   
-To move the window, use this [script](https://github.com/ozhegov-d/StrokesPlus.net_archive/tree/main/Scripts/window%20resize%2Bmove%2Bopacity%2Bwindow%20manager#window-resizemoveopacityalways-on-topremove-window-title) (Ctrl+Click)
+To move the window, use this [script](https://github.com/ozhegov-d/StrokesPlus.net_archive/tree/main/Scripts/window%20resize%2Bmove%2Bopacity%2Bwindow%20manager#window-resizemoveopacityalways-on-topremove-window-title) (Ctrl+Click)  
+To interact with the window (when ClickThrough = true), Ctrl is used by default.
 
 > alternative  
 https://learn.microsoft.com/ru-ru/windows/powertoys/crop-and-lock  
@@ -112,6 +115,7 @@ https://github.com/user-attachments/assets/ebba4d73-0182-416b-b7b8-81719e420e6b
 Works for both hotkeys and gestures  
 First, activate the window with a mouse click, then use the hotkey (you can change the location of the windows using which window was last activated)  
 You can also choose how the windows will be positioned (vertically, horizontally, etc.)  
+
 
 
 
