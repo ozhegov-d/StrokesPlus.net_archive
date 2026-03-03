@@ -1,3 +1,22 @@
+### Focus Follows Mouse
+
+
+https://github.com/user-attachments/assets/37adc601-1fa3-470f-bec7-6f9d26f87333
+
+#### Global Actions > Load/Unload
+To enable or disable the function, use **hotkey FocusFollows on-off**
+
+To prevent windows from changing focus during gesture execution, it is necessary to  
+#### Global Actions > Settings > Before 
+> sp.StoreBool("FFBlockActivate", true); 
+
+#### Global Actions > Settings > After
+> sp.StoreBool("FFBlockActivate", false);
+
+This is also implemented in the code itself.  
+> if (sp.IsButtonDown(MouseButtons.Left)) return; // When the left button is held, do not change the focus
+
+---------------------------------------------------------------------------------------------------------
 ### Crop And Lock
 v2  
 ClickThrough  
@@ -115,6 +134,7 @@ https://github.com/user-attachments/assets/ebba4d73-0182-416b-b7b8-81719e420e6b
 Works for both hotkeys and gestures  
 First, activate the window with a mouse click, then use the hotkey (you can change the location of the windows using which window was last activated)  
 You can also choose how the windows will be positioned (vertically, horizontally, etc.)  
+
 
 
 
