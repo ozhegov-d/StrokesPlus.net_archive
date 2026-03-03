@@ -1,0 +1,199 @@
+;(function(){
+  try { if (typeof sp === "undefined") return; } catch (e) { if (typeof sp !== "undefined") sp.ConsoleLog("FF load catch: " + e, "FF", System.Drawing.Color.Red); return; }
+
+  var INTERVAL_MS = 50;   // activation delay = one tick (~50 ms)
+  var KEY_TIMER = "FocusFollowsTimer";
+  var FF_MODAL_CHECK_ENABLED = false;   // Prevent activation of the main window when a modal window is active (e.g., delete confirmation).
+  var FF_MODAL_MAX_PERCENT = 20;       // 20 = 20%. The foreground (fg) window is treated as modal, and focus is not taken if its area is less than this percentage of the main window area.
+  var FF_DEBUG = false;                // log
+  // Windows in the list are neither tracked nor activated. Multiple applications: comma-separated; spaces are trimmed ("textextractor, notepad").
+  var FF_IGNORE_EXECUTABLES = "";  // exe names, case is not important
+  var FF_IGNORE_TITLE_CONTAINS = "TextExtractor";  // title
+  var FF_IGNORE_STRICT = false;  // false = If focus is on an ignored window, hovering over another window will activate it; true = Do not activate any window while focus remains on the ignored window (full isolation).
+
+  if (typeof __spEngineWrapper === "undefined" || typeof sp.EngineList === "undefined") return;
+  if (__spEngineWrapper.Engine.Name !== sp.EngineList().Last().Engine.Name) return;
+
+  sp.StoreBool("FocusFollowsEnabled", true);
+  sp.StoreNumber("FocusFollowsIntervalMs", INTERVAL_MS);
+  sp.StoreBool("FFModalCheckEnabled", FF_MODAL_CHECK_ENABLED);
+  sp.StoreNumber("FFModalMaxPercent", FF_MODAL_MAX_PERCENT);
+  sp.StoreBool("FFDebug", FF_DEBUG);
+  sp.StoreString("FFIgnoreExecutables", FF_IGNORE_EXECUTABLES || "");
+  sp.StoreString("FFIgnoreTitleContains", FF_IGNORE_TITLE_CONTAINS || "");
+  sp.StoreBool("FFIgnoreStrict", FF_IGNORE_STRICT);
+  var timerScript = String.raw`
+    (function(){
+      try { if (typeof sp === "undefined") return; } catch (e) { if (typeof sp !== "undefined") sp.ConsoleLog("FF timer sp: " + e, "FF", System.Drawing.Color.Red); return; }
+      var focusFollowsEnabled = sp.GetStoredBool("FocusFollowsEnabled");
+      var now = (new Date()).getTime();
+      var intervalMs = sp.GetStoredNumber("FocusFollowsIntervalMs") || 50;
+      var lastProcessedTick = sp.GetStoredNumber("FFLastProcessedTick") || 0;
+      if (focusFollowsEnabled === false) return;
+      if (now - lastProcessedTick < intervalMs * 0.5) return;
+      sp.StoreNumber("FFLastProcessedTick", now);
+      if (sp.GetStoredBool("FFBlockActivate") === true) return; // to prevent focus switching during gesture execution (for before/after)
+      var debug = sp.GetStoredBool("FFDebug");
+      var listExe = (sp.GetStoredString("FFIgnoreExecutables") || "").toLowerCase();
+      var listTitle = (sp.GetStoredString("FFIgnoreTitleContains") || "").toLowerCase();
+      var partsExe = listExe ? listExe.split(',') : [];
+      var partsTitle = listTitle ? listTitle.split(',') : [];
+      var ignoredCache = {};
+      var isIgnored = function(win) {
+        if (!win) return { ignore: false };
+        var k = win.HWnd ? win.HWnd.ToString() : "";
+        if (k && ignoredCache[k] !== undefined) return ignoredCache[k];
+        try {
+          var exe = (win.ExecutableName || (win.Process && win.Process.MainModule ? win.Process.MainModule.ModuleName : "") || "").toLowerCase();
+          var title = (win.Title || "").toLowerCase();
+          var res = { ignore: false };
+          for (var i = 0; i < partsExe.length; i++) { var p = partsExe[i].trim(); if (p && exe.indexOf(p) >= 0) { res = { ignore: true, by: "exe" }; break; } }
+          if (!res.ignore) { for (var j = 0; j < partsTitle.length; j++) { var q = partsTitle[j].trim(); if (q && title.indexOf(q) >= 0) { res = { ignore: true, by: "title" }; break; } } }
+          if (k) ignoredCache[k] = res;
+          return res;
+        } catch (e) { return { ignore: false }; }
+      };
+      var logIgnore = function(kind, win, by) {
+        if (!debug || !win) return;
+        var key = kind + "_" + (win.HWnd ? win.HWnd.ToString() : "");
+        var lastKey = sp.GetStoredString("FFLastIgnoreKey");
+        var lastT = sp.GetStoredNumber("FFLastIgnoreTime") || 0;
+        if (key === lastKey && now - lastT < 2000) return;
+        sp.StoreString("FFLastIgnoreKey", key);
+        sp.StoreNumber("FFLastIgnoreTime", now);
+        sp.ConsoleLog("FF IGNORE " + kind + " (by " + by + "): " + (win.Title || win.ExecutableName || win.HWnd), "FF", System.Drawing.Color.Gray);
+      };
+      try {
+        var pt = sp.GetCurrentMousePoint();
+        if (sp.IsButtonDown(MouseButtons.Left)) return; // When the left button is held, do not change the focus
+        var lastX = sp.GetStoredNumber("FFLastPtX");
+        var lastY = sp.GetStoredNumber("FFLastPtY");
+        var lastFg = sp.GetStoredObject("FFLastFgHwnd");
+        var fg;
+        if (lastX === pt.X && lastY === pt.Y) {
+          fg = sp.ForegroundWindow();
+          if (lastFg != null && fg && fg.HWnd && fg.HWnd.Equals(lastFg)) return;
+        } else {
+          fg = sp.ForegroundWindow();
+        }
+        sp.StoreNumber("FFLastPtX", pt.X);
+        sp.StoreNumber("FFLastPtY", pt.Y);
+        sp.StoreObject("FFLastFgHwnd", fg && fg.HWnd ? fg.HWnd : null);
+
+        var lastRect = sp.GetStoredRectangle("FFLastRect");
+        var ptFarOutside = lastRect && (pt.X < lastRect.Left - 50 || pt.X > lastRect.Right + 50 || pt.Y < lastRect.Top - 50 || pt.Y > lastRect.Bottom + 50);
+        if (!ptFarOutside) {
+        var rect = sp.GetStoredRectangle("FocusFollowsTrackedRect");
+        if (rect && rect.Contains(pt)) {
+          sp.StoreRectangle("FFLastRect", rect);
+          var modalCheckEnabled = sp.GetStoredBool("FFModalCheckEnabled") !== false;
+          var modalPercent = sp.GetStoredNumber("FFModalMaxPercent"); if (modalPercent == null || isNaN(modalPercent)) modalPercent = 20;
+          var blockUntil = sp.GetStoredNumber("FFBlockActivateUntil");
+          var ignoreStrict = sp.GetStoredBool("FFIgnoreStrict");
+          var hwnd = sp.GetStoredObject("FocusFollowsTrackedHwnd");
+          var w = sp.WindowFromHandle(hwnd);
+          if (!w) return;
+          var ignW = isIgnored(w);
+          if (ignW.ignore) {
+            if (debug) logIgnore("tracked w (clear)", w, ignW.by);
+            sp.DeleteStoredRectangle("FocusFollowsTrackedRect");
+            sp.DeleteStoredRectangle("FFLastRect");
+            sp.DeleteStoredObject("FocusFollowsTrackedHwnd");
+            return;
+          }
+          if (fg && hwnd && fg.HWnd.Equals(hwnd)) return;
+          var wndAtPt = sp.WindowFromPoint(pt, true);
+          var rootAtPt = wndAtPt ? (wndAtPt.FirstMoveableParent || wndAtPt) : null;
+          var sameOrChild = rootAtPt && (rootAtPt.HWnd.Equals(hwnd) || (rootAtPt.IsDescendantOf && rootAtPt.IsDescendantOf(w)));
+            if (!sameOrChild) {
+            if (rootAtPt && rootAtPt.Rectangle && w.Rectangle && w.Rectangle.IntersectsWith(rootAtPt.Rectangle) && !rootAtPt.Maximized) {
+              var ignRootAtPt = isIgnored(rootAtPt);
+              if (ignRootAtPt.ignore) {
+                if (debug) logIgnore("rootAtPt (no switch)", rootAtPt, ignRootAtPt.by);
+                return;
+              }
+              if (fg && !fg.HWnd.Equals(rootAtPt.HWnd) && fg.Rectangle && rootAtPt.Rectangle && rootAtPt.Rectangle.Contains(fg.Rectangle)) {
+                if (debug) sp.ConsoleLog("FF [switch] BLOCK Contains: fg inside rootAtPt", "FF", System.Drawing.Color.Orange);
+                return;
+              }
+              if (modalCheckEnabled && fg && !fg.HWnd.Equals(rootAtPt.HWnd) && fg.Rectangle && rootAtPt.Rectangle) {
+                var fgA = fg.Rectangle.Width * fg.Rectangle.Height;
+                var wA = rootAtPt.Rectangle.Width * rootAtPt.Rectangle.Height;
+                if (wA > 0 && fg.Rectangle.IntersectsWith(rootAtPt.Rectangle) && fgA < wA * (modalPercent / 100)) {
+                  if (debug) sp.ConsoleLog("FF [switch] BLOCK percent: fg<" + modalPercent + "% of rootAtPt", "FF", System.Drawing.Color.Orange);
+                  return;
+                }
+              }
+              var sr = rootAtPt.Rectangle;
+              var newR = new System.Drawing.Rectangle(sr.X - 2, sr.Y - 2, sr.Width + 4, sr.Height + 4);
+              sp.StoreRectangle("FocusFollowsTrackedRect", newR);
+              sp.StoreRectangle("FFLastRect", newR);
+              sp.StoreObject("FocusFollowsTrackedHwnd", rootAtPt.HWnd);
+              if (!(blockUntil && now < blockUntil)) {
+                if (ignoreStrict) { var ignFg = isIgnored(fg); if (ignFg.ignore) return; }
+                if (debug) sp.ConsoleLog("FF [switch] ACTIVATE rootAtPt " + (rootAtPt.Title || rootAtPt.HWnd), "FF", System.Drawing.Color.Lime);
+                sp.SendVKey(vk.F13); sp.Sleep(3); try { rootAtPt.Activate(); } catch (e) {}
+              }
+            }
+            return;
+          }
+          if (!w.Maximized) {
+            try {
+              if (fg && !fg.HWnd.Equals(hwnd) && fg.Rectangle && w.Rectangle && w.Rectangle.Contains(fg.Rectangle)) {
+                if (debug) sp.ConsoleLog("FF [main] BLOCK Contains: fg inside w", "FF", System.Drawing.Color.Orange);
+                return;
+              }
+              if (modalCheckEnabled && fg && !fg.HWnd.Equals(hwnd) && fg.Rectangle && w.Rectangle) {
+                var modalRatio = modalPercent / 100;
+                var fgArea = fg.Rectangle.Width * fg.Rectangle.Height;
+                var wArea = w.Rectangle.Width * w.Rectangle.Height;
+                if (wArea > 0 && fg.Rectangle.IntersectsWith(w.Rectangle) && fgArea < wArea * modalRatio) {
+                  if (debug) sp.ConsoleLog("FF [main] BLOCK percent: fg<" + modalPercent + "% of w", "FF", System.Drawing.Color.Orange);
+                  return;
+                }
+              }
+            } catch (e) { sp.ConsoleLog("FF catch (modal check): " + e, "FF", System.Drawing.Color.Red); }
+            if (blockUntil && now < blockUntil) return;
+            if (ignoreStrict) { var ignFg = isIgnored(fg); if (ignFg.ignore) return; }
+            if (debug) sp.ConsoleLog("FF [main] ACTIVATE w " + (w.Title || w.HWnd) + " fgRect=" + (fg && fg.Rectangle ? fg.Rectangle.X + "," + fg.Rectangle.Y + " " + fg.Rectangle.Width + "x" + fg.Rectangle.Height : "?") + " wRect=" + (w.Rectangle ? w.Rectangle.Width + "x" + w.Rectangle.Height : "?"), "FF", System.Drawing.Color.Lime);
+            sp.SendVKey(vk.F13); sp.Sleep(3);
+            w.Activate();
+          }
+          return;
+        }
+        }
+        sp.DeleteStoredRectangle("FocusFollowsTrackedRect");
+        sp.DeleteStoredRectangle("FFLastRect");
+        sp.DeleteStoredObject("FocusFollowsTrackedHwnd");
+        var scr = Screen.FromPoint(pt);
+        if (!scr || !scr.Bounds.Contains(pt)) return;
+        var wnd = sp.WindowFromPoint(pt, true);
+        if (!wnd || !wnd.HWnd) return;
+        var root = wnd.FirstMoveableParent || wnd;
+        if (!root || root.Maximized) return;
+        var ignRoot = isIgnored(root);
+        if (ignRoot.ignore) {
+          if (debug) logIgnore("root (no track)", root, ignRoot.by);
+          return;
+        }
+        var r = root.Rectangle;
+        if (!r || r.Width < 20 || r.Height < 20) return;
+        if ((root.Title || "").trim().length === 0) return;
+        var trackRect = new System.Drawing.Rectangle(r.X - 2, r.Y - 2, r.Width + 4, r.Height + 4);
+        if (fg && fg.HWnd.Equals(root.HWnd)) {
+          sp.StoreRectangle("FocusFollowsTrackedRect", trackRect);
+          sp.StoreRectangle("FFLastRect", trackRect);
+          sp.StoreObject("FocusFollowsTrackedHwnd", root.HWnd);
+          return;
+        }
+        sp.StoreRectangle("FocusFollowsTrackedRect", trackRect);
+        sp.StoreRectangle("FFLastRect", trackRect);
+        sp.StoreObject("FocusFollowsTrackedHwnd", root.HWnd);
+      } catch (err) { sp.ConsoleLog("FF catch: " + err, "FF", System.Drawing.Color.Red); }
+    })();
+  `;
+  sp.StoreString("FocusFollowsTimerScript", timerScript);
+  sp.DeleteTimer(KEY_TIMER);
+  sp.CreateTimer(KEY_TIMER, INTERVAL_MS, 1, timerScript);
+})();
+
