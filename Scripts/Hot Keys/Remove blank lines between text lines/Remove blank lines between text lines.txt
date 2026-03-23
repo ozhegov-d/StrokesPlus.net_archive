@@ -1,0 +1,53 @@
+
+// Remove empty lines (and whitespace-only lines) inside selected text.
+
+var clipboardBackup = "";
+var hadClipboardText = false;
+
+try {
+    hadClipboardText = clip.ContainsText();
+    if (hadClipboardText) {
+        clipboardBackup = clip.GetText() || "";
+    }
+} catch (e) {
+    hadClipboardText = false;
+    clipboardBackup = "";
+}
+
+// Copy current selection
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+sp.Sleep(40);
+
+var selectedText = "";
+try {
+    selectedText = clip.GetText() || "";
+} catch (e) {
+    selectedText = "";
+}
+
+if (selectedText !== "") {
+    var normalized = selectedText
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n");
+
+    var lines = normalized.split("\n");
+    var hasBlankLines = lines.some(function (line) {
+        return line.trim() === "";
+    });
+
+    if (hasBlankLines) {
+        var cleaned = lines
+            .filter(function (line) { return line.trim() !== ""; })
+            .join("\r\n");
+
+        clip.SetText(cleaned);
+        sp.Sleep(20);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+        sp.Sleep(40);
+    }
+}
+
+// Restore previous clipboard content
+if (hadClipboardText) {
+    clip.SetText(clipboardBackup);
+}
