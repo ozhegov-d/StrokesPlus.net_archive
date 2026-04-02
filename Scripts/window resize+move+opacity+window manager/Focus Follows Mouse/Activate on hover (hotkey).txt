@@ -1,0 +1,62 @@
+/*
+  Windows docs (SystemParametersInfo + SPI_* constants):
+  https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow#parameters
+*/
+
+// 0x1001 — hover over a window activates it
+var WIN_SPI_ENABLE_HOVER_ACTIVATE = true;
+
+// 0x100D — apply the “bring window to top” setting; if false, OS keeps the previous value
+var WIN_SPI_APPLY_ZORDER_SETTING = true;
+// 0x100D — bring window to top on hover-activate
+var WIN_SPI_RAISE_WINDOW_ON_HOVER_ACTIVATE = false;
+
+// 0x2003 — delay before activate, ms (0 … 2500)
+var WIN_SPI_HOVER_ACTIVATE_DELAY_MS = 50;
+
+// sp.DisplayText: background 
+var WIN_SPI_TOAST_BACK_ON = "black";
+var WIN_SPI_TOAST_BACK_OFF = "black";
+// --------------------------------------------------------------------
+
+var SPI_SETACTIVEWINDOWTRACKING = 0x1001;
+var SPI_SETACTIVEWNDTRKZORDER = 0x100D;
+var SPI_SETACTIVEWNDTRKTIMEOUT = 0x2003;
+var fWinIniSpi = 0x01 | 0x02;
+
+if (!NativeModules.User32SPI) {
+  var UInt32T = host.typeOf(clr.System.UInt32);
+  var BooleanT = host.typeOf(clr.System.Boolean);
+  var IntPtrTSpi = host.typeOf(clr.System.IntPtr);
+  var spiTb = sp.NativeModule().DefineType("User32SPI", "Class,Public,SequentialLayout,Serializable");
+  spiTb.DefinePInvokeMethod("SystemParametersInfo", "user32.dll", [UInt32T, UInt32T, IntPtrTSpi, UInt32T], BooleanT, "PreserveSig");
+  spiTb.Create();
+}
+
+var nowOn = !sp.GetStoredBool("WinSpiMouseHoverActivateOn");
+sp.StoreBool("WinSpiMouseHoverActivateOn", nowOn);
+
+var enableTrack = nowOn && WIN_SPI_ENABLE_HOVER_ACTIVATE;
+var d = WIN_SPI_HOVER_ACTIVATE_DELAY_MS;
+if (d < 0) d = 0;
+if (d > 2500) d = 2500;
+
+try {
+  NativeModules.User32SPI.SystemParametersInfo(SPI_SETACTIVEWINDOWTRACKING, 0, new IntPtr(enableTrack ? 1 : 0), fWinIniSpi);
+  if (enableTrack && WIN_SPI_APPLY_ZORDER_SETTING) {
+    NativeModules.User32SPI.SystemParametersInfo(SPI_SETACTIVEWNDTRKZORDER, 0, new IntPtr(WIN_SPI_RAISE_WINDOW_ON_HOVER_ACTIVATE ? 1 : 0), fWinIniSpi);
+    NativeModules.User32SPI.SystemParametersInfo(SPI_SETACTIVEWNDTRKTIMEOUT, 0, new IntPtr(d), fWinIniSpi);
+  }
+} catch (e) {
+  sp.ConsoleLog("hotkey only activate SPI: " + e, "WinSPI", System.Drawing.Color.Red);
+}
+
+var info = new DisplayTextInfo();
+info.Message = nowOn ? "Windows: hover activates window — ON" : "Windows: hover activates window — OFF";
+info.BackColor = nowOn ? WIN_SPI_TOAST_BACK_ON : WIN_SPI_TOAST_BACK_OFF;
+info.ForeColor = nowOn ? "orange" : "white";
+info.Duration = 1500;
+info.Location = "bottom";
+info.Opacity = 0.9;
+info.MessageFont = new Font("Segoe UI", 18, host.flags(FontStyle.Bold));
+sp.DisplayText(info);

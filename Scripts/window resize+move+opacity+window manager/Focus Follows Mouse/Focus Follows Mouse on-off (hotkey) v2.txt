@@ -1,0 +1,21 @@
+ var on = sp.GetStoredBool("FocusFollowsEnabled");
+ sp.StoreBool("FocusFollowsEnabled", !on);
+ if (on) {
+   sp.DeleteTimer("FocusFollowsTimer");
+} else {
+  var interval = sp.GetStoredNumber("FocusFollowsIntervalMs");
+  if (interval == null || isNaN(interval)) interval = 50;
+  var script = sp.GetStoredString("FocusFollowsTimerScript");
+  if (script && script.trim().length > 0) {
+    sp.CreateTimer("FocusFollowsTimer", interval, 1, script);
+  } else {
+    sp.StoreBool("FocusFollowsEnabled", false);
+  }
+ }
+ var info = new DisplayTextInfo();
+ info.Message = on ? "Focus follows mouse: OFF" : "Focus follows mouse: ON";
+ info.Duration = 1500;
+ info.Location = "bottom";
+ info.Opacity = 0.9;
+ info.MessageFont = new Font("Segoe UI", 18, host.flags(FontStyle.Bold));
+ sp.DisplayText(info);
