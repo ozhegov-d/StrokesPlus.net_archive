@@ -1,5 +1,12 @@
 ### Focus Follows Mouse
+> v2  
+Update Global Actions > Settings > Before:  
++classname, mousebuttons, FF_START_ENABLED, etc.  
++New script: Activate on hover (independent of Focus Follows Mouse)  
 
+>The main difference is how RAISE_WINDOW_ON_HOVER_ACTIVATE works:  
+Activate on hover — matches the default Windows behavior.  
+Focus Follows Mouse — offers more advanced RAISE_WINDOW options.  
 
 https://github.com/user-attachments/assets/37adc601-1fa3-470f-bec7-6f9d26f87333
 
@@ -8,13 +15,11 @@ To enable or disable the function, use **hotkey FocusFollows on-off**
 
 To prevent windows from changing focus during gesture execution, it is necessary to  
 #### Global Actions > Settings > Before 
-> sp.StoreBool("FFBlockActivate", true); 
+> sp.StoreBool("FFBlockActivate", true);  
+sp.StoreNumber("FFBlockActivateTime", (new Date()).getTime());
 
 #### Global Actions > Settings > After
 > sp.StoreBool("FFBlockActivate", false);
-
-This is also implemented in the code itself.  
-> if (sp.IsButtonDown(MouseButtons.Left)) return; // When the left button is held, do not change the focus
 
 ---------------------------------------------------------------------------------------------------------
 ### Crop And Lock
