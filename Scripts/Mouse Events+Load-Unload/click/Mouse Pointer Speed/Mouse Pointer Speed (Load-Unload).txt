@@ -1,0 +1,136 @@
+(function () {
+  var HOLD_KEY = vk.LMENU; // alt
+
+  var MOUSE_SPEED_WHILE_HELD = 20;
+// While held: "enhance pointer precision". 
+// "keep" — leave the setting unchanged (as before the hold); "off"/"on" = (0,0,0) or (6,10,1) - enable/disable setting.
+  var POINTER_PRECISION_WHILE_HELD = "keep";
+  var SPI_WRITE_USER_PROFILE = false;
+
+  var SPIF_UPDATEINIFILE = 0x01;
+  var SPIF_SENDCHANGE = 0x02;
+  var SPI_FLAGS_SAVE = SPI_WRITE_USER_PROFILE ? SPIF_UPDATEINIFILE | SPIF_SENDCHANGE : SPIF_SENDCHANGE;
+  var SPI_GETMOUSE = 0x0003;
+  var SPI_SETMOUSE = 0x0004;
+  var SPI_GETMOUSESPEED = 0x0070;
+  var SPI_SETMOUSESPEED = 0x0071;
+  var STORE_SAVED_SPEED = "MouseSpeedHoldKey_Saved";
+  var STORE_SAVED_MOUSE_T1 = "MouseSpeedHoldKey_SavedT1";
+  var STORE_SAVED_MOUSE_T2 = "MouseSpeedHoldKey_SavedT2";
+  var STORE_SAVED_MOUSE_S = "MouseSpeedHoldKey_SavedS";
+  var STORE_BOOST_ACTIVE = "MouseSpeedHoldKey_BoostActive";
+  var STORE_PRECISION_MODE = "MouseSpeedHoldKey_PrecMode";
+  var STORE_HOOK = "MouseSpeedHoldKey_KeyboardHook";
+
+  if (!NativeModules.MouseSpeedSPI) {
+    var UInt32T = host.typeOf(clr.System.UInt32);
+    var BooleanT = host.typeOf(clr.System.Boolean);
+    var IntPtrT = host.typeOf(clr.System.IntPtr);
+    var userTB = sp.NativeModule().DefineType("MouseSpeedSPI", "Class,Public,SequentialLayout,Serializable");
+    userTB.DefinePInvokeMethod("SystemParametersInfo", "user32.dll", [UInt32T, UInt32T, IntPtrT, UInt32T], BooleanT, "PreserveSig");
+    userTB.Create();
+  }
+  var Marshal = clr.System.Runtime.InteropServices.Marshal;
+  function clampSpeed(n) {
+    if (n < 1) return 1;
+    if (n > 20) return 20;
+    return n;
+  }
+  function readMouseSpeedSpi() {
+    var ptr = Marshal.AllocHGlobal(4);
+    try {
+      Marshal.WriteInt32(ptr, 0);
+      NativeModules.MouseSpeedSPI.SystemParametersInfo(SPI_GETMOUSESPEED, 0, ptr, 0);
+      return Marshal.ReadInt32(ptr);
+    } finally {
+      Marshal.FreeHGlobal(ptr);
+    }
+  }
+  function writeMouseSpeedSpi(speed) {
+    var v = clampSpeed(speed);
+    var ip = new clr.System.IntPtr(v);
+    return NativeModules.MouseSpeedSPI.SystemParametersInfo(SPI_SETMOUSESPEED, 0, ip, SPI_FLAGS_SAVE);
+  }
+  function readMouseTriple() {
+    var ptr = Marshal.AllocHGlobal(12);
+    try {
+      for (var o = 0; o < 12; o += 4) Marshal.WriteInt32(ptr, o, 0);
+      NativeModules.MouseSpeedSPI.SystemParametersInfo(SPI_GETMOUSE, 0, ptr, 0);
+      return [Marshal.ReadInt32(ptr, 0), Marshal.ReadInt32(ptr, 4), Marshal.ReadInt32(ptr, 8)];
+    } finally {
+      Marshal.FreeHGlobal(ptr);
+    }
+  }
+  function writeMouseTriple(t1, t2, s) {
+    var ptr = Marshal.AllocHGlobal(12);
+    try {
+      Marshal.WriteInt32(ptr, 0, t1);
+      Marshal.WriteInt32(ptr, 4, t2);
+      Marshal.WriteInt32(ptr, 8, s);
+      return NativeModules.MouseSpeedSPI.SystemParametersInfo(SPI_SETMOUSE, 0, ptr, SPI_FLAGS_SAVE);
+    } finally {
+      Marshal.FreeHGlobal(ptr);
+    }
+  }
+  function precisionModeKey() {
+    return ("" + POINTER_PRECISION_WHILE_HELD).toLowerCase();
+  }
+  function applyPrecisionWhileHeld() {
+    var m = precisionModeKey();
+    if (m === "off") writeMouseTriple(0, 0, 0);
+    else if (m === "on") writeMouseTriple(6, 10, 1);
+  }
+  function applyBoost() {
+    if (sp.GetStoredBool(STORE_BOOST_ACTIVE)) return;
+    var tripleBefore = readMouseTriple();
+    sp.StoreNumber(STORE_SAVED_MOUSE_T1, tripleBefore[0]);
+    sp.StoreNumber(STORE_SAVED_MOUSE_T2, tripleBefore[1]);
+    sp.StoreNumber(STORE_SAVED_MOUSE_S, tripleBefore[2]);
+    var before = readMouseSpeedSpi();
+    sp.StoreNumber(STORE_SAVED_SPEED, before);
+    sp.StoreBool(STORE_BOOST_ACTIVE, true);
+    sp.StoreString(STORE_PRECISION_MODE, precisionModeKey());
+    writeMouseSpeedSpi(clampSpeed(MOUSE_SPEED_WHILE_HELD));
+    applyPrecisionWhileHeld();
+  }
+  function restoreBoost() {
+    if (!sp.GetStoredBool(STORE_BOOST_ACTIVE)) return;
+    var saved = sp.GetStoredNumber(STORE_SAVED_SPEED);
+    if (saved < 1 || saved > 20) saved = 10;
+    writeMouseSpeedSpi(saved);
+    var prec = sp.GetStoredString(STORE_PRECISION_MODE);
+    if (prec !== "keep") {
+      writeMouseTriple(
+        sp.GetStoredNumber(STORE_SAVED_MOUSE_T1),
+        sp.GetStoredNumber(STORE_SAVED_MOUSE_T2),
+        sp.GetStoredNumber(STORE_SAVED_MOUSE_S)
+      );
+    }
+    sp.StoreBool(STORE_BOOST_ACTIVE, false);
+  }
+  var lastEngineOk = true;
+  try {
+    if (typeof __spEngineWrapper !== "undefined" && sp.EngineList && sp.EngineList().Count > 0) {
+      lastEngineOk = __spEngineWrapper.Engine.Name === sp.EngineList().Last().Engine.Name;
+    }
+  } catch (e) {
+    lastEngineOk = true;
+  }
+  if (!lastEngineOk) return;
+  try {
+    sp.DeleteStoredObject(STORE_HOOK);
+  } catch (eDel) {}
+  var keyboardEvent = KeyboardHook.OnKeyboardHookEventAsync.connect(function (sender, ev) {
+    try {
+      if (ev.Key !== HOLD_KEY || ev.Injected) return;
+      if (ev.KeyState === KeyState.Down) {
+        if (sp.GetStoredBool(STORE_BOOST_ACTIVE)) return;
+        applyBoost();
+      } else if (ev.KeyState === KeyState.Up) {
+        if (!sp.GetStoredBool(STORE_BOOST_ACTIVE)) return;
+        restoreBoost();
+      }
+    } catch (e0) {}
+  });
+  sp.StoreObject(STORE_HOOK, keyboardEvent);
+})();
