@@ -1,0 +1,653 @@
+// SETTINGS
+var copyPosition = 'down'; // up
+var enableCopy   = true;   // Copy button
+var enableSwap   = true;
+var enablePin    = true;   // Pin: when on, focus lost (click outside) does not close the form
+var ESC_ON_SAME_CLIP = true; // Esc, if the clipboard has not changed (or is empty)
+var CLIP_WAIT_MS = 120;      // Max wait (ms) for copied text
+var maxTextLength = 2500;    // Max text length
+
+var DEBUG_LOGS = false;
+
+/*
+English (en), Russian (ru), German (de), French (fr) , Spanish (es) , Portuguese (pt), Portuguese Brazil (pt-BR) ,Portuguese Portugal (pt-PT)
+Italian (it),Chinese Simplified (zh-Hans),Chinese Traditional (zh-Hant),Japanese (ja),Korean (ko),Arabic (ar),Turkish (tr),Hindi (hi)
+Ukrainian (uk),Polish (pl),Dutch (nl), Vietnamese (vi),Thai (th),Indonesian (id)
+*/
+var sourceLanguage = 'auto';
+// Translate to:
+var targetLanguage = 'ru';
+// If source is (zh-Hans) > translate to (en)
+var targetLanguageIfSourceIsTarget = 'en';  // function isTextInLanguage(text, lang) {
+
+// Dictionary mode:
+// true -For a single word, dictionary + examples are called
+// false - translate only
+var enableDictionaryMode = true;
+// If not 'auto', force this language as dictionary "from" (lookup).
+var dictionarySourceLanguage = 'auto';
+
+// true  = dictionary source = detected.language from the translate response (which the API considers to be the language of the text). score is ignored.
+
+// false = if score >= dictionaryDetectMinScore — dictionary SOURCE language = same detected.language as translate;
+//           if the score is LESS than the threshold, then in turn:
+//           (1) the word is similar to the Latin alphabet (regex) → for dict from=en;
+//           (2) otherwise there is the Cyrillic alphabet → from=ru;
+//           (3) Otherwise, the language code from translate remains (even if the score is low).
+
+var dictionaryUseTranslateDetectedLang = false;
+
+// Used only when dictionaryUseTranslateDetectedLang === false. Range 0..1.
+var dictionaryDetectMinScore = 0.54;
+// Max selection length (chars including spaces) for dictionary mode; longer text -> translate only.
+var dictionaryMaxChars = 50;
+// Max popup width in dictionary mode (px). 0 = no limit.
+var dictionaryPopupMaxWidth = 0;
+var dictionaryPivotLanguage = "en"; // Default language if the native language for the dictionary is not found
+
+var dictionarySwapPasteTranslationOnly = true;
+// true - Swap pastes only the translate line (plain translation),not the full dictionary block.
+// false - Swap pastes the same text as shown (full output).
+
+var preserveSlashCommentsOnSwap = true; // do not clip excess on swap (if the original clipboard had //)
+
+if (typeof __translateHttpClient === "undefined") {
+  var handler = new HttpClientHandler();
+  handler.AutomaticDecompression = host.flags(
+    System.Net.DecompressionMethods.GZip,
+    System.Net.DecompressionMethods.Deflate
+  );
+  __translateHttpClient = new HttpClient(handler);
+  __translateHttpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+  __translateHttpClient.Timeout = clr.System.TimeSpan.FromSeconds(10);
+  __translateToken = null;
+  __translateTokenExp = null;
+}
+
+(function(){
+  var _logStart = Date.now();
+  var Drawing = clr.System.Drawing;
+
+  function log(msg, label, color) {
+    if (!DEBUG_LOGS) return;
+    sp.ConsoleLog("[" + (Date.now() - _logStart) + "ms] " + msg, label || "TranslateDict", color || null);
+  }
+  function error(msg, label) {
+    sp.ConsoleError("[" + (Date.now() - _logStart) + "ms] " + msg, label || "TranslateDict");
+  }
+
+  function decodeJWTExp(token) {
+    try {
+      var parts = token.split('.');
+      if (parts.length !== 3) return null;
+      var base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) base64 += '=';
+      var bytes = clr.System.Convert.FromBase64String(base64);
+      var payloadJson = clr.System.Text.Encoding.UTF8.GetString(bytes);
+      var payload = JSON.parse(payloadJson);
+      if (payload.exp) return payload.exp * 1000;
+    } catch(e) {}
+    return null;
+  }
+  function resetToken() {
+    __translateToken = null;
+    __translateTokenExp = null;
+  }
+  function getTranslateToken() {
+    var now = Date.now();
+    if (__translateToken) {
+      if (DEBUG_LOGS) {
+        if (__translateTokenExp) {
+          var remainingSec = Math.floor((__translateTokenExp - now) / 1000);
+          if (remainingSec > 0) {
+            log("Using cached token (~" + Math.floor(remainingSec / 60) + "m " + (remainingSec % 60) + "s left)", "Auth");
+          } else {
+            log("Using cached token (JWT exp " + Math.abs(Math.floor(remainingSec / 60)) + "m ago, may still work until API returns 401)", "Auth");
+          }
+        } else {
+          log("Using cached token (exp unknown)", "Auth");
+        }
+      }
+      return __translateToken;
+    }
+    try {
+      if (DEBUG_LOGS) log("Requesting new token...", "Auth", Drawing.Color.Orange);
+      var res = __translateHttpClient.GetAsync("https://edge.microsoft.com/translate/auth").Result;
+      if (!res.IsSuccessStatusCode) { resetToken(); return null; }
+      var token = res.Content.ReadAsStringAsync().Result.trim();
+      if (!token || token.length < 100) { resetToken(); return null; }
+      __translateToken = token;
+      __translateTokenExp = decodeJWTExp(token);
+      if (DEBUG_LOGS) {
+        if (__translateTokenExp) {
+          var validSec = Math.floor((__translateTokenExp - now) / 1000);
+          log("Got new token, valid ~" + validSec + "s", "Auth", Drawing.Color.Orange);
+        } else {
+          log("Got new token (exp unknown)", "Auth", Drawing.Color.Orange);
+        }
+      }
+      return token;
+    } catch(e) {
+      error("Token fetch failed: " + e.message, "Auth");
+      resetToken();
+      return null;
+    }
+  }
+
+  function isUnauthorizedResponse(res) {
+    try { return res.StatusCode.ToString() === "Unauthorized"; } catch(e) { return false; }
+  }
+  function isAuthFailureError(e) {
+    if (!e) return false;
+    var m = String(e.message || "");
+    if (m === "Unauthorized") return true;
+    if (/^HTTP\s+Unauthorized\b/i.test(m)) return true;
+    if (/^HTTP\s*401\b/i.test(m)) return true;
+    return false;
+  }
+  function isInvalidLangPairError(e) {
+    var m = String(e && e.message ? e.message : "");
+    return /400023|language pair is not valid/i.test(m);
+  }
+
+  // Copy selected text
+  var _prevClip = "";
+  try { _prevClip = clip.GetText() || ""; } catch(_) {}
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+
+  var _newClip = "", src = "", t = 0, step = 8;
+  while (t < CLIP_WAIT_MS) {
+    sp.Sleep(step); t += step;
+    try { _newClip = clip.GetText() || ""; } catch(_) {}
+    if (_newClip !== _prevClip) {
+      src = _newClip.trim();
+      if (src) break;
+    }
+  }
+  var isTooLong = src.length > maxTextLength;
+  if (!src || (_newClip === _prevClip && ESC_ON_SAME_CLIP) || isTooLong) {
+    if (isTooLong) { try { clip.SetText(_prevClip); } catch(e) {} }
+    if (ESC_ON_SAME_CLIP) sp.SendVKey(vk.ESCAPE);
+    return;
+  }
+
+  function isTextInLanguage(text, lang) {
+    switch(lang) {
+      case 'ru': return /[а-яё]/i.test(text);
+      case 'en': return /[a-z]/i.test(text) && !/[а-яё\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7a3\u0600-\u06ff]/i.test(text);
+      case 'zh': case 'zh-Hans': case 'zh-Hant': return /[\u4e00-\u9fff]/i.test(text);
+      case 'ja': return /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]/i.test(text);
+      case 'ko': return /[\uac00-\ud7a3]/i.test(text);
+      case 'ar': return /[\u0600-\u06ff]/i.test(text);
+      default: return false;
+    }
+  }
+  function countWords(text) {
+    var m = text.match(/[^\s]+/g);
+    return m ? m.length : 0;
+  }
+  function shouldUseDictionary(text) {
+    if (!enableDictionaryMode) return false;
+    if (text.length > dictionaryMaxChars) return false;
+    if (/[.!?;\n]/.test(text)) return false;
+    return countWords(text) === 1;
+  }
+  function normalizeDictLang(lang) {
+    if (!lang) return null;
+    var base = String(lang).split("-")[0];
+    if (base === "zh") return "zh-Hans";
+    return base;
+  }
+  function guessDictSourceLang(text, detectedObj) {
+    if (dictionarySourceLanguage && dictionarySourceLanguage !== "auto") {
+      return normalizeDictLang(dictionarySourceLanguage);
+    }
+    if (sourceLanguage !== "auto") return normalizeDictLang(sourceLanguage);
+    var dLang = detectedObj && detectedObj.language ? detectedObj.language : null;
+    var dScore = detectedObj && typeof detectedObj.score === "number" ? detectedObj.score : 0;
+    var d = normalizeDictLang(dLang);
+    if (dictionaryUseTranslateDetectedLang && d) {
+      if (DEBUG_LOGS) log("Dictionary source: " + d + " (same as translate detection, score=" + dScore + ")", "Dictionary");
+      return d;
+    }
+    if (d && dScore >= dictionaryDetectMinScore) return d;
+    if (/^[A-Za-z][A-Za-z'\- ]*$/.test(text)) {
+      if (DEBUG_LOGS) log("Dictionary source: en (score " + dScore + " < " + dictionaryDetectMinScore + ", Latin heuristic)", "Dictionary");
+      return "en";
+    }
+    if (/[а-яё]/i.test(text)) return "ru";
+    return d;
+  }
+
+  var isSourceInTargetLanguage = isTextInLanguage(src, targetLanguage);
+  var tl = isSourceInTargetLanguage ? targetLanguageIfSourceIsTarget : targetLanguage;
+  var fromLang = sourceLanguage === "auto" ? null : sourceLanguage;
+  var useDict = shouldUseDictionary(src);
+  if (DEBUG_LOGS) log("Source text len=" + src.length + ", useDict=" + useDict + ", target=" + tl, "Engine");
+
+  var token = getTranslateToken();
+  if (!token) return;
+  function applyBearerToken(tok) {
+    __translateHttpClient.DefaultRequestHeaders.Authorization =
+      new clr.System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tok);
+  }
+  applyBearerToken(token);
+
+  function runWith401Retry(label, fn) {
+    try {
+      return fn();
+    } catch (e) {
+      if (!isAuthFailureError(e)) throw e;
+      if (DEBUG_LOGS) log("401 — token refresh and retry (" + label + ")...", "Auth", Drawing.Color.Orange);
+      resetToken();
+      token = getTranslateToken();
+      if (!token) throw e;
+      applyBearerToken(token);
+      return fn();
+    }
+  }
+
+  function createContent(obj) {
+    return new clr.System.Net.Http.StringContent(
+      JSON.stringify(obj),
+      clr.System.Text.Encoding.UTF8,
+      "application/json"
+    );
+  }
+
+  function debugApiLog(name, url, payloadForLog, res, body, bodyMaxLen) {
+    if (!DEBUG_LOGS) return;
+    var cap = bodyMaxLen == null ? 800 : bodyMaxLen;
+    log(name + " URL: " + url, "API");
+    if (payloadForLog != null) log(name + " payload: " + JSON.stringify(payloadForLog), "API");
+    if (res != null) {
+      try { log(name + " status: " + res.StatusCode.ToString(), "API"); } catch(_) {}
+    }
+    if (body != null) {
+      var bs = String(body);
+      log(name + " response: " + (bs.length > cap ? bs.substring(0, cap) + "..." : bs), "API");
+    }
+  }
+
+  function parseDetectedFromTranslate(json) {
+    try {
+      var d = json[0] && json[0].detectedLanguage ? json[0].detectedLanguage : null;
+      return {
+        language: d && d.language ? d.language : null,
+        score: d && typeof d.score === "number" ? d.score : 0
+      };
+    } catch(e) {
+      return { language: null, score: 0 };
+    }
+  }
+
+  function doTranslateRequest() {
+    var url = "https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=" + tl;
+    if (fromLang) url += "&from=" + fromLang;
+    var payload = [{ Text: src }];
+    var res = __translateHttpClient.PostAsync(url, createContent(payload)).Result;
+    var body = res.Content.ReadAsStringAsync().Result;
+    debugApiLog("Translate", url, [{ Text: src.length > 200 ? (src.substring(0, 200) + "...") : src }], res, body, 800);
+    if (!res.IsSuccessStatusCode) {
+      if (isUnauthorizedResponse(res)) throw new Error("Unauthorized");
+      throw new Error("HTTP " + res.StatusCode.ToString() + ": " + body);
+    }
+    var json = JSON.parse(body);
+    var translated = json[0] && json[0].translations && json[0].translations[0] ? json[0].translations[0].text : null;
+    return { translation: translated ? translated.trim() : null, detected: parseDetectedFromTranslate(json) };
+  }
+
+  function doDictionaryLookup(fromCode, forcedPivot) {
+    var dictFromCode = normalizeDictLang(fromCode);
+    var dictToCode = getDictionaryTarget(dictFromCode, forcedPivot);
+    var url = "https://api.cognitive.microsofttranslator.com/dictionary/lookup?api-version=3.0&from=" + dictFromCode + "&to=" + dictToCode;
+    var payload = [{ Text: src }];
+    var res = __translateHttpClient.PostAsync(url, createContent(payload)).Result;
+    var body = res.Content.ReadAsStringAsync().Result;
+    debugApiLog("Dictionary lookup", url, payload, res, body, 1200);
+    if (!res.IsSuccessStatusCode) {
+      if (isUnauthorizedResponse(res)) throw new Error("Unauthorized");
+      throw new Error("HTTP " + res.StatusCode.ToString() + ": " + body);
+    }
+    return { data: JSON.parse(body), from: dictFromCode, to: dictToCode };
+  }
+
+  function doDictionaryExamples(fromCode, toCode, normalizedSource, normalizedTarget) {
+    var url = "https://api.cognitive.microsofttranslator.com/dictionary/examples?api-version=3.0&from=" + normalizeDictLang(fromCode) + "&to=" + normalizeDictLang(toCode);
+    var req = [{ Text: normalizedSource || src, Translation: normalizedTarget }];
+    var res = __translateHttpClient.PostAsync(url, createContent(req)).Result;
+    var body = res.Content.ReadAsStringAsync().Result;
+    debugApiLog("Dictionary examples", url, req, res, body, 1200);
+    if (!res.IsSuccessStatusCode) {
+      if (isUnauthorizedResponse(res)) throw new Error("Unauthorized");
+      return null;
+    }
+    try { return JSON.parse(body); } catch(e) { return null; }
+  }
+
+  function getDictionaryTarget(dictFromCode, forcedPivot) {
+    var to = normalizeDictLang(tl);
+    var pivot = forcedPivot != null && String(forcedPivot) !== ""
+      ? (normalizeDictLang(forcedPivot) || "en")
+      : (normalizeDictLang(dictionaryPivotLanguage || "en") || "en");
+    if (dictFromCode !== pivot && to !== pivot) return pivot;
+    if (dictFromCode === to) return pivot;
+    return to;
+  }
+
+  function formatDictionaryText(lookupJson, examplesJson, fallbackTranslation, sourceText, translateFrom, translateTo, dictFrom, dictTo) {
+    function cleanSentence(s) {
+      return String(s || "").replace(/\s+/g, " ").trim();
+    }
+    var lines = [];
+    if (fallbackTranslation) {
+      var tFrom = translateFrom || "auto";
+      var tTo = translateTo || tl;
+      var samePair = dictFrom && dictTo && (String(dictFrom) === String(tFrom)) && (String(dictTo) === String(tTo));
+      var dictPair = (!samePair && dictFrom && dictTo) ? (", dict (" + dictFrom + " -> " + dictTo + ")") : "";
+      lines.push(sourceText + " - " + fallbackTranslation + " (" + tFrom + " -> " + tTo + ")" + dictPair, "");
+    }
+    // Fallback when lookup has no translations: keep translate header line or plain tr only.
+    if (!lookupJson || !lookupJson[0] || !lookupJson[0].translations || lookupJson[0].translations.length === 0) {
+      if (lines.length) return lines.join("\n").trim();
+      return fallbackTranslation || "";
+    }
+    var entry = lookupJson[0];
+    lines.push("Dictionary:");
+    var maxItems = Math.min(5, entry.translations.length);
+    for (var i = 0; i < maxItems; i++) {
+      var t = entry.translations[i];
+      var pos = t.pos ? (" [" + t.pos + "]") : "";
+      var conf = (typeof t.confidence === "number") ? (" (" + Math.round(t.confidence * 100) + "%)") : "";
+      lines.push((i + 1) + ". " + t.displayTarget + pos + conf);
+      if (t.backTranslations && t.backTranslations.length) {
+        var backs = [];
+        for (var j = 0; j < Math.min(3, t.backTranslations.length); j++) backs.push(t.backTranslations[j].displayText);
+        lines.push("   <- " + backs.join(", "));
+      }
+    }
+
+    if (examplesJson && examplesJson[0] && examplesJson[0].examples && examplesJson[0].examples.length) {
+      lines.push("", "Examples:");
+      for (var k = 0; k < Math.min(3, examplesJson[0].examples.length); k++) {
+        var ex = examplesJson[0].examples[k];
+        lines.push("- " + cleanSentence((ex.sourcePrefix || "") + (ex.sourceTerm || "") + (ex.sourceSuffix || "")));
+        lines.push("  " + cleanSentence((ex.targetPrefix || "") + (ex.targetTerm || "") + (ex.targetSuffix || "")));
+      }
+    }
+    return lines.join("\n");
+  }
+
+  var output = null;
+  var outputIsDictionary = false;
+  var tr = null;
+  try {
+    var base = runWith401Retry("translate", doTranslateRequest);
+    tr = base.translation;
+    var detected = base.detected;
+    var trFrom = normalizeDictLang(fromLang || (detected && detected.language) || "auto");
+    var trTo = normalizeDictLang(tl);
+    var dictUsed = false;
+
+    var dictFrom = guessDictSourceLang(src, detected);
+    // Dictionary only if guessed source language differs from translate target (tl).
+    if (useDict && dictFrom && dictFrom !== tl) {
+      try {
+        var lookupRes = runWith401Retry("dictionary lookup", function() {
+          try {
+            return doDictionaryLookup(dictFrom);
+          } catch (eLook) {
+            if (isAuthFailureError(eLook)) throw eLook;
+            if (!isInvalidLangPairError(eLook)) throw eLook;
+            var pivotCfg = normalizeDictLang(dictionaryPivotLanguage || "en") || "en";
+            if (pivotCfg === "en") throw eLook;
+            if (DEBUG_LOGS) log("Dictionary: invalid language pair (400023), retry lookup with pivot=en", "Dictionary", Drawing.Color.Orange);
+            return doDictionaryLookup(dictFrom, "en");
+          }
+        });
+        var lookup = lookupRes.data;
+        var dictTo = lookupRes.to;
+        var normalizedSource = lookup && lookup[0] ? lookup[0].normalizedSource : src;
+        var normalizedTarget = (lookup && lookup[0] && lookup[0].translations && lookup[0].translations[0]) ? lookup[0].translations[0].normalizedTarget : null;
+        var examples = null;
+        if (normalizedTarget) {
+          try {
+            examples = runWith401Retry("dictionary examples", function() {
+              return doDictionaryExamples(dictFrom, dictTo, normalizedSource, normalizedTarget);
+            });
+          } catch (exErr) {
+            if (DEBUG_LOGS) log("Dictionary examples failed: " + exErr.message, "Dictionary", Drawing.Color.Orange);
+          }
+        }
+        var normDictFrom = normalizeDictLang(dictFrom);
+        var normDictTo = normalizeDictLang(dictTo);
+        if (DEBUG_LOGS) log("Dictionary pair: " + normDictFrom + " -> " + normDictTo, "Dictionary");
+        var hasDictEntries = lookup && lookup[0] && lookup[0].translations && lookup[0].translations.length > 0;
+        if (hasDictEntries) {
+          var dictText = formatDictionaryText(lookup, examples, tr, src, trFrom, trTo, normDictFrom, normDictTo);
+          if (dictText) {
+            output = dictText;
+            dictUsed = true;
+            outputIsDictionary = true;
+          }
+        }
+      } catch(dictErr) {
+        if (isAuthFailureError(dictErr)) {
+          error("Dictionary auth failed after token refresh", "Engine");
+        } else {
+          if (DEBUG_LOGS) log("Dictionary failed, fallback to translate: " + dictErr.message, "Dictionary", Drawing.Color.Orange);
+        }
+      }
+    }
+    if (!dictUsed) output = tr;
+  } catch(e) {
+    error("Translation exception: " + e.message, "Engine");
+  } finally {
+    __translateHttpClient.DefaultRequestHeaders.Authorization = null;
+  }
+
+  if (!output) return;
+
+  function wrapFast(txt, len) {
+    if (!txt || txt.length <= len) return txt.trim();
+    var res = [], i = 0, j, k;
+    while (i < txt.length) {
+      j = i + len;
+      if (j >= txt.length) { res.push(txt.substring(i).trim()); break; }
+      k = txt.lastIndexOf(" ", j);
+      if (k <= i) k = j;
+      res.push(txt.substring(i, k).trim());
+      i = k + 1;
+    }
+    return res.join("\n");
+  }
+  // In dictionary mode:
+  // - if dictionaryPopupMaxWidth > 0, keep moderate wrapping (readable column)
+  // - if dictionaryPopupMaxWidth == 0, avoid forced narrow wrap
+  var wrapLen = outputIsDictionary
+    ? (dictionaryPopupMaxWidth > 0 ? 42 : 120)
+    : (22 + Math.min(45, Math.floor(output.length / 6)));
+  var body = (outputIsDictionary && dictionaryPopupMaxWidth === 0) ? output : wrapFast(output, wrapLen);
+  if (!body) return;
+  if (DEBUG_LOGS) log("Output chars=" + body.length + ", dictionary=" + outputIsDictionary, "Engine");
+
+  function swapTextPreserveLineSlashComments(original, translated) {
+    var a = String(original).split(/\r?\n/);
+    var b = String(translated).split(/\r?\n/);
+    if (a.length !== b.length) return translated;
+    var re = /^(\s*)\/\/\s?(.*)$/;
+    var out = [];
+    for (var i = 0; i < a.length; i++) {
+      var m = a[i].match(re);
+      if (m) {
+        var t = String(b[i] == null ? "" : b[i]).replace(/^\s*\/\/\s?/, "").trim();
+        out.push(m[1] + "// " + t);
+      } else {
+        out.push(b[i]);
+      }
+    }
+    return out.join("\r\n");
+  }
+  function clipboardTextForSwap() {
+    if (outputIsDictionary && dictionarySwapPasteTranslationOnly && tr != null && String(tr).length) {
+      return String(tr);
+    }
+    if (outputIsDictionary || !preserveSlashCommentsOnSwap || !src) return output;
+    var merged = swapTextPreserveLineSlashComments(src, output);
+    return merged != null ? merged : output;
+  }
+
+  // UI
+  var Forms = clr.System.Windows.Forms;
+  var f = new Forms.Form(), lbl = new Forms.Label();
+  f.FormBorderStyle = Forms.FormBorderStyle.None;
+  f.BackColor = Drawing.Color.Black;
+  f.Opacity = 0.85;
+  f.TopMost = true;
+  f.ShowInTaskbar = false;
+  f.AutoSize = true;
+  f.AutoSizeMode = Forms.AutoSizeMode.GrowAndShrink;
+  f.Padding = new Forms.Padding(10);
+
+  lbl.AutoSize = true;
+  lbl.Text = body;
+  if (outputIsDictionary && dictionaryPopupMaxWidth > 0) {
+    lbl.MaximumSize = new Drawing.Size(dictionaryPopupMaxWidth, 0);
+    if (DEBUG_LOGS) log("Dictionary popup max width=" + dictionaryPopupMaxWidth, "UI");
+  }
+  lbl.ForeColor = Drawing.Color.White;
+  lbl.Font = new Drawing.Font("Segoe UI Semibold", 12);
+  f.Controls.Add(lbl);
+
+  function createButton(text, onClick) {
+    var btn = new Forms.Button();
+    btn.Text = text;
+    btn.AutoSize = true;
+    btn.FlatStyle = Forms.FlatStyle.Flat;
+    btn.BackColor = Drawing.Color.White;
+    btn.ForeColor = Drawing.Color.Black;
+    btn.Click.connect(onClick);
+    f.Controls.Add(btn);
+    return btn;
+  }
+  function positionButtons(btnCopy, btnSwap, btnPin, copyPos) {
+    var rowH = function() {
+      return Math.max(
+        btnCopy ? btnCopy.PreferredSize.Height : 0,
+        btnSwap ? btnSwap.PreferredSize.Height : 0,
+        btnPin ? btnPin.PreferredSize.Height : 0
+      );
+    };
+    var y = f.Padding.All, x = f.Padding.All;
+    if (copyPos === 'up') {
+      if (btnCopy) { btnCopy.Location = new Drawing.Point(x, y); x += btnCopy.PreferredSize.Width + 5; }
+      if (btnSwap) { btnSwap.Location = new Drawing.Point(x, y); x += btnSwap.PreferredSize.Width + 5; }
+      if (btnPin) { btnPin.Location = new Drawing.Point(x, y); }
+      y += rowH() + 5;
+      lbl.Location = new Drawing.Point(f.Padding.All, y);
+    } else {
+      lbl.Location = new Drawing.Point(f.Padding.All, y);
+      y += lbl.PreferredSize.Height + 5;
+      x = f.Padding.All;
+      if (btnCopy) { btnCopy.Location = new Drawing.Point(x, y); x += btnCopy.PreferredSize.Width + 5; }
+      if (btnSwap) { btnSwap.Location = new Drawing.Point(x, y); x += btnSwap.PreferredSize.Width + 5; }
+      if (btnPin) { btnPin.Location = new Drawing.Point(x, y); }
+    }
+  }
+
+  var btnCopy, btnSwap, btnPin;
+  var pinHeld = { on: false };
+  var deactivateCloseTimer = null;
+  function formIsPinned() { return pinHeld.on === true; }
+  function syncPinButtonText() { if (btnPin) btnPin.Text = formIsPinned() ? "Unpin" : "Pin"; }
+  function controlIsButton(s, btn) {
+    if (!s || !btn) return false;
+    try { return s.Equals(btn); } catch(_) { return s === btn; }
+  }
+  if (enableCopy || enableSwap || enablePin) {
+    if (enableCopy) btnCopy = createButton("Copy", function(){ clip.SetText(output); f.Close(); });
+    if (enableSwap) {
+      btnSwap = createButton("Swap", function(){
+        f.Hide(); clip.SetText(clipboardTextForSwap()); sp.Sleep(20);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]); f.Close();
+      });
+    }
+    if (enablePin) {
+      btnPin = createButton("Pin", function(){
+        pinHeld.on = !pinHeld.on;
+        syncPinButtonText();
+        try {
+          f.TopMost = true;
+          f.BringToFront();
+          f.Activate();
+        } catch(_) {}
+      });
+    }
+    positionButtons(btnCopy, btnSwap, btnPin, copyPosition);
+  } else {
+    lbl.Location = new Drawing.Point(f.Padding.All, f.Padding.All);
+  }
+
+  var dragging = false, sx = 0, sy = 0;
+  function md(s,e){
+    if (e.Button !== Forms.MouseButtons.Left) return;
+    if (controlIsButton(s, btnCopy) || controlIsButton(s, btnSwap) || controlIsButton(s, btnPin)) return;
+    dragging = true;
+    sx = e.X;
+    sy = e.Y;
+  }
+  function mm(s,e){ if(dragging){ var p=f.Location; f.Location=new Drawing.Point(p.X+e.X-sx, p.Y+e.Y-sy); } }
+  function mu(s,e){ if(e.Button===Forms.MouseButtons.Left) dragging=false; }
+  [f, lbl, btnCopy, btnSwap, btnPin].forEach(function(c){
+    if (c) {
+      c.MouseDown.connect(md); c.MouseMove.connect(mm); c.MouseUp.connect(mu);
+      c.DoubleClick.connect(function(){ if (!formIsPinned()) f.Close(); });
+    }
+  });
+  f.KeyPreview = true;
+  f.KeyDown.connect(function(s,e){ if(e.KeyCode===Forms.Keys.Escape && !formIsPinned()) f.Close(); });
+  f.Deactivate.connect(function(){
+    if (formIsPinned()) return;
+    if (deactivateCloseTimer) {
+      try { deactivateCloseTimer.Stop(); deactivateCloseTimer.Dispose(); } catch(_) {}
+      deactivateCloseTimer = null;
+    }
+    var t = new Forms.Timer();
+    t.Interval = 200;
+    deactivateCloseTimer = t;
+    t.Tick.connect(function(){
+      deactivateCloseTimer = null;
+      try { t.Stop(); t.Dispose(); } catch(_) {}
+      try {
+        if (formIsPinned()) return;
+        if (!f.Visible) return;
+        if (f.ContainsFocus) return;
+        if (Forms.Form.ActiveForm === f) return;
+        f.Close();
+      } catch(_) {}
+    });
+    t.Start();
+  });
+  f.Shown.connect(function(){
+    f.BringToFront(); f.Activate();
+    try { sp.WindowFromHandle(f.Handle).Activate(); } catch(e) {}
+    try {
+      // Keep popup fully visible inside current screen working area
+      var screen = Forms.Screen.FromPoint(sp.GetCurrentMousePoint());
+      var wa = screen.WorkingArea;
+      var x = f.Location.X, y = f.Location.Y;
+      if (x < wa.Left) x = wa.Left;
+      if (y < wa.Top) y = wa.Top;
+      if (x + f.Width > wa.Right) x = wa.Right - f.Width;
+      if (y + f.Height > wa.Bottom) y = wa.Bottom - f.Height;
+      if (x < wa.Left) x = wa.Left;
+      if (y < wa.Top) y = wa.Top;
+      f.Location = new Drawing.Point(x, y);
+    } catch(_) {}
+  });
+
+  var pt = sp.GetCurrentMousePoint();
+  f.StartPosition = Forms.FormStartPosition.Manual;
+  f.Location = new Drawing.Point(pt.X + 20, pt.Y + (wrapLen < 30 ? -40 : -150));
+  f.ShowDialog();
+})();
