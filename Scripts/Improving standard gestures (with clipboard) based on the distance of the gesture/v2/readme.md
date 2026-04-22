@@ -45,21 +45,7 @@ All the same as in strict mode, plus: if at least one window of a process was un
 If you have the Options → General → Always Activate Window Where Gesture Began setting enabled,  
 And so, when we restore windows, the focus will return to the window where the gesture began rather than the one that was actually active.  
 To avoid this:  
-Uncheck the Always Activate Window Where Gesture Began option.  
-
-Add the following code in Settings → Before Action.  
-This will still activate the window under your gesture, but will be ignored by this script.  
-```
-if (action.ActionName === "minimize v2") { // Write the name of the window-minimizing script here.  
-    var focusWin = sp.ForegroundWindow();  
-} else {  
-    var startWin = sp.WindowFromPoint(  
-        new Point(Math.round(action.Start.X), Math.round(action.Start.Y)),  
-        true);  
-    if (startWin && startWin.IsValid()) {  
-        try {startWin.Activate();  
-        } catch (e) {}}}  
-```
+use this [script](https://github.com/ozhegov-d/StrokesPlus.net_archive/blob/main/Scripts/for%20StrokesPlus/readme.md) 
 
 https://github.com/user-attachments/assets/a7ef9a92-b964-4507-b56d-e76aa5caa341
 
