@@ -1,0 +1,808 @@
+function closeOldResultsForm() {
+    try {
+        var oldForm = sp.GetStoredObject("searchResultsForm");
+        if (oldForm) oldForm.Close();
+    } catch (e) {}
+}
+
+// Left panel width percent (e.g. 40 => 40/60)
+var SEARCH_RESULTS_LEFT_PANEL_PERCENT = 40;
+
+function highlightTextInRichBox(rtb, query) {
+    if (!rtb || !query) return;
+    var color = clr.System.Drawing.Color;
+    var q = String(query).trim();
+    if (!q) return;
+    var escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    var regex = new RegExp(escaped, 'gi');
+    var text = String(rtb.Text || '');
+    var m;
+    while ((m = regex.exec(text)) !== null) {
+        rtb.Select(m.index, m[0].length);
+        rtb.SelectionBackColor = color.Yellow;
+        rtb.SelectionColor = color.Black;
+        if (m.index === regex.lastIndex) regex.lastIndex++;
+    }
+    rtb.Select(0, 0);
+}
+
+function collectSearchResults(res, contextLines) {
+    var cMsg = [];
+    var ctxNum = parseInt(contextLines, 10);
+    var CONTEXT_LINES_COUNT = (isNaN(ctxNum) || ctxNum < 0) ? 1 : Math.min(10, ctxNum);
+
+    function escapeRegExp(s) {
+        return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    var searchRegex = new RegExp(escapeRegExp(res).replace(/\s+/g, '\\s*'), 'gi');
+
+    function collectContext(scriptLines, lineIdx, contextLinesCount) {
+        var context = [];
+        for (var j = contextLinesCount; j > 0; j--) {
+            var prevIdx = lineIdx - j;
+            if (prevIdx >= 0) {
+                var prevLine = scriptLines[prevIdx].trimLeft();
+                if (prevLine) context.push((prevIdx + 1) + ': ' + prevLine);
+            }
+        }
+        context.push((lineIdx + 1) + ': ' + scriptLines[lineIdx]);
+        for (var j2 = 1; j2 <= contextLinesCount; j2++) {
+            var nextIdx = lineIdx + j2;
+            if (nextIdx < scriptLines.length) {
+                var nextLine = scriptLines[nextIdx].trimLeft();
+                if (nextLine) context.push((nextIdx + 1) + ': ' + nextLine);
+            }
+        }
+        return context.join('\n');
+    }
+
+    function searchInScript(scriptText, path, sectionLabel, category, actionName, contextLinesCount) {
+        if (!scriptText || !scriptText.trim()) return null;
+        contextLinesCount = contextLinesCount === undefined ? CONTEXT_LINES_COUNT : contextLinesCount;
+        var scriptLines = scriptText.split('\n');
+        var matchCount = 0, allContext = [], matchLines = [];
+        for (var lineIdx = 0; lineIdx < scriptLines.length; lineIdx++) {
+            var line = scriptLines[lineIdx].trimLeft();
+            if (!line.match(searchRegex)) continue;
+            matchCount++;
+            matchLines.push(lineIdx);
+        }
+        if (matchCount === 0) return null;
+
+        var groups = [];
+        var mergeGap = contextLinesCount * 2 + 1;
+        for (var mi = 0; mi < matchLines.length; mi++) {
+            var idx = matchLines[mi];
+            if (groups.length === 0) {
+                groups.push({ start: idx, end: idx });
+                continue;
+            }
+            var g = groups[groups.length - 1];
+            if ((idx - g.end) <= mergeGap) {
+                g.end = idx;
+            } else {
+                groups.push({ start: idx, end: idx });
+            }
+        }
+
+        for (var gi = 0; gi < groups.length; gi++) {
+            var gg = groups[gi];
+            var from = Math.max(0, gg.start - contextLinesCount);
+            var to = Math.min(scriptLines.length - 1, gg.end + contextLinesCount);
+            var block = [];
+            for (var li = from; li <= to; li++) {
+                var raw = scriptLines[li];
+                var trimmed = String(raw).trimLeft();
+                if (li < gg.start || li > gg.end) {
+                    if (!trimmed) continue;
+                }
+                block.push((li + 1) + ': ' + raw);
+            }
+            if (block.length > 0) allContext.push(block.join('\n'));
+        }
+        return {
+            mainPart: sectionLabel,
+            category: category || '',
+            action: actionName + ' (' + matchCount + ' match' + (matchCount > 1 ? 'es' : '') + ')',
+            context: 'Path: ' + path + '\n' + allContext.join('\n\n')
+        };
+    }
+
+    function searchInText(textContent, path, sectionLabel, category, actionName) {
+        if (!textContent || !textContent.trim()) return null;
+        if (!textContent.match(searchRegex)) return null;
+        return {
+            mainPart: sectionLabel,
+            category: category || '',
+            action: actionName,
+            context: 'Path: ' + path + '\nText: ' + textContent
+        };
+    }
+
+    function searchInList(items, count, pathPrefix, sectionLabel, sectionKey, sectionSubKey, getScript, getCategory, getActionName, getActive) {
+        for (var i = 0; i < count; i++) {
+            var item = items[i];
+            var script = getScript(item, i);
+            if (!script || !String(script).trim()) continue;
+            var result = searchInScript(script, pathPrefix + '[' + i + '].Script', sectionLabel, getCategory(item, i), getActionName(item, i));
+            if (result) {
+                result.sectionKey = sectionKey;
+                if (sectionSubKey != null) result.sectionSubKey = sectionSubKey;
+                if (typeof getActive === 'function') result.isActive = (getActive(item, i) === true);
+                cMsg.push(result);
+            }
+        }
+    }
+
+    function searchInBeforeAfter(app, appIndex, sectionLabel, sectionKey) {
+        var pathPrefix = appIndex !== null ? 'sp_config.Applications[' + appIndex + ']' : 'sp_config.GlobalApplication';
+        for (var at = 0; at < 2; at++) {
+            var actionType = at === 0 ? 'BeforeAction' : 'AfterAction';
+            var result = searchInScript(app[actionType] && app[actionType].Script, pathPrefix + '.' + actionType + '.Script', sectionLabel, 'Settings', actionType.replace('Action', ' Action'));
+            if (result) { result.sectionKey = sectionKey; result.sectionSubKey = 'settings'; if (app[actionType] && app[actionType].Active === true) result.isActive = true; cMsg.push(result); }
+        }
+    }
+
+    function searchInTextExpansions(textExpansions, pathPrefix, sectionLabel, sectionKey) {
+        if (!textExpansions) return;
+        for (var i = 0; i < textExpansions.Count; i++) {
+            var te = textExpansions[i];
+            if (!te || !te.Text) continue;
+            var textResult = searchInText(te.Text, pathPrefix + '.TextExpansions[' + i + '].Text', sectionLabel, te.Category ? 'Text Expansion - ' + te.Category : 'Text Expansion', te.Description || String(i));
+            if (textResult) { textResult.sectionKey = sectionKey; textResult.sectionSubKey = 'text'; if (te.Active === true) textResult.isActive = true; cMsg.push(textResult); }
+        }
+    }
+
+    function searchInEvents(events, sectionLabel, categoryPrefix, sectionKey, sectionSubKey) {
+        for (var i = 0; i < events.length; i++) {
+            var evt = events[i];
+            if (!evt.obj || !evt.obj.Script) continue;
+            var category = categoryPrefix && evt.category ? categoryPrefix + ' - ' + evt.category : (categoryPrefix || evt.category || '');
+            var result = searchInScript(evt.obj.Script, 'sp_config.' + evt.name + '.Script', sectionLabel, category, evt.name);
+            if (result) { result.sectionKey = sectionKey; result.sectionSubKey = sectionSubKey; if (evt.obj.Active === true) result.isActive = true; cMsg.push(result); }
+        }
+    }
+
+    searchInList(sp_config.GlobalApplication.Actions, sp_config.GlobalApplication.Actions.Count, 'sp_config.GlobalApplication.Actions', 'Global Actions - Action List', 'global', 'actionlist', function(a, i) { return a.Script; }, function(a, i) { return a.Category || ''; }, function(a, i) { return a.Description || ''; }, function(a, i) { return a.Active; });
+    searchInTextExpansions(sp_config.GlobalApplication.TextExpansions, 'sp_config.GlobalApplication', 'Global Actions', 'global');
+    searchInBeforeAfter(sp_config.GlobalApplication, null, 'Global Actions', 'global');
+    var mouseEvents = [
+        { obj: sp_config.LeftClickAction, name: 'LeftClickAction', category: 'Left Click' },
+        { obj: sp_config.MiddleClickAction, name: 'MiddleClickAction', category: 'Middle Click' },
+        { obj: sp_config.RightClickAction, name: 'RightClickAction', category: 'Right Click' },
+        { obj: sp_config.X1ClickAction, name: 'X1ClickAction', category: 'X1 Click' },
+        { obj: sp_config.X2ClickAction, name: 'X2ClickAction', category: 'X2 Click' },
+        { obj: sp_config.VerticalWheelTickAction, name: 'VerticalWheelTickAction', category: 'Vertical Wheel' },
+        { obj: sp_config.HorizontalWheelTickAction, name: 'HorizontalWheelTickAction', category: 'Horizontal Wheel' },
+        { obj: sp_config.StrokeReleaseAction, name: 'StrokeReleaseAction', category: 'Release' },
+        { obj: sp_config.NoMatchAction, name: 'NoMatchAction', category: 'No Match' }
+    ];
+    searchInEvents(mouseEvents, 'Global Actions', 'Mouse Events', 'global', 'mouse');
+    searchInEvents([{ obj: sp_config.OnLoadAction, name: 'OnLoadAction', category: 'Load' }, { obj: sp_config.OnCloseAction, name: 'OnCloseAction', category: 'Unload' }], 'Global Actions', 'Load/Unload', 'global', 'loadunload');
+    searchInEvents([{ obj: sp_config.DeviceChangeAction, name: 'DeviceChangeAction', category: 'Device Changed' }], 'Global Actions', 'Hardware Events', 'global', 'hardware');
+    searchInEvents([{ obj: sp_config.WindowFocusAction, name: 'WindowFocusAction', category: '' }], 'Global Actions', 'Window Events', 'global', 'window');
+
+    for (var appIdx = 0; appIdx < sp_config.Applications.Count; appIdx++) {
+        var currentApp = sp_config.Applications[appIdx];
+        searchInList(currentApp.Actions, currentApp.Actions.Count, 'sp_config.Applications[' + appIdx + '].Actions', 'Applications - ' + currentApp.Description, 'applications', 'actionlist', function(a, i) { return a.Script; }, function(a, i) { return a.Category || ''; }, function(a, i) { return a.Description || ''; }, function(a, i) { return a.Active; });
+        searchInTextExpansions(currentApp.TextExpansions, 'sp_config.Applications[' + appIdx + ']', 'Applications - ' + currentApp.Description, 'applications');
+        searchInBeforeAfter(currentApp, appIdx, 'Applications - ' + currentApp.Description, 'applications');
+    }
+
+    if (sp_config.CustomFloaters && sp_config.CustomFloaters.Count > 0) {
+        for (var i = 0; i < sp_config.CustomFloaters.Count; i++) {
+            var floater = sp_config.CustomFloaters[i];
+            var floaterName = floater.Name || 'Floater ' + i;
+            var actions = ['PressAction', 'ReleaseAction', 'EnterAction', 'HoverAction', 'LeaveAction', 'UpAction', 'RightAction', 'DownAction', 'LeftAction'];
+            for (var a = 0; a < actions.length; a++) {
+                var prop = floater[actions[a]];
+                if (!prop || !prop.Script) continue;
+                var fr = searchInScript(prop.Script, 'sp_config.CustomFloaters[' + i + '].' + actions[a] + '.Script', 'Floaters', floaterName, actions[a]);
+                if (fr) { fr.sectionKey = 'floaters'; if (prop.Active === true) fr.isActive = true; cMsg.push(fr); }
+            }
+        }
+    }
+    searchInList(sp_config.Hotkeys, sp_config.Hotkeys.Count, 'sp_config.Hotkeys', 'Hot Keys', 'hotkeys', null, function(item, i) { return item.Script; }, function(item, i) { return item.Category || ''; }, function(item, i) { return item.Description || 'Hotkey ' + i; }, function(item, i) { return item.Active; });
+    searchInList(sp_config.SavedMacros, sp_config.SavedMacros.Count, 'sp_config.SavedMacros', 'Macros', 'macros', null, function(item, i) { return item.Script; }, function(item, i) { return item.Category || ''; }, function(item, i) { return item.Name || item.Description || 'Macro ' + i; }, function(item, i) { return item.Active; });
+
+    var sectionPriority = { global: 0, applications: 1, floaters: 2, hotkeys: 3, macros: 4 };
+    var subPriority = { actionlist: 0, text: 1, settings: 2, mouse: 3, loadunload: 4, hardware: 5, window: 6 };
+    cMsg.sort(function(a, b) {
+        var ap = sectionPriority[a.sectionKey] != null ? sectionPriority[a.sectionKey] : 99;
+        var bp = sectionPriority[b.sectionKey] != null ? sectionPriority[b.sectionKey] : 99;
+        if (ap !== bp) return ap - bp;
+        var as = subPriority[a.sectionSubKey] != null ? subPriority[a.sectionSubKey] : 99;
+        var bs = subPriority[b.sectionSubKey] != null ? subPriority[b.sectionSubKey] : 99;
+        if (as !== bs) return as - bs;
+        var ac = String(a.category || '').toLowerCase();
+        var bc = String(b.category || '').toLowerCase();
+        if (ac < bc) return -1;
+        if (ac > bc) return 1;
+        var aa = String(a.action || '').toLowerCase();
+        var ba = String(b.action || '').toLowerCase();
+        if (aa < ba) return -1;
+        if (aa > ba) return 1;
+        return 0;
+    });
+
+    var totalMatches = 0;
+    for (var ti = 0; ti < cMsg.length; ti++) {
+        var mm = cMsg[ti].action.match(/\((\d+)\s*match/);
+        totalMatches += (mm && mm[1]) ? parseInt(mm[1], 10) : 1;
+    }
+
+    return { results: cMsg, totalMatches: totalMatches, contextLines: CONTEXT_LINES_COUNT };
+}
+
+function showResultsForm(cMsg, currentQuery, currentContextLines, totalMatches) {
+    var wf = clr.System.Windows.Forms;
+    var sd = clr.System.Drawing;
+    var screen = sp.ForegroundWindow().Screen.WorkingArea;
+
+    var form = new wf.Form();
+    form.Text = 'Search Results - ' + totalMatches + ' match' + (totalMatches !== 1 ? 'es' : '') + ' [' + currentQuery + ']';
+    form.StartPosition = wf.FormStartPosition.Manual;
+    form.Width = Math.max(900, Math.floor(screen.Width * 0.85));
+    form.Height = Math.max(600, Math.floor(screen.Height * 0.8));
+    form.MinimumSize = new sd.Size(900, 600);
+    form.TopMost = false;
+    form.Location = new sd.Point(
+        screen.Left + Math.floor((screen.Width - form.Width) / 2),
+        screen.Top + Math.floor((screen.Height - form.Height) / 2)
+    );
+
+    var topPanel = new wf.Panel();
+    topPanel.Dock = wf.DockStyle.Top;
+    topPanel.Height = 40;
+    topPanel.Padding = new wf.Padding(8, 8, 8, 4);
+
+    var lblContext = new wf.Label();
+    lblContext.Text = 'Context:';
+    lblContext.AutoSize = true;
+    lblContext.Location = new sd.Point(8, 12);
+
+    var cmbContext = new wf.ComboBox();
+    cmbContext.DropDownStyle = wf.ComboBoxStyle.DropDownList;
+    cmbContext.Width = 60;
+    cmbContext.Location = new sd.Point(66, 8);
+    for (var ci = 0; ci <= 10; ci++) cmbContext.Items.Add(String(ci));
+    var ctxVal = parseInt(currentContextLines, 10);
+    if (isNaN(ctxVal) || ctxVal < 0) ctxVal = 1;
+    if (ctxVal > 10) ctxVal = 10;
+    cmbContext.SelectedItem = String(ctxVal);
+
+    var txtSearch = new wf.TextBox();
+    txtSearch.Width = 260;
+    txtSearch.Location = new sd.Point(136, 8);
+    txtSearch.Text = currentQuery || '';
+
+    var btnSearch = new wf.Button();
+    btnSearch.Text = 'Search';
+    btnSearch.Width = 80;
+    btnSearch.Location = new sd.Point(404, 7);
+
+    var chkWrap = new wf.CheckBox();
+    chkWrap.Text = 'Word Wrap';
+    chkWrap.AutoSize = true;
+    chkWrap.Location = new sd.Point(492, 10);
+    chkWrap.Checked = true;
+
+    var lblInfo = new wf.Label();
+    lblInfo.AutoSize = true;
+    lblInfo.Location = new sd.Point(620, 12);
+    lblInfo.ForeColor = sd.Color.DimGray;
+    lblInfo.Text = 'Results: ' + cMsg.length + ' | Matches: ' + totalMatches;
+
+    topPanel.Controls.Add(lblContext);
+    topPanel.Controls.Add(cmbContext);
+    topPanel.Controls.Add(txtSearch);
+    topPanel.Controls.Add(btnSearch);
+    topPanel.Controls.Add(chkWrap);
+    topPanel.Controls.Add(lblInfo);
+
+    var mainSections = [
+        { key: 'global', label: 'Global Actions' },
+        { key: 'applications', label: 'Applications' },
+        { key: 'floaters', label: 'Floaters' },
+        { key: 'hotkeys', label: 'Hot Keys' },
+        { key: 'macros', label: 'Macros' }
+    ];
+    var subSections = [
+        { key: 'actionlist', label: 'Action List' },
+        { key: 'text', label: 'Text' },
+        { key: 'settings', label: 'Settings' },
+        { key: 'mouse', label: 'Mouse' },
+        { key: 'loadunload', label: 'Load/Unload' },
+        { key: 'hardware', label: 'Hardware' },
+        { key: 'window', label: 'Window Event' }
+    ];
+    var sectionCount = {};
+    var subSectionCount = {};
+    for (var mc = 0; mc < mainSections.length; mc++) sectionCount[mainSections[mc].key] = 0;
+    for (var sc = 0; sc < subSections.length; sc++) subSectionCount[subSections[sc].key] = 0;
+    var getMatchCount = function(item) {
+        if (!item || !item.action) return 1;
+        var mm = String(item.action).match(/\((\d+)\s*match/);
+        return (mm && mm[1]) ? parseInt(mm[1], 10) : 1;
+    };
+    for (var cc = 0; cc < cMsg.length; cc++) {
+        var ri = cMsg[cc];
+        var mcnt = getMatchCount(ri);
+        if (ri.sectionKey) sectionCount[ri.sectionKey] = (sectionCount[ri.sectionKey] || 0) + mcnt;
+        if (ri.sectionSubKey) subSectionCount[ri.sectionSubKey] = (subSectionCount[ri.sectionSubKey] || 0) + mcnt;
+    }
+
+    var sectionPanelMain = new wf.FlowLayoutPanel();
+    sectionPanelMain.Dock = wf.DockStyle.Top;
+    sectionPanelMain.Height = 30;
+    sectionPanelMain.Padding = new wf.Padding(8, 2, 8, 0);
+    sectionPanelMain.WrapContents = false;
+    sectionPanelMain.AutoScroll = true;
+
+    var sectionPanelSub = new wf.FlowLayoutPanel();
+    sectionPanelSub.Dock = wf.DockStyle.Top;
+    sectionPanelSub.Height = 30;
+    sectionPanelSub.Padding = new wf.Padding(8, 0, 8, 2);
+    sectionPanelSub.WrapContents = false;
+    sectionPanelSub.AutoScroll = true;
+
+    var split = new wf.SplitContainer();
+    split.Dock = wf.DockStyle.Fill;
+    split.Orientation = wf.Orientation.Vertical;
+    split.SplitterDistance = 600;
+
+    var lv = new wf.ListView();
+    lv.Dock = wf.DockStyle.Fill;
+    lv.View = wf.View.Details;
+    lv.FullRowSelect = true;
+    lv.GridLines = true;
+    lv.HideSelection = false;
+    lv.LabelEdit = false;
+    lv.ShowItemToolTips = false;
+    lv.Columns.Add('Section', 180);
+    lv.Columns.Add('Category', 150);
+    lv.Columns.Add('Action', 400);
+
+    var leftPanel = new wf.Panel();
+    leftPanel.Dock = wf.DockStyle.Fill;
+    leftPanel.Controls.Add(lv);
+
+    var rightPanel = new wf.Panel();
+    rightPanel.Dock = wf.DockStyle.Fill;
+
+    var rtb = new wf.RichTextBox();
+    rtb.Dock = wf.DockStyle.Fill;
+    rtb.ReadOnly = true;
+    rtb.Font = new sd.Font('Consolas', 10);
+    rtb.WordWrap = true;
+    rtb.BackColor = sd.Color.White;
+    rightPanel.Controls.Add(rtb);
+
+    split.Panel1.Controls.Add(leftPanel);
+    split.Panel2.Controls.Add(rightPanel);
+
+    var itemsRef = [];
+    var previewEditor = null;
+    var lastClickedCol = 0;
+
+    var rightPanelCache = {};
+    var hoverTip = new wf.ToolTip();
+    hoverTip.AutoPopDelay = 8000;
+    hoverTip.InitialDelay = 250;
+    hoverTip.ReshowDelay = 150;
+    var lastTipText = '';
+    var lastTipX = -1;
+    var lastTipY = -1;
+
+    var updateSelectedContext = function() {
+        if (lv.SelectedIndices.Count <= 0) return;
+        var idx = lv.SelectedIndices[0];
+        if (idx == null || idx < 0) return;
+        var data = itemsRef[idx];
+        if (!data) return;
+        var prevLineCount = 0;
+        try {
+            prevLineCount = (rtb.Lines && rtb.Lines.Length) ? rtb.Lines.Length : 0;
+        } catch (ePrev) {}
+        var ctx = String(data.context || '');
+        ctx = ctx.replace(/^Path:\s.*(?:\r?\n)?/, '');
+        var q = String(txtSearch.Text || '');
+        var cacheKey = String(idx);
+        var cached = rightPanelCache[cacheKey];
+        if (cached && cached.query === q && cached.text === ctx && cached.rtf) {
+            rtb.Rtf = cached.rtf;
+        } else {
+            rtb.Text = ctx;
+            highlightTextInRichBox(rtb, q);
+            try {
+                rightPanelCache[cacheKey] = {
+                    query: q,
+                    text: ctx,
+                    rtf: rtb.Rtf
+                };
+            } catch (eCache) {}
+        }
+        try {
+            var newLineCount = (rtb.Lines && rtb.Lines.Length) ? rtb.Lines.Length : 0;
+            if (newLineCount > 0 && prevLineCount > newLineCount) {
+                rtb.SelectionStart = Math.max(0, rtb.TextLength - 1);
+                rtb.SelectionLength = 0;
+                rtb.ScrollToCaret();
+            }
+        } catch (ePos) {}
+    };
+
+    var promptFindText = function(defaultText) {
+        var ib = new InputBoxInfo();
+        ib.Title = 'Find';
+        ib.Message = 'Find text in right panel:';
+        ib.AllowDirectInput = true;
+        if (defaultText && String(defaultText).length > 0) {
+            ib.Items.Add(String(defaultText));
+            ib.SelectedValue = String(defaultText);
+        }
+        var val = sp.InputBox(ib);
+        if (val == null) return null;
+        return String(val);
+    };
+
+    var lastFindQuery = '';
+    var findNextPos = 0;
+    var doFindInRightPanel = function(findNextOnly) {
+        var q = lastFindQuery;
+        if (!findNextOnly || !q) {
+            q = promptFindText(lastFindQuery);
+            if (q == null) return;
+            q = q.trim();
+            if (!q) return;
+            lastFindQuery = q;
+            findNextPos = 0;
+        }
+        var opts = wf.RichTextBoxFinds.None;
+        var idx = rtb.Find(lastFindQuery, findNextPos, opts);
+        if (idx < 0 && findNextPos > 0) {
+            idx = rtb.Find(lastFindQuery, 0, opts);
+        }
+        if (idx >= 0) {
+            rtb.Select(idx, lastFindQuery.length);
+            rtb.ScrollToCaret();
+            findNextPos = idx + Math.max(1, lastFindQuery.length);
+            rtb.Focus();
+        } else {
+            sp.MessageBox('Text not found: ' + lastFindQuery, 'Find');
+            findNextPos = 0;
+        }
+    };
+
+    var closePreviewEditor = function() {
+        if (!previewEditor) return;
+        try {
+            lv.Controls.Remove(previewEditor);
+        } catch (e) {}
+        try {
+            previewEditor.Dispose();
+        } catch (e2) {}
+        previewEditor = null;
+    };
+
+    var startPreviewEdit = function(item, colIdx) {
+        if (!item) return;
+        if (colIdx < 0 || colIdx > 2) colIdx = 0;
+        closePreviewEditor();
+        if (!item.SubItems || item.SubItems.Count <= colIdx) return;
+        var sub = item.SubItems[colIdx];
+        var b = sub.Bounds;
+        previewEditor = new wf.TextBox();
+        previewEditor.BorderStyle = wf.BorderStyle.FixedSingle;
+        previewEditor.Text = String(sub.Text || '');
+        previewEditor.Location = new sd.Point(b.X + 1, b.Y + 1);
+        previewEditor.Size = new sd.Size(Math.max(60, b.Width - 2), Math.max(20, b.Height - 2));
+        lv.Controls.Add(previewEditor);
+        previewEditor.BringToFront();
+        previewEditor.Focus();
+        previewEditor.SelectAll();
+        previewEditor.KeyDown.connect(function(sender, e) {
+            if (e.KeyCode == wf.Keys.Enter || e.KeyCode == wf.Keys.Escape) {
+                closePreviewEditor();
+                e.SuppressKeyPress = true;
+            }
+        });
+        previewEditor.Leave.connect(function() { closePreviewEditor(); });
+    };
+
+    var mainLinks = {};
+    var subLinks = {};
+    var currentMatches = totalMatches;
+    var firstSectionIndexMap = {};
+    var firstSubIndexMap = {};
+    var doReSearch = function() {
+        var q = (txtSearch.Text || '').trim();
+        var c = parseInt(cmbContext.SelectedItem, 10);
+        if (isNaN(c) || c < 0) c = 1;
+        if (c > 10) c = 10;
+        if (!q) {
+            sp.MessageBox("Enter a search query.", "Search");
+            return;
+        }
+        var data = collectSearchResults(q, c);
+        if (data.results.length === 0) {
+            lblInfo.Text = 'Results: ' + itemsRef.length + ' | Matches: ' + currentMatches + ' | Not found: ' + q;
+            return;
+        }
+        renderResults(data.results, q, data.contextLines, data.totalMatches, false);
+    };
+
+    var jumpToFirstMatch = function(kind, key) {
+        var j = -1;
+        if (kind === 'section') j = (firstSectionIndexMap[key] != null) ? firstSectionIndexMap[key] : -1;
+        if (kind === 'sub') j = (firstSubIndexMap[key] != null) ? firstSubIndexMap[key] : -1;
+        if (j < 0 || j >= lv.Items.Count) return;
+
+        var currentIdx = (lv.SelectedIndices.Count > 0) ? lv.SelectedIndices[0] : -1;
+        if (currentIdx === j) {
+            lv.EnsureVisible(j);
+            lv.Select();
+            updateSelectedContext();
+            return;
+        }
+
+        lv.SelectedItems.Clear();
+        lv.Items[j].Selected = true;
+        lv.Items[j].Focused = true;
+        lv.EnsureVisible(j);
+        lv.Select();
+    };
+
+    var createSectionLink = function(text, count, onClick) {
+        var ln = new wf.LinkLabel();
+        ln.AutoSize = true;
+        ln.Margin = new wf.Padding(0, 4, 12, 0);
+        ln.Text = text + ' [' + count + ']';
+        if (count > 0) {
+            ln.LinkColor = sd.Color.FromArgb(0, 102, 204);
+            ln.ActiveLinkColor = sd.Color.FromArgb(0, 80, 170);
+            ln.VisitedLinkColor = ln.LinkColor;
+            ln.LinkClicked.connect(function() { onClick(); });
+        } else {
+            ln.LinkColor = sd.Color.Gray;
+            ln.ActiveLinkColor = sd.Color.Gray;
+            ln.VisitedLinkColor = sd.Color.Gray;
+            ln.Enabled = false;
+        }
+        return ln;
+    };
+
+    for (var ms = 0; ms < mainSections.length; ms++) {
+        (function(sec) {
+            var cnt = sectionCount[sec.key] || 0;
+            var link = createSectionLink(sec.label, cnt, function() {
+                jumpToFirstMatch('section', sec.key);
+            });
+            mainLinks[sec.key] = link;
+            sectionPanelMain.Controls.Add(link);
+        })(mainSections[ms]);
+    }
+
+    for (var ss = 0; ss < subSections.length; ss++) {
+        (function(sub) {
+            var cnt = subSectionCount[sub.key] || 0;
+            var link = createSectionLink(sub.label, cnt, function() {
+                jumpToFirstMatch('sub', sub.key);
+            });
+            subLinks[sub.key] = link;
+            sectionPanelSub.Controls.Add(link);
+        })(subSections[ss]);
+    }
+
+    var refreshSectionLinks = function() {
+        var secCnt = {}, subCnt = {};
+        for (var i = 0; i < mainSections.length; i++) secCnt[mainSections[i].key] = 0;
+        for (var j = 0; j < subSections.length; j++) subCnt[subSections[j].key] = 0;
+        for (var k = 0; k < itemsRef.length; k++) {
+            var it = itemsRef[k];
+            var mcnt = getMatchCount(it);
+            if (it.sectionKey) secCnt[it.sectionKey] = (secCnt[it.sectionKey] || 0) + mcnt;
+            if (it.sectionSubKey) subCnt[it.sectionSubKey] = (subCnt[it.sectionSubKey] || 0) + mcnt;
+        }
+        for (var m = 0; m < mainSections.length; m++) {
+            var msKey = mainSections[m].key;
+            var l1 = mainLinks[msKey];
+            if (!l1) continue;
+            var c1 = secCnt[msKey] || 0;
+            l1.Text = mainSections[m].label + ' [' + c1 + ']';
+            l1.Enabled = c1 > 0;
+            l1.LinkColor = c1 > 0 ? sd.Color.FromArgb(0, 102, 204) : sd.Color.Gray;
+            l1.ActiveLinkColor = c1 > 0 ? sd.Color.FromArgb(0, 80, 170) : sd.Color.Gray;
+            l1.VisitedLinkColor = l1.LinkColor;
+        }
+        for (var n = 0; n < subSections.length; n++) {
+            var ssKey = subSections[n].key;
+            var l2 = subLinks[ssKey];
+            if (!l2) continue;
+            var c2 = subCnt[ssKey] || 0;
+            l2.Text = subSections[n].label + ' [' + c2 + ']';
+            l2.Enabled = c2 > 0;
+            l2.LinkColor = c2 > 0 ? sd.Color.FromArgb(0, 102, 204) : sd.Color.Gray;
+            l2.ActiveLinkColor = c2 > 0 ? sd.Color.FromArgb(0, 80, 170) : sd.Color.Gray;
+            l2.VisitedLinkColor = l2.LinkColor;
+        }
+    };
+
+    var renderResults = function(newItems, newQuery, newCtx, newTotal, isNotFound) {
+        closePreviewEditor();
+        rightPanelCache = {};
+        itemsRef = newItems || [];
+        currentMatches = newTotal || 0;
+        txtSearch.Text = newQuery || '';
+        cmbContext.SelectedItem = String(newCtx);
+        lblInfo.Text = 'Results: ' + itemsRef.length + ' | Matches: ' + currentMatches + (isNotFound ? ' | Not found' : '');
+        form.Text = 'Search Results - ' + currentMatches + ' match' + (currentMatches !== 1 ? 'es' : '') + ' [' + (newQuery || '') + ']';
+        lv.Items.Clear();
+        firstSectionIndexMap = {};
+        firstSubIndexMap = {};
+        for (var i = 0; i < itemsRef.length; i++) {
+            var item = itemsRef[i];
+            if (item.sectionKey && firstSectionIndexMap[item.sectionKey] == null) firstSectionIndexMap[item.sectionKey] = i;
+            if (item.sectionSubKey && firstSubIndexMap[item.sectionSubKey] == null) firstSubIndexMap[item.sectionSubKey] = i;
+            var lvi = new wf.ListViewItem(item.mainPart || '');
+            lvi.SubItems.Add(item.category || '');
+            lvi.SubItems.Add(item.action || '');
+            lvi.ToolTipText = 'Section: ' + (item.mainPart || '') + '\nCategory: ' + (item.category || '') + '\nAction: ' + (item.action || '');
+            lvi.Tag = i;
+            if (item.isActive === true) {
+                lvi.Font = new sd.Font('Segoe UI', 9, sd.FontStyle.Bold);
+                lvi.ForeColor = sd.Color.FromArgb(0, 110, 40);
+            }
+            lv.Items.Add(lvi);
+        }
+        refreshSectionLinks();
+        if (itemsRef.length > 0) {
+            lv.Items[0].Selected = true;
+            lv.Select();
+            updateSelectedContext();
+        } else {
+            rtb.Text = 'No results found.';
+        }
+    };
+    lv.SelectedIndexChanged.connect(function() { updateSelectedContext(); });
+    lv.Click.connect(function() { closePreviewEditor(); updateSelectedContext(); });
+    lv.MouseDown.connect(function(sender, e) {
+        var hit = lv.HitTest(e.X, e.Y);
+        if (hit && hit.Item && hit.SubItem) {
+            var ci = hit.Item.SubItems.IndexOf(hit.SubItem);
+            lastClickedCol = ci < 0 ? 0 : ci;
+        }
+    });
+    lv.MouseMove.connect(function(sender, e) {
+        var hit = lv.HitTest(e.X, e.Y);
+        var tip = '';
+        if (hit && hit.Item && hit.SubItem) {
+            tip = String(hit.SubItem.Text || '');
+        }
+        if (!tip) {
+            hoverTip.Hide(lv);
+            lastTipText = '';
+            return;
+        }
+        if (tip !== lastTipText || Math.abs(e.X - lastTipX) > 12 || Math.abs(e.Y - lastTipY) > 12) {
+            hoverTip.Hide(lv);
+            hoverTip.Show(tip, lv, e.X + 16, e.Y + 18, 3500);
+            lastTipText = tip;
+            lastTipX = e.X;
+            lastTipY = e.Y;
+        }
+    });
+    lv.MouseLeave.connect(function() {
+        hoverTip.Hide(lv);
+        lastTipText = '';
+        lastTipX = -1;
+        lastTipY = -1;
+    });
+    lv.MouseDoubleClick.connect(function(sender, e) {
+        if (e.Button != wf.MouseButtons.Left) return;
+        var hit = lv.HitTest(e.X, e.Y);
+        if (!hit || !hit.Item || !hit.SubItem) return;
+        var colIdx = hit.Item.SubItems.IndexOf(hit.SubItem);
+        if (colIdx < 0) colIdx = 0;
+        lastClickedCol = colIdx;
+        startPreviewEdit(hit.Item, colIdx);
+    });
+    lv.KeyDown.connect(function(sender, e) {
+        if (e.KeyCode == wf.Keys.F2) {
+            if (lv.SelectedItems.Count > 0) startPreviewEdit(lv.SelectedItems[0], lastClickedCol);
+            e.SuppressKeyPress = true;
+        }
+    });
+    btnSearch.Click.connect(function() { doReSearch(); });
+    chkWrap.CheckedChanged.connect(function() { rtb.WordWrap = chkWrap.Checked; });
+    txtSearch.KeyDown.connect(function(sender, e) {
+        if (e.KeyCode == wf.Keys.Enter) {
+            doReSearch();
+            e.SuppressKeyPress = true;
+        }
+    });
+    rtb.KeyDown.connect(function(sender, e) {
+        if (e.Control && e.KeyCode == wf.Keys.F) {
+            var sel = String(rtb.SelectedText || '').trim();
+            if (sel) lastFindQuery = sel;
+            doFindInRightPanel(false);
+            e.SuppressKeyPress = true;
+        } else if (e.KeyCode == wf.Keys.F3) {
+            doFindInRightPanel(true);
+            e.SuppressKeyPress = true;
+        }
+    });
+
+    var ctxMenu = new wf.ContextMenuStrip();
+    var miCopy = new wf.ToolStripMenuItem("Copy");
+    var miSelectAll = new wf.ToolStripMenuItem("Select All");
+    var miFind = new wf.ToolStripMenuItem("Find...");
+    var miFindNext = new wf.ToolStripMenuItem("Find Next");
+    miCopy.Click.connect(function() {
+        if (rtb.SelectedText && String(rtb.SelectedText).length > 0) {
+            clip.SetText(String(rtb.SelectedText));
+        }
+    });
+    miSelectAll.Click.connect(function() { rtb.SelectAll(); });
+    miFind.Click.connect(function() {
+        var sel = String(rtb.SelectedText || '').trim();
+        if (sel) lastFindQuery = sel;
+        doFindInRightPanel(false);
+    });
+    miFindNext.Click.connect(function() { doFindInRightPanel(true); });
+    ctxMenu.Items.Add(miCopy);
+    ctxMenu.Items.Add(miSelectAll);
+    ctxMenu.Items.Add(new wf.ToolStripSeparator());
+    ctxMenu.Items.Add(miFind);
+    ctxMenu.Items.Add(miFindNext);
+    rtb.ContextMenuStrip = ctxMenu;
+    form.Shown.connect(function() {
+        var leftPercent = parseInt(SEARCH_RESULTS_LEFT_PANEL_PERCENT, 10);
+        if (isNaN(leftPercent)) leftPercent = 40;
+        if (leftPercent < 15) leftPercent = 15;
+        if (leftPercent > 85) leftPercent = 85;
+        split.SplitterDistance = Math.floor(form.ClientSize.Width * leftPercent / 100);
+        renderResults(cMsg, currentQuery, currentContextLines, totalMatches, false);
+    });
+
+    form.Controls.Add(split);
+    form.Controls.Add(sectionPanelSub);
+    form.Controls.Add(sectionPanelMain);
+    form.Controls.Add(topPanel);
+
+    sp.StoreObject("searchResultsForm", form);
+    form.ShowDialog();
+}
+
+function runSearch(initialQuery, initialContextLines, fromReSearch) {
+    if (!fromReSearch) {
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+        sp.Sleep(50);
+    }
+    var selectedText = fromReSearch ? '' : (clip.GetText() || '').trim();
+
+    var inputBoxInfo = new InputBoxInfo(), res;
+    inputBoxInfo.Title = 'Search';
+    inputBoxInfo.Message = '';
+    inputBoxInfo.AllowDirectInput = true;
+    if (selectedText && !initialQuery) {
+        inputBoxInfo.Items.Add(selectedText);
+        inputBoxInfo.SelectedValue = selectedText;
+    }
+    res = initialQuery ? String(initialQuery).trim() : sp.InputBox(inputBoxInfo);
+    if (res) res = res.trim();
+    if (!res || !res.trim()) {
+        if (!initialQuery) sp.MessageBox("Enter a search query.", "Search");
+        return;
+    }
+
+    var data = collectSearchResults(res, initialContextLines);
+    if (data.results.length === 0) {
+        sp.MessageBox('No results found.', 'Search');
+        return;
+    }
+    closeOldResultsForm();
+    showResultsForm(data.results, res, data.contextLines, data.totalMatches);
+}
+
+runSearch(null, 1);
