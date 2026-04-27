@@ -1,11 +1,10 @@
 #### StrokesPlus_Search in your Scripts
 
-v3.1  
-> Visual improvements
+HTML  
+> WebView2: NavigateToString() has a hard ~2 MB limit (UTF-16). Too many results → error.
 
-v3
-> +Searches everywhere  
-+Displays all matches
+Form  
+> No size limits and different UI appearance.
 
 https://github.com/user-attachments/assets/5951925a-1fc3-46ea-b13f-93c29d2a28a4
 
