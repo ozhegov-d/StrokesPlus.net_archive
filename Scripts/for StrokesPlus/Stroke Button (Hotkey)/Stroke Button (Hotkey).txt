@@ -1,0 +1,88 @@
+var MANUAL_CAPTURE_HOTKEY = vk.CAPITAL; // caps (Do not use CTRL/SHIF/ALT/WIN)
+
+var MANUAL_CAPTURE_USE_SECONDARY = false; // true = secondary stroke button (works even if none), false = primary
+var MANUAL_CAPTURE_IDLE_TIMEOUT_MS = 5000; // fail-safe: if the KEY_UP has not arrived, stop after N ms
+
+function __mcSafeStop(reason) {
+    try { sp.StopManualCapture(); } catch (e) {}
+    sp.StoreBool("manualCaptureByKey_active", false);
+    sp.StoreBool("manualCaptureByKey_hotkeyDown", false);
+}
+
+function __mcResetFailsafeTimer() {
+    try { sp.DeleteTimer("manualCaptureByKey_failsafe"); } catch (e) {}
+    sp.CreateTimer(
+        "manualCaptureByKey_failsafe",
+        MANUAL_CAPTURE_IDLE_TIMEOUT_MS,
+        -1,
+        String.raw`
+            try {
+                if (sp.GetStoredBool("manualCaptureByKey_active") === true) {
+                    sp.StopManualCapture();
+                    sp.StoreBool("manualCaptureByKey_active", false);
+                    sp.StoreBool("manualCaptureByKey_hotkeyDown", false);
+                }
+            } catch (e) {}
+            try { sp.DeleteTimer("manualCaptureByKey_failsafe"); } catch (e2) {}
+        `
+    );
+}
+
+function stopManualCaptureByKey() {
+    try {
+        var ev = sp.GetStoredObject("manualCaptureByKey_event");
+        if (ev && ev.GetType && ev.GetType().FullName.includes("EventConnection")) {
+            try { ev.disconnect(); } catch (e) {}
+        }
+        sp.DeleteStoredObject("manualCaptureByKey_event");
+    } catch (eObj) {}
+    try { sp.DeleteTimer("manualCaptureByKey_failsafe"); } catch (e2) {}
+    __mcSafeStop("disconnect");
+}
+
+function startManualCaptureByKey() {
+    // Sign the event only in the latest pool engine
+    try {
+        if (__spEngineWrapper && __spEngineWrapper.Engine && sp.EngineList().Last()) {
+            var isLast = __spEngineWrapper.Engine.Name == sp.EngineList().Last().Engine.Name;
+            if (!isLast) return;
+        }
+    } catch (eEng) {}
+
+    // In case the script is restarted, first disable the old subscription.
+    stopManualCaptureByKey();
+
+    var keyboardEvent = KeyboardHook.OnKeyboardHookEventAsync.connect(
+        function (sender, keyboardHookEvent) {
+            try {
+                if (keyboardHookEvent == null) return;
+                if (keyboardHookEvent.InjectedByHost === true) return; 
+                if (keyboardHookEvent.Key !== MANUAL_CAPTURE_HOTKEY) return;
+
+                if (keyboardHookEvent.KeyState == KeyState.Down) {
+                    if (sp.GetStoredBool("manualCaptureByKey_hotkeyDown") === true) {
+                        __mcResetFailsafeTimer();
+                        return;
+                    }
+                    sp.StoreBool("manualCaptureByKey_hotkeyDown", true);
+                    if (sp.GetStoredBool("manualCaptureByKey_active") !== true) {
+                        sp.StartManualCapture(MANUAL_CAPTURE_USE_SECONDARY);
+                        sp.StoreBool("manualCaptureByKey_active", true);
+                    }
+                    __mcResetFailsafeTimer();
+                } else if (keyboardHookEvent.KeyState == KeyState.Up) {
+                    __mcSafeStop("key up");
+                    try { sp.DeleteTimer("manualCaptureByKey_failsafe"); } catch (e3) {}
+                }
+            } catch (e) {
+                __mcSafeStop("event exception: " + e);
+            }
+        }
+    );
+
+    sp.StoreObject("manualCaptureByKey_event", keyboardEvent);
+    sp.StoreBool("manualCaptureByKey_active", false);
+    sp.StoreBool("manualCaptureByKey_hotkeyDown", false);
+}
+
+startManualCaptureByKey();
