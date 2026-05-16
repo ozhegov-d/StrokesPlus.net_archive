@@ -1,7 +1,11 @@
 
 [Mouse/Keyboard Hook](https://htmlpreview.github.io/?https://github.com/ozhegov-d/StrokesPlus.net_archive/blob/main/StrokesPlus.net/hints/forum/Mouse-Keyboard%20Hook.html)
 
+[Mouse Hook Exclusion Zones](https://htmlpreview.github.io/?https://github.com/ozhegov-d/StrokesPlus.net_archive/blob/main/StrokesPlus.net/hints/forum/Mouse%20Hook%20Exclusion%20Zones.htm)
+
 [Test Code for Native Binding](https://htmlpreview.github.io/?https://github.com/ozhegov-d/StrokesPlus.net_archive/blob/main/StrokesPlus.net/hints/forum/Informative%20Example%20-%20Test%20Code%20for%20Native%20Binding.htm)
+
+[Using sp.HTMLWindow and sp.HTMLWindowExecuteScriptAsync](https://htmlpreview.github.io/?https://github.com/ozhegov-d/StrokesPlus.net_archive/blob/main/StrokesPlus.net/hints/forum/Using%20sp.HTMLWindow%20and%20sp.HTMLWindowExecuteScriptAsync.htm)
 
 [Plug-In Info](https://htmlpreview.github.io/?https://github.com/ozhegov-d/StrokesPlus.net_archive/blob/main/StrokesPlus.net/hints/forum/Plug-In%20Info.html)
 
