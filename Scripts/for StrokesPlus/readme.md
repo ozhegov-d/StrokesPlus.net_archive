@@ -1,4 +1,13 @@
-#### Activate / do not activate the window under the gesture (for certain scripts)  
+#### Command line arguments:
+
+`StrokesPlus.net.exe safemode` (or hold Ctrl when opening S+.net).  
+Use this to fix configuration issues that cause StrokesPlus.net to crash on startup, preventing you from correcting the problem.  
+
+`StrokesPlus.net.exe allowmultipleinstances`  
+Allows running multiple instances of S+.net. This is an unsupported mode, and use of this feature is at your own risk.  
+
+---
+#### Activate / do not activate the window under the gesture (for certain scripts)    
 
 This option must be turned off:
 > Options → General → Always Activate Window Where Gesture Began  
