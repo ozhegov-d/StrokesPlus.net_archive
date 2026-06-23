@@ -1,0 +1,42 @@
+var font = new Font(
+    new FontFamily("Segoe UI"),    // Font
+    16,                            // Font size
+    host.flags(FontStyle.Regular), // Regular style (not bold, not italic)
+    GraphicsUnit.Pixel             // Size is in pixels
+);
+
+var items =  
+[
+    ["Item 1", "sp.SendString('Item 1');"],
+    ["Item 2", "sp.SendString('Item 2');"],
+
+    ["path", "sp.SendString('\"C:\\\\test\\\\test2\\\\txt\" content:path');"],
+
+    ["Sub Menu >",  "", false, [
+          ["· Sub Item A", "sp.SendString('Sub Item A');"],
+          ["· Sub Sub Menu >", "", false, [ 
+                ["· Sub Sub Item X", "sp.SendString('Sub Sub Item X');"]
+          ]]
+    ]],
+    ["Selected Item", "sp.SendString('Selected Item');", true],
+     ["A lot of text", 
+      `
+        // Save original clipboard content
+        var originalClip = clip.GetText() || ""; 
+
+        // Set long text to clipboard
+        clip.SetText("Reallllllly long block of text that would take a bit long to send each character, so use clipboard instead."); 
+
+        // Paste (Ctrl+V)
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]); 
+
+        // Wait for the app to process the paste
+        sp.Sleep(100); 
+
+        // Restore original clipboard content
+        clip.SetText(originalClip);
+      `
+    ],
+    ["Close"]
+]
+sp.PopupList(items, new Point(), font);
