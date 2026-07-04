@@ -1,0 +1,160 @@
+var program = 'notepad'; // Base path (used if lastversion = false)
+//var program = 'C:\\Windows\\System32\\notepad.exe';
+var programArgs = '';  
+var admin = false;  
+var logs = false;
+
+// 1 = Single instance. All files are passed as one string: "file1" "file2".
+// 2 = Multiple instances. Each file is launched with a separate call.
+// For old programs (to open all files in a SINGLE window): Use launchMode = 2 and set delayBetweenFiles =>3000
+var launchMode = 1; 
+var delayBetweenFiles = 10;  // ms
+
+var openFiles = false;
+var filePaths = [
+    'C:\\test1.txt',
+    'C:\\test2.txt',
+    'C:\\test3.txt',
+];
+
+var windowStyle = 'normal'; // 'hidden', 'normal', 'minimized', 'maximized'
+var processPriority = 'Normal'; // 'Idle', 'BelowNormal', 'Normal', 'AboveNormal', 'High', 'RealTime' (case-sensitive)
+var sleepBeforePriority = 500; // Delay before changing process priority (ms). Set to 0 to disable.
+
+// For portable apps
+var lastversion = false; // If true, then replaces var program
+var versionMethod = 'FileVersion'; // 'LastWriteTime', 'CreationTime', 'FileVersion' 
+var baseDir = 'C:\\test\\'; 
+var exeName = 'test123.exe';      
+
+// DisplayText 
+// ====================
+// sp.DisplayTextClose();
+// sp.Sleep(10)
+// var info = new DisplayTextInfo();
+// info.Message = 'Notepad';
+// info.Duration = 400;
+// info.Opacity = 0.7;
+// info.BackColor = 'black';
+// info.ForeColor = 'white';
+// info.Padding = 12;
+// info.FadeSteps = 5;
+// info.MessageFont = new Font('Segoe UI Semibold', 16, host.flags(FontStyle.Bold));
+// var mouse = sp.GetCurrentMousePoint();
+// info.Location = `${mouse.X + 25},${mouse.Y + 25}`;
+// sp.DisplayText(info);
+
+// ====================
+var isValid = true; 
+var errorMessage = '';
+
+if (lastversion) {
+    if (System.IO.Directory.Exists(baseDir)) {
+        var exeFiles = new System.IO.DirectoryInfo(baseDir).GetFiles(exeName, System.IO.SearchOption.AllDirectories);
+        
+        if (exeFiles.Length > 0) {
+           if (versionMethod === 'FileVersion') {
+    var latestFile = null, latestVersion = new System.Version("0.0");
+    for (var i = 0; i < exeFiles.Length; i++) {
+        try {
+            var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(exeFiles[i].FullName);
+            var raw = fvi.FileVersion || fvi.ProductVersion;
+            if (!raw) continue;
+            
+            var match = raw.match(/\d+(\.\d+)*/);
+            var clean = match ? match[0] : '';
+            
+            if (!clean || clean === '.') continue;
+            if (clean.indexOf('.') === -1) clean += '.0';
+            
+            var current = new System.Version(clean);
+            if (current.CompareTo(latestVersion) > 0) {
+                latestVersion = current;
+                latestFile = exeFiles[i];
+            }
+        } catch(e) { 
+            sp.ConsoleWarning(`[FileVersion Error] ${exeFiles[i].Name}: ${e.message}`, 'AutoSearch'); 
+        }
+    }
+    program = latestFile ? latestFile.FullName : exeFiles[0].FullName;
+            } else {
+                var sortProp = versionMethod === 'CreationTime' ? 'CreationTime' : 'LastWriteTime';
+                var latest = exeFiles[0];
+                for (var i = 1; i < exeFiles.Length; i++) {
+                    if (exeFiles[i][sortProp].CompareTo(latest[sortProp]) > 0) latest = exeFiles[i];
+                }
+                program = latest.FullName;
+            }
+            if (logs) sp.ConsoleLog(`Auto-selected (${versionMethod}): ${program}`, 'Info');
+        } else {
+            errorMessage = `File "${exeName}" not found in folder:\n${baseDir}`;
+            sp.ConsoleError(errorMessage, 'Error');
+            isValid = false;
+        }
+    } else {
+        errorMessage = `Folder does not exist:\n${baseDir}`;
+        sp.ConsoleError(errorMessage, 'Error');
+        isValid = false;
+    }
+} else {
+    var isFullPath = program.indexOf('\\') !== -1 || program.indexOf('/') !== -1;
+    if (isFullPath && !System.IO.File.Exists(program)) {
+        errorMessage = `Program file does not exist:\n${program}`;
+        sp.ConsoleError(errorMessage, 'Error');
+        isValid = false;
+    }
+}
+if (!isValid) {
+    sp.MessageBox(errorMessage, 'Launch Error');
+} else {
+    var pName = System.IO.Path.GetFileName(program);
+    var verb = admin ? 'runas' : '';
+    var files = openFiles ? filePaths.filter(Boolean) : [];
+
+    function buildArgs(filePaths) {
+        if (!filePaths || filePaths.length === 0) return programArgs || '';
+        var filesArg = filePaths.map(f => `"${f}"`).join(' ');
+        return programArgs ? `${programArgs} ${filesArg}` : filesArg;
+    }
+    function executeAndLog(args) {
+        try {
+            sp.RunProgram(program, args.trim(), verb, windowStyle, true, false, false);
+            if (logs) sp.ConsoleLog(`${pName}${admin ? ' (Admin)' : ''} | Args: ${args || 'none'} | Style: ${windowStyle}`, 'Info');
+        } catch(e) {
+            var launchError = `Failed to launch program:\n${program}\n\nError: ${e.message}`;
+            sp.ConsoleError(launchError, 'Launch Error');
+            sp.MessageBox(launchError, 'Launch Error');
+        }
+    }
+    function setPriority() {
+        if (processPriority === 'Normal') return;
+        if (sleepBeforePriority > 0) sp.Sleep(sleepBeforePriority);
+        try {
+            var procName = System.IO.Path.GetFileNameWithoutExtension(program);
+            var procs = System.Diagnostics.Process.GetProcessesByName(procName);
+            if (procs.Length > 0) {
+                for (var i = 0; i < procs.Length; i++) {
+                    procs[i].PriorityClass = clr.System.Diagnostics.ProcessPriorityClass[processPriority];
+                }
+                if (logs) sp.ConsoleLog(`Priority "${procName}" (${procs.Length} procs) -> ${processPriority}`, 'Info');
+            }
+        } catch(e) { 
+            sp.ConsoleWarning(`[Priority Error] ${e.message}`, 'Priority'); 
+        }
+    }
+    if (files.length > 0) {
+        if (launchMode === 1) {
+            executeAndLog(buildArgs(files));
+            setPriority();
+        } else {
+            files.forEach((f, i) => {
+                executeAndLog(buildArgs([f]));
+                if (i < files.length - 1) sp.Sleep(delayBetweenFiles); 
+            });
+            setPriority();
+        }
+    } else {
+        executeAndLog(programArgs || '');
+        setPriority();
+    }
+}
