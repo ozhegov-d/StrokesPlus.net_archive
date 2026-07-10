@@ -1,15 +1,21 @@
-var allowedApps = ["notepad.exe", "losslesscut.exe", "chrome.exe", "potplayermini64.exe", "mpc-hc64.exe", "audition.exe"]; // lowercase
+var TARGET_BUTTON_NAME = "Middle"; // "Left", "Middle", "Right", "XButton1", "XButton2"
+
+// Set to TRUE if "Consume Click Event" is CHECKED in S+ settings (script will simulate the click).
+// Set to FALSE if "Consume Click Event" is UNCHECKED in S+ settings (physical click passes through).
+var CONSUME_CLICK = true;
+
+var allowedApps = ["notepad.exe", "losslesscut.exe", "chrome.exe", "potplayermini64.exe", "mpc-hc64.exe", "audition.exe" , "winmergeu.exe"]; // lowercase
 
 var enableVertical = true;     // Allow vertical movement ↑↓
 var enableHorizontal = true;   // Allow horizontal movement ←→
-var enableDiagonal = false;    // Allow diagonals
+var enableDiagonal = false;    // Allow diagonal
 
 var baseTimerInterval = 10;    // Timer interval in ms
-var showIndicator = true;      // Show indicator with arrow and distance
-var showDistance = true;       // Show distance in pixels (true = "→ ●●● 150px", false = "→ ●●●")
+var showIndicator = true;      // Show visual indicator (arrow and dots)
+var showDistance = truee;       // Show distance in pixels (true = "→ ●●● 150px", false = "→ ●●●")
 
-var perpThreshold = 80;        // Base reset: perpendicular movement in px (higher = more stable base)
-var holdThreshold = 400;       // Hold threshold: key is held down from this distance
+var perpThreshold = 80;        // Base reset: perpendicular movement in px (higher = more stable base, lower = resets base faster)
+var holdThreshold = 400;       // Hold threshold: key is held down continuously from this distance
 
 //=============================
 var isAllowedApp = false;
@@ -18,276 +24,180 @@ try {
         var processName = click.Window.Process.MainModule.ModuleName.toLowerCase();
         isAllowedApp = allowedApps.includes(processName);
     }
-} catch(e) {
-    try { sp.ConsoleError("[PAN] App detection error: " + e.message); } catch(ex) {}
-}
+} catch(e) {}
 
 if(click.Down && isAllowedApp) {
-    sp.StoreNumber("OriginalStartX", click.Point.X);
-    sp.StoreNumber("OriginalStartY", click.Point.Y);
-    sp.StoreNumber("CurrentBaseX", click.Point.X);
-    sp.StoreNumber("CurrentBaseY", click.Point.Y);
-    sp.StoreNumber("LastMouseX", click.Point.X);
-    sp.StoreNumber("LastMouseY", click.Point.Y);
-    sp.StoreNumber("DelayAcc", 0); 
-    sp.StoreNumber("IndicatorShown", 0);
-    sp.StoreNumber("PanActive", 0);
-    sp.StoreNumber("CursorHidden", 0);
-    sp.StoreNumber("PerpAccum", 0);
-    sp.StoreNumber("LastDirType", 0);
-    sp.StoreNumber("HeldKey", 0);
+    sp.StoreBool("IsPanButtonHeld", true);
+    sp.StoreNumber("OriginalStartX", click.Point.X); sp.StoreNumber("OriginalStartY", click.Point.Y);
+    sp.StoreNumber("CurrentBaseX", click.Point.X); sp.StoreNumber("CurrentBaseY", click.Point.Y);
+    sp.StoreNumber("LastMouseX", click.Point.X); sp.StoreNumber("LastMouseY", click.Point.Y);
+    sp.StoreNumber("DelayAcc", 0); sp.StoreNumber("IndicatorShown", 0); sp.StoreNumber("PanActive", 0);
+    sp.StoreNumber("CursorHidden", 0); sp.StoreNumber("PerpAccum", 0); sp.StoreNumber("LastDirType", 0); sp.StoreNumber("HeldKey", 0);
 
-    sp.CreateTimer("PanTimer", 0, baseTimerInterval, `
+    sp.CreateTimer("PanTimer", 0, baseTimerInterval, String.raw`
         try {
-            var origX = sp.GetStoredNumber("OriginalStartX");
-            var origY = sp.GetStoredNumber("OriginalStartY");
-            var baseX = sp.GetStoredNumber("CurrentBaseX");
-            var baseY = sp.GetStoredNumber("CurrentBaseY");
-            
-            var currPoint = sp.GetCurrentMousePoint();
-            
-            var dx = currPoint.X - baseX;
-            var dy = currPoint.Y - baseY;
-            var distanceSquared = dx * dx + dy * dy;
-            
-            var distance = 0;
-            var r = false, l = false, u = false, d = false;
-            
-            if (distanceSquared > 25) { 
-                distance = Math.sqrt(distanceSquared);
-                var directionDegrees = Math.atan2(dy, dx) * 57.2958;
+            if (!sp.GetStoredBool("IsPanButtonHeld")) {
+                var held = sp.GetStoredNumber("HeldKey") || 0;
+                if (held) sp.SendVKeyUp(held);
+                if (sp.GetStoredNumber("CursorHidden") === 1) sp.ShowMouseCursor();
+                if (${showIndicator}) sp.DisplayTextClose();
+                sp.DeleteTimer("PanTimer");
+                
+                sp.DeleteStoredNumber("HeldKey"); sp.DeleteStoredNumber("OriginalStartX"); sp.DeleteStoredNumber("OriginalStartY");
+                sp.DeleteStoredNumber("CurrentBaseX"); sp.DeleteStoredNumber("CurrentBaseY"); sp.DeleteStoredNumber("LastMouseX"); 
+                sp.DeleteStoredNumber("LastMouseY"); sp.DeleteStoredNumber("DelayAcc"); sp.DeleteStoredNumber("IndicatorShown");
+                sp.DeleteStoredNumber("PanActive"); sp.DeleteStoredNumber("CursorHidden"); sp.DeleteStoredNumber("PerpAccum"); sp.DeleteStoredNumber("LastDirType");
+            } else {
+                var origX = sp.GetStoredNumber("OriginalStartX"); var origY = sp.GetStoredNumber("OriginalStartY");
+                var baseX = sp.GetStoredNumber("CurrentBaseX"); var baseY = sp.GetStoredNumber("CurrentBaseY");
+                var currPoint = sp.GetCurrentMousePoint();
+                
+                var dx = currPoint.X - baseX; var dy = currPoint.Y - baseY;
+                var distanceSquared = dx * dx + dy * dy;
+                var distance = 0; var r = false, l = false, u = false, d = false;
+                
+                if (distanceSquared > 25) { 
+                    distance = Math.sqrt(distanceSquared);
+                    var directionDegrees = Math.atan2(dy, dx) * 57.2958;
+                    if(directionDegrees >= -45 && directionDegrees <= 45) r = true;
+                    else if(directionDegrees > 45 && directionDegrees < 60) { r = true; d = true; }
+                    else if(directionDegrees >= 60 && directionDegrees <= 120) d = true;
+                    else if(directionDegrees > 120 && directionDegrees < 140) { l = true; d = true; }
+                    else if(directionDegrees >= 140 || directionDegrees <= -140) l = true;
+                    else if(directionDegrees > -140 && directionDegrees < -120) { l = true; u = true; }
+                    else if(directionDegrees >= -120 && directionDegrees <= -60) u = true;
+                    else if(directionDegrees > -60 && directionDegrees < -40) { r = true; u = true; }
 
-                if(directionDegrees >= -45 && directionDegrees <= 45) r = true;
-                else if(directionDegrees > 45 && directionDegrees < 60) { r = true; d = true; }
-                else if(directionDegrees >= 60 && directionDegrees <= 120) d = true;
-                else if(directionDegrees > 120 && directionDegrees < 140) { l = true; d = true; }
-                else if(directionDegrees >= 140 || directionDegrees <= -140) l = true;
-                else if(directionDegrees > -140 && directionDegrees < -120) { l = true; u = true; }
-                else if(directionDegrees >= -120 && directionDegrees <= -60) u = true;
-                else if(directionDegrees > -60 && directionDegrees < -40) { r = true; u = true; }
-
-                if (!${enableVertical}) { u = false; d = false; }
-                if (!${enableHorizontal}) { l = false; r = false; }
-                if (!${enableDiagonal} && ((u || d) && (l || r))) { u = false; d = false; l = false; r = false; }
-            }            
-            var panActive = sp.GetStoredNumber("PanActive") || 0;
-            if (panActive === 0 && distanceSquared > 25) {
-            sp.StoreNumber("PanActive", 1);
-            sp.HideMouseCursor();
-            sp.StoreNumber("CursorHidden", 1);
-            panActive = 1;
-            }            
-            if (panActive === 1) {
-                var heldKey = sp.GetStoredNumber("HeldKey") || 0;                
-                // HOLD mode 
-                if (distance >= ${holdThreshold}) {
-                    var targetKey = 0;
-                    if (r) targetKey = vk.RIGHT;
-                    else if (l) targetKey = vk.LEFT;
-                    else if (d) targetKey = vk.DOWN;
-                    else if (u) targetKey = vk.UP;
-                    
-                    if (targetKey !== heldKey) {
-                        if (heldKey) try { sp.SendVKeyUp(heldKey); } catch(e) {}
-                        if (targetKey) {
-                            try { 
-                                sp.SendVKeyDown(targetKey);
-                                sp.StoreNumber("HeldKey", targetKey);
-                            } catch(e) {
-                                sp.StoreNumber("HeldKey", 0);
-                            }
-                        } else {
-                            sp.StoreNumber("HeldKey", 0);
+                    if (!${enableVertical}) { u = false; d = false; }
+                    if (!${enableHorizontal}) { l = false; r = false; }
+                    if (!${enableDiagonal} && ((u || d) && (l || r))) { u = false; d = false; l = false; r = false; }
+                }                            
+                var panActive = sp.GetStoredNumber("PanActive") || 0;
+                if (panActive === 0 && distanceSquared > 25) {
+                    sp.StoreNumber("PanActive", 1); sp.HideMouseCursor(); sp.StoreNumber("CursorHidden", 1); panActive = 1;
+                }                           
+                if (panActive === 1) {
+                    var heldKey = sp.GetStoredNumber("HeldKey") || 0;    
+                    // HOLD mode 
+                    if (distance >= ${holdThreshold}) {
+                        var targetKey = 0;
+                        if (r) targetKey = vk.RIGHT; else if (l) targetKey = vk.LEFT; else if (d) targetKey = vk.DOWN; else if (u) targetKey = vk.UP;
+                        if (targetKey !== heldKey) {
+                            if (heldKey) try { sp.SendVKeyUp(heldKey); } catch(e) {}
+                            if (targetKey) { try { sp.SendVKeyDown(targetKey); sp.StoreNumber("HeldKey", targetKey); } catch(e) { sp.StoreNumber("HeldKey", 0); } } 
+                            else sp.StoreNumber("HeldKey", 0);
                         }
-                    }
-                } else {
-                    // Not in hold mode - let go if something is clamped
-                    if (heldKey) {
-                        try { sp.SendVKeyUp(heldKey); } catch(e) {}
-                        sp.StoreNumber("HeldKey", 0);
-                    }                   
-                    if (distance >= 5) {   // Dead Zone: Arrows are NOT sent at a distance of < 5
-                        var delay;                        
-                        // if (distance < 21) delay = 1000;     // 5-20 px: 1 arrow/sec
-                        if (distance < 21) delay = 333;           // 5-20 px: 3 arrows/sec
-                        else if (distance < 40) delay = 200;      // 21-39 px: 5 arrows/sec
-                        else if (distance < 50) delay = 125;      // 40-49 px: 8 arrows/sec
-                        else if (distance < 60) delay = 125;      // 50-59 px: 8 arrows/sec
-                        else if (distance < 70) delay = 100;      // 60-69 px: 10 arrows/sec
-                        else if (distance < 100) delay = 83;      // 70-99 px: 12 arrows/sec
-                        else if (distance < 200) delay = 59;      // 100-199 px: 17 arrows/sec
-                        else if (distance < 250) delay = 38;      // 200-249 px: 26 arrows/sec
-                        else delay = 15;                          // 250-399 px: 67 arrows/sec
-                        // 400+ px: HOLD mode (key is held down, Windows auto-repeat)
+                    } else {
+                        if (heldKey) { try { sp.SendVKeyUp(heldKey); } catch(e) {} sp.StoreNumber("HeldKey", 0); }                   
+                        if (distance >= 5) {  // Dead Zone: Arrows are NOT sent at a distance of < 5
+                            var delay;      
+                            // if (distance < 21) delay = 1000;     // 5-20 px: 1 arrow/sec                   
+                            if (distance < 21) delay = 333;           // 5-20 px: 3 arrows/sec
+                            else if (distance < 40) delay = 200;      // 21-39 px: 5 arrows/sec
+                            else if (distance < 50) delay = 125;      // 40-49 px: 8 arrows/sec
+                            else if (distance < 60) delay = 125;      // 50-59 px: 8 arrows/sec
+                            else if (distance < 70) delay = 100;      // 60-69 px: 10 arrows/sec
+                            else if (distance < 100) delay = 83;      // 70-99 px: 12 arrows/sec
+                            else if (distance < 200) delay = 59;      // 100-199 px: 17 arrows/sec
+                            else if (distance < 250) delay = 38;      // 200-249 px: 26 arrows/sec
+                            else delay = 15;                          // 250-399 px: 67 arrows/sec
+                            // 400+ px: HOLD mode (key is held down, Windows auto-repeat)
 
-                        var acc = (sp.GetStoredNumber("DelayAcc") || 0) + ${baseTimerInterval};                       
-                        if (acc >= delay) {
-                            if (r) sp.SendVKey(vk.RIGHT);
-                            if (d) sp.SendVKey(vk.DOWN);
-                            if (l) sp.SendVKey(vk.LEFT);
-                            if (u) sp.SendVKey(vk.UP);
-                            
-                            acc -= delay; 
-                        }                   
-                        sp.StoreNumber("DelayAcc", acc);
-                    }
-                }
-                var perpAccum = sp.GetStoredNumber("PerpAccum") || 0;
-                var lastDirType = sp.GetStoredNumber("LastDirType") || 0;
-                
-                var currentDirType = 0;
-                if (r || l) currentDirType = 1;
-                else if (u || d) currentDirType = 2;
-                
-                if (currentDirType !== lastDirType && currentDirType !== 0) {
-                    perpAccum = 0;
-                }                
-                if (currentDirType !== 0) {
-                    var lastX = sp.GetStoredNumber("LastMouseX");
-                    var lastY = sp.GetStoredNumber("LastMouseY");
-                    if (currentDirType === 1) perpAccum += Math.abs(currPoint.Y - lastY);
-                    else if (currentDirType === 2) perpAccum += Math.abs(currPoint.X - lastX);
-                }                
-                sp.StoreNumber("LastMouseX", currPoint.X);
-                sp.StoreNumber("LastMouseY", currPoint.Y);
-                
-                if (perpAccum > ${perpThreshold}) {
-                    sp.StoreNumber("CurrentBaseX", currPoint.X);
-                    sp.StoreNumber("CurrentBaseY", currPoint.Y);
-                    perpAccum = 0;
-                }               
-                sp.StoreNumber("PerpAccum", perpAccum);
-                sp.StoreNumber("LastDirType", currentDirType);
-                
-                if (${showIndicator}) {
-                    var arrowCount = Math.min(Math.floor(distance / 50), 5);                    
-                    var dots = '●●●●●'.substring(0, arrowCount);                    
-                    // COLOR SPEED DISPLAY
-                    var foreColor = 'lime';  // Slow (< 100px) - Green
-                    if (distance >= ${holdThreshold}) {
-                        foreColor = 'red';    // HOLD mode - red
-                    } else if (distance >= 200) {
-                        foreColor = 'orange'; // Fast (200+px) - Orange
-                    } else if (distance >= 100) {
-                        foreColor = 'yellow'; // Medium (100-200px) - Yellow
-                    }
+                            var acc = (sp.GetStoredNumber("DelayAcc") || 0) + ${baseTimerInterval};                       
+                            if (acc >= delay) {
+                                if (r) sp.SendVKey(vk.RIGHT); if (d) sp.SendVKey(vk.DOWN); if (l) sp.SendVKey(vk.LEFT); if (u) sp.SendVKey(vk.UP);
+                                acc -= delay; 
+                            }                   
+                            sp.StoreNumber("DelayAcc", acc);
+                        }
+                    }                    
+                    var perpAccum = sp.GetStoredNumber("PerpAccum") || 0; var lastDirType = sp.GetStoredNumber("LastDirType") || 0;
+                    var currentDirType = 0;
+                    if (r || l) currentDirType = 1; else if (u || d) currentDirType = 2;
+                    if (currentDirType !== lastDirType && currentDirType !== 0) perpAccum = 0;                
+                    if (currentDirType !== 0) {
+                        var lastX = sp.GetStoredNumber("LastMouseX"); var lastY = sp.GetStoredNumber("LastMouseY");
+                        if (currentDirType === 1) perpAccum += Math.abs(currPoint.Y - lastY); else if (currentDirType === 2) perpAccum += Math.abs(currPoint.X - lastX);
+                    }                
+                    sp.StoreNumber("LastMouseX", currPoint.X); sp.StoreNumber("LastMouseY", currPoint.Y);
+                    if (perpAccum > ${perpThreshold}) { sp.StoreNumber("CurrentBaseX", currPoint.X); sp.StoreNumber("CurrentBaseY", currPoint.Y); perpAccum = 0; }               
+                    sp.StoreNumber("PerpAccum", perpAccum); sp.StoreNumber("LastDirType", currentDirType);
                     
-                    // SPEED ARROW SYMBOLS
-                    var arrowSymbol = '';
-                    if (distance >= ${holdThreshold}) {
-                        // HOLD mode - triple arrows
-                        if (r) arrowSymbol = '⇛';
-                        else if (l) arrowSymbol = '⇚';
-                        else if (d) arrowSymbol = '⇓';
-                        else if (u) arrowSymbol = '⇑';
-                    } else if (distance >= 100) {
-                        // Fast - double arrows
-                        if (r) arrowSymbol = '⇒';
-                        else if (l) arrowSymbol = '⇐';
-                        else if (d) arrowSymbol = '⇓';
-                        else if (u) arrowSymbol = '⇑';
-                    } else {
-                        // Slow - single arrows
-                        if (r) arrowSymbol = '→';
-                        else if (l) arrowSymbol = '←';
-                        else if (d) arrowSymbol = '↓';
-                        else if (u) arrowSymbol = '↑';
-                    }                   
-                    // FORMING THE TEXT (dots are always on the side of movement) 
-                    var indicatorText = '';
-                    if (r && !l && !u && !d) indicatorText = arrowSymbol + ' ' + dots;           // → ●●●
-                    else if (l && !r && !u && !d) indicatorText = dots + ' ' + arrowSymbol;     // ●●● ←
-                    else if (d && !u && !r && !l) indicatorText = arrowSymbol + ' ' + dots;     // ↓ ●●●
-                    else if (u && !d && !r && !l) indicatorText = dots + ' ' + arrowSymbol;     // ●●● ↑
-                    // Diagonals
-                    else if (r && d) indicatorText = '↘ ' + dots;
-                    else if (r && u) indicatorText = '↗ ' + dots;
-                    else if (l && d) indicatorText = dots + ' ↙';
-                    else if (l && u) indicatorText = dots + ' ↖';
-                    else indicatorText = '⊙';
-                    
-                    if (${showDistance}) {
-                        indicatorText += ' ' + Math.round(distance) + 'px';
-                        if (distance >= ${holdThreshold}) indicatorText += ' 🔒';
-                    }
-                    var info = new DisplayTextInfo();
-                    info.Message = indicatorText;
-                    info.Duration = 200;
-                    info.Opacity = 0.9;
-                    info.BackColor = 'black';
-                    info.ForeColor = foreColor;  // The color changes automatically.
-                    info.Padding = 0;
-                    info.FadeSteps = 0;
-                    info.MessageFont = new Font('Segoe UI Semibold', 14, host.flags(FontStyle.Bold)); // Text size
-                    info.Location = (origX + 30) + ',' + (origY + 30);
-                    
-                    var indicatorShown = sp.GetStoredNumber("IndicatorShown") || 0;
-                    if (indicatorShown === 0) {
-                        sp.DisplayText(info);
-                        sp.StoreNumber("IndicatorShown", 1);
-                    } else {
-                        sp.DisplayTextUpdate(info);
+                    if (${showIndicator}) {
+                        var arrowCount = Math.min(Math.floor(distance / 50), 5);                    
+                        var dots = '●●●●●'.substring(0, arrowCount);                                        
+                        // COLOR SPEED DISPLAY
+                        var foreColor = 'lime';  // Slow (< 100px) - Green
+                        if (distance >= ${holdThreshold}) foreColor = 'red';    // HOLD mode - red
+                        else if (distance >= 200) foreColor = 'orange'; // Fast (200+px) - Orange
+                        else if (distance >= 100) foreColor = 'yellow'; // Medium (100-200px) - Yellow                        
+                        // SPEED ARROW SYMBOLS
+                        var arrowSymbol = '';
+                        if (distance >= ${holdThreshold}) { // HOLD mode - triple arrows
+                            if (r) arrowSymbol = '⇛'; else if (l) arrowSymbol = '⇚'; else if (d) arrowSymbol = '⇓'; else if (u) arrowSymbol = '⇑';
+                        } else if (distance >= 100) { // Fast - double arrows
+                            if (r) arrowSymbol = '⇒'; else if (l) arrowSymbol = '⇐'; else if (d) arrowSymbol = '⇓'; else if (u) arrowSymbol = '⇑';
+                        } else { // Slow - single arrows
+                            if (r) arrowSymbol = '→'; else if (l) arrowSymbol = '←'; else if (d) arrowSymbol = '↓'; else if (u) arrowSymbol = '↑';
+                        }                                   
+                        // FORMING THE TEXT (dots are always on the side of movement) 
+                        var indicatorText = '';
+                        if (r && !l && !u && !d) indicatorText = arrowSymbol + ' ' + dots;           // → ●●●
+                        else if (l && !r && !u && !d) indicatorText = dots + ' ' + arrowSymbol;     // ●●● ←
+                        else if (d && !u && !r && !l) indicatorText = arrowSymbol + ' ' + dots;     // ↓ ●●●
+                        else if (u && !d && !r && !l) indicatorText = dots + ' ' + arrowSymbol;     // ●●● ↑
+                        else if (r && d) indicatorText = '↘ ' + dots; // Diagonals
+                        else if (r && u) indicatorText = '↗ ' + dots;
+                        else if (l && d) indicatorText = dots + ' ↙';
+                        else if (l && u) indicatorText = dots + ' ↖';
+                        else indicatorText = '⊙';
+                        
+                        if (${showDistance}) {
+                            indicatorText += ' ' + Math.round(distance) + 'px';
+                            if (distance >= ${holdThreshold}) indicatorText += ' 🔒';
+                        }                       
+                        var info = new DisplayTextInfo(); 
+                        info.Message = indicatorText; info.Duration = 200; info.Opacity = 0.9; 
+                        info.BackColor = 'black'; info.ForeColor = foreColor; // The color changes automatically
+                        info.Padding = 0; info.FadeSteps = 0; 
+                        info.MessageFont = new Font('Segoe UI Semibold', 14, host.flags(FontStyle.Bold)); // Text size
+                        info.Location = (origX + 30) + ',' + (origY + 30);
+                        
+                        var indicatorShown = sp.GetStoredNumber("IndicatorShown") || 0;
+                        if (indicatorShown === 0) { sp.DisplayText(info); sp.StoreNumber("IndicatorShown", 1); } else sp.DisplayTextUpdate(info);
                     }
                 }
             }
         } catch(e) {
-            try {
-                var held = sp.GetStoredNumber("HeldKey") || 0;
-                if (held) sp.SendVKeyUp(held);
-                sp.StoreNumber("HeldKey", 0);
-                sp.ShowMouseCursor();
-                sp.DeleteTimer("PanTimer");
-                sp.DisplayTextClose();
-            } catch(cleanupErr) {
-                try { sp.ShowMouseCursor(); } catch(ex) {}
-                try { sp.DeleteTimer("PanTimer"); } catch(ex) {}
-            }
-            try { sp.ConsoleError("[PAN] Timer error: " + e.message); } catch(logErr) {}
+            try { var held = sp.GetStoredNumber("HeldKey") || 0; if (held) sp.SendVKeyUp(held); sp.ShowMouseCursor(); sp.DeleteTimer("PanTimer"); sp.DisplayTextClose(); } 
+            catch(cleanupErr) { try { sp.ShowMouseCursor(); } catch(ex) {} try { sp.DeleteTimer("PanTimer"); } catch(ex) {} }
         }
     `);
 }
 else {
+    sp.StoreBool("IsPanButtonHeld", false);
     sp.DeleteTimer("PanTimer");
+    var titleBarClicked = sp.GetStoredBool("TitleBarClicked") || false; // Flag for New Window (click on Titlebar) (to avoid conflicts)
+    sp.DeleteStoredBool("TitleBarClicked"); 
     
-    try {
-        var heldKey = sp.GetStoredNumber("HeldKey") || 0;
-        if (heldKey) sp.SendVKeyUp(heldKey);
-    } catch(e) {
-        try { sp.ConsoleError("[PAN] Key release error: " + e.message); } catch(ex) {}
-    }    
-    var panActive = sp.GetStoredNumber("PanActive") || 0;
+    try { var heldKey = sp.GetStoredNumber("HeldKey") || 0; if (heldKey) sp.SendVKeyUp(heldKey); } catch(e) {}        
+    var panActive = sp.GetStoredNumber("PanActive") || 0; var cursorHidden = sp.GetStoredNumber("CursorHidden") || 0; 
     
-    if (panActive === 1) {
+    if (panActive === 1 || cursorHidden === 1) {
         try {
-            var origX = sp.GetStoredNumber("OriginalStartX");
-            var origY = sp.GetStoredNumber("OriginalStartY");
-            
-            if (origX >= 0 && origY >= 0) {
-                sp.MouseMove(new Point(origX, origY));
-            }
-            
-            if (sp.GetStoredNumber("CursorHidden") === 1) {
-                sp.ShowMouseCursor();
-            }           
-            if (showIndicator) sp.DisplayTextClose();
-        } catch(e) {
-            try { sp.ShowMouseCursor(); } catch(ex) {}
-            try { sp.ConsoleError("[PAN] Cursor return error: " + e.message); } catch(ex) {}
+            var origX = sp.GetStoredNumber("OriginalStartX"); var origY = sp.GetStoredNumber("OriginalStartY");
+            if (origX >= 0 && origY >= 0) sp.MouseMove(new Point(origX, origY));
+            sp.ShowMouseCursor(); if (showIndicator) sp.DisplayTextClose();
+        } catch(e) { try { sp.ShowMouseCursor(); } catch(ex) {} }
+    } 
+    else if (!click.Down && !titleBarClicked) {
+        if (CONSUME_CLICK) {
+            var btnEnum = eval("MouseButtons." + TARGET_BUTTON_NAME);
+            if (btnEnum) sp.MouseClick(click.Point, btnEnum, true, true);  
         }
-    } else if (!click.Down) {
-        sp.MouseClick(click.Point, MouseButtons.Middle, true, true);  // MouseButtons.XButton1 , MouseButtons.XButton2
-    }   
-    sp.DeleteStoredNumber("OriginalStartX");
-    sp.DeleteStoredNumber("OriginalStartY");
-    sp.DeleteStoredNumber("CurrentBaseX");
-    sp.DeleteStoredNumber("CurrentBaseY");
-    sp.DeleteStoredNumber("LastMouseX");
-    sp.DeleteStoredNumber("LastMouseY");
-    sp.DeleteStoredNumber("DelayAcc");
-    sp.DeleteStoredNumber("IndicatorShown");
-    sp.DeleteStoredNumber("PanActive");
-    sp.DeleteStoredNumber("CursorHidden");
-    sp.DeleteStoredNumber("PerpAccum");
-    sp.DeleteStoredNumber("LastDirType");
-    sp.DeleteStoredNumber("HeldKey");
+    }       
+    sp.DeleteStoredNumber("HeldKey"); sp.DeleteStoredNumber("OriginalStartX"); sp.DeleteStoredNumber("OriginalStartY");
+    sp.DeleteStoredNumber("CurrentBaseX"); sp.DeleteStoredNumber("CurrentBaseY"); sp.DeleteStoredNumber("LastMouseX"); sp.DeleteStoredNumber("LastMouseY");
+    sp.DeleteStoredNumber("DelayAcc"); sp.DeleteStoredNumber("IndicatorShown"); sp.DeleteStoredNumber("PanActive"); 
+    sp.DeleteStoredNumber("CursorHidden"); sp.DeleteStoredNumber("PerpAccum"); sp.DeleteStoredNumber("LastDirType");
 }
