@@ -1,0 +1,103 @@
+if (!NativeModules.User32HitTest) {
+    var IntPtrT = host.typeOf(clr.System.IntPtr);
+    var Int32T = host.typeOf(clr.System.Int32);
+    var tb = sp.NativeModule().DefineType("User32HitTest", "Class,Public,SequentialLayout,Serializable");
+    tb.DefinePInvokeMethod("SendMessage", "user32.dll", [IntPtrT, Int32T, IntPtrT, IntPtrT], IntPtrT, "PreserveSig");
+    tb.Create();
+}
+if (click.Down) {
+    var currentWnd = click.Window;
+    var isTitleBar = false;
+    var targetWnd = null;
+    var depth = 0;
+    var lParam = new IntPtr(((click.Point.Y & 0xFFFF) << 16) | (click.Point.X & 0xFFFF));
+    // Search for system title bar (WinAPI)
+    while (currentWnd && depth < 10) {
+        depth++;
+        var currentHwnd = currentWnd.HWnd.ToInt64();
+        if (currentHwnd == 0) break;
+
+        if (NativeModules.User32HitTest.SendMessage(currentWnd.HWnd, 0x0084, new IntPtr(0), lParam).ToInt32() == 2) {
+            isTitleBar = true;
+            targetWnd = currentWnd;
+            break;
+        }        
+        var parent = currentWnd.Parent;
+        if (!parent) break;        
+        var parentHwnd = parent.HWnd.ToInt64();
+        if (parentHwnd == 0 || parentHwnd == currentHwnd) break;        
+        currentWnd = parent;
+    }
+    // Fallback for custom UIs
+    if (!isTitleBar) {
+        var rootWnd = click.Window.FirstMoveableParent || click.Window.RootWindow || click.Window;
+        var rect = rootWnd.Rectangle;
+        var captionH = (sysinfo.CaptionHeight || 30) + 10;        
+        if (click.Point.Y >= rect.Top && click.Point.Y <= (rect.Top + captionH) &&
+            click.Point.X >= rect.Left && click.Point.X <= rect.Right) {
+            isTitleBar = true;
+            targetWnd = rootWnd;
+        }
+    }
+    // launch
+    if (isTitleBar && targetWnd) {
+        var exeName = targetWnd.ExecutableName || "";
+        var exeNameLower = exeName.toLowerCase();
+        var exePath = "";        
+        try {
+            if (targetWnd.Process && targetWnd.Process.MainModule) {
+                exePath = targetWnd.Process.MainModule.FileName;
+            }
+        } catch(e) { sp.ConsoleError(`Path read error (Access Denied?): ${e.message}`, "NewInstance", System.Drawing.Color.Yellow); }
+       
+        if (!exePath && targetWnd.ExecutablePath) {
+            exePath = targetWnd.ExecutablePath + "\\" + exeName;
+        }
+        var pathToCheck = exePath;        
+        // If it's ApplicationFrameHost, look for the real process inside
+        if (exeNameLower === "applicationframehost.exe") {
+            try {
+                var children = targetWnd.AllChildWindows;
+                for (var i = 0; i < children.Length; i++) {
+                    var childName = children[i].ExecutableName;
+                    if (childName && childName.toLowerCase() !== "applicationframehost.exe") {
+                        try {
+                            if (children[i].Process && children[i].Process.MainModule) {
+                                pathToCheck = children[i].Process.MainModule.FileName;
+                            }
+                        } catch(pathErr) { sp.ConsoleError(`Child process hidden by system: ${pathErr.message}`, "NewInstance", System.Drawing.Color.Yellow); }
+                        break;
+                    }
+                }
+            } catch(e) { sp.ConsoleError(`Child windows read error: ${e.message}`, "NewInstance", System.Drawing.Color.Yellow); }
+        }
+        var isStoreApp = false;
+        var storeSearchName = "";
+        // Check for WindowsApps (UWP/Store Apps)
+        if (pathToCheck && pathToCheck.toLowerCase().indexOf("\\windowsapps\\") !== -1) {
+            var pkgMatch = pathToCheck.match(/WindowsApps\\(.+?)_\d/i);
+            var pubMatch = pathToCheck.match(/__(\w+)\\/i);           
+            if (pkgMatch && pubMatch) {
+                isStoreApp = true;
+                storeSearchName = pkgMatch[1] + "_" + pubMatch[1];
+            } else {
+                isStoreApp = true;
+                storeSearchName = exeName.replace('.exe', '');
+            }
+        }
+        if ((isStoreApp && storeSearchName) || (!isStoreApp && exePath)) {
+            sp.StoreBool("TitleBarClicked", true); // Flag for Virtual D-Pad (to avoid conflicts)
+            sp.SendVKey(vk.F24);
+            sp.Sleep(10);            
+            try {
+                if (isStoreApp) {
+                    sp.RunStoreApp(storeSearchName);
+                } else {
+                    sp.RunProgram(exePath, '', 'open', 'normal', true, false, false);
+                }
+            } catch(e) { sp.ConsoleError(`Critical launch error: ${e.message}`, "NewInstance", System.Drawing.Color.Red); }
+        } else {
+            sp.ConsoleError(`Failed to determine launch path.`, "NewInstance", System.Drawing.Color.Red);
+        }
+    }
+}
