@@ -1,0 +1,792 @@
+var copyPosition = 'down'; // up
+var enableCopy   = true; //copy
+var enableSwap   = true;
+var enablePin    = true;
+var enableSplit  = true;
+var enableHistory = true;
+var historyMax = 5; // History
+var historyStorageName = 'YandexTranslateHistory';
+
+var enableDict = true; // dictionary
+var dictMaxChars = 40;    // max. word length for the dictionary (longer – only translation)
+var dictMaxVariants = 5;  // How many translation options to show
+var dictMaxExamples = 4;  // How many example sentences to show
+
+var ESC_ON_SAME_CLIP = true; // Esc, if clipboard has not changed (or is empty)
+var CLIP_WAIT_MS = 120;      // Maximum wait time (ms) for copied text after Ctrl+C
+var maxTextLength = 2500;    // Maximum text size for translation (anything higher -> esc)
+var DEBUG_LOGS = false;
+
+var sourceLanguage = 'auto';
+var targetLanguage = 'ru';
+var targetLanguageIfSourceIsTarget = 'en';
+
+if (typeof __translateHttpClient === "undefined") {
+  var handler = new HttpClientHandler();
+  handler.AutomaticDecompression = host.flags(
+    System.Net.DecompressionMethods.GZip,
+    System.Net.DecompressionMethods.Deflate
+  );
+  __translateHttpClient = new HttpClient(handler);
+  __translateHttpClient.DefaultRequestHeaders.Add("User-Agent", "ru.yandex.translate/3.20.2024");
+  __translateHttpClient.Timeout = clr.System.TimeSpan.FromSeconds(5); 
+}
+if (typeof __yandexUcid === "undefined" || !__yandexUcid) {
+  __yandexUcid = clr.System.Guid.NewGuid().ToString("N");
+}
+if (typeof __yandexUcidTs === "undefined") {
+  __yandexUcidTs = Date.now();
+}
+
+(function(){
+ try {
+
+  var _logStart = Date.now();
+  var Drawing = clr.System.Drawing;
+  var log = DEBUG_LOGS ? function(msg, label, color) {
+    sp.ConsoleLog("[" + (Date.now() - _logStart) + "ms] " + msg, label || "Translate", color || null);
+  } : function() {};
+  var error = function(msg, label) {
+    sp.ConsoleError("[" + (Date.now() - _logStart) + "ms] " + msg, label || "Translate");
+  };
+
+  function enc(v) { return clr.System.Uri.EscapeDataString(String(v)); }
+
+  var COLOR_WHITE = Drawing.Color.White;
+  var COLOR_GRAY  = Drawing.Color.FromArgb(150, 150, 150);
+
+  function posFullName(code) {
+    var map = {
+      'n':'noun','nn':'noun','v':'verb','vrb':'verb',
+      'adj':'adjective','adv':'adverb','pron':'pronoun',
+      'prep':'preposition','conj':'conjunction','num':'numeral',
+      'part':'particle','intj':'interjection'
+    };
+    return map[code] || code;
+  }
+
+  function markupWord(text) {
+    return String(text).replace(/<([^>]*)>/g, "\u00AB$1\u00BB").replace(/\s+/g, " ").trim();
+  }
+  var histLimit = Math.floor(historyMax);
+  if (!(histLimit > 0)) histLimit = 5;
+  var histEnabled = enableHistory && (Math.floor(historyMax) > 0);
+
+  var _prevClip = "";
+  try { _prevClip = clip.GetText() || ""; } catch(_) {}
+  sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+  var _newClip = "", src = "", t = 0, step = 8;
+  while (t < CLIP_WAIT_MS) {
+    sp.Sleep(step); t += step;
+    try { _newClip = clip.GetText() || ""; } catch(_) {}
+    if (_newClip !== _prevClip) { src = _newClip.trim(); if (src) break; }
+  }
+  var isTooLong = src.length > maxTextLength;
+  if (!src || (_newClip === _prevClip && ESC_ON_SAME_CLIP) || isTooLong) {
+    if (isTooLong) { try { clip.SetText(_prevClip); } catch(e) {} }
+    if (ESC_ON_SAME_CLIP) sp.SendVKey(vk.ESCAPE);
+    return;
+  }
+
+  function isTextInLanguage(text, lang) {
+    switch(lang) {
+      case 'ru': return /[а-яё]/i.test(text);
+      case 'en': return /[a-z]/i.test(text) && !/[а-яё\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7a3\u0600-\u06ff]/i.test(text);
+      case 'zh': case 'zh-Hans': case 'zh-Hant': return /[\u4e00-\u9fff]/i.test(text);
+      case 'ja': return /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]/i.test(text);
+      case 'ko': return /[\uac00-\ud7a3]/i.test(text);
+      case 'ar': return /[\u0600-\u06ff]/i.test(text);
+      default: return false;
+    }
+  }
+
+  var isSourceInTargetLanguage = isTextInLanguage(src, targetLanguage);
+  var tl = isSourceInTargetLanguage ? targetLanguageIfSourceIsTarget : targetLanguage;
+  function mapLangForYandex(lang) {
+    if (lang === "zh-Hans" || lang === "zh-Hant") return "zh";
+    return lang;
+  }
+  var fromLang = sourceLanguage === "auto" ? null : mapLangForYandex(sourceLanguage);
+  var toLang = mapLangForYandex(tl);
+
+  function refreshUcid() {
+    if (Date.now() - __yandexUcidTs > 360000) {
+      __yandexUcid = clr.System.Guid.NewGuid().ToString("N");
+      __yandexUcidTs = Date.now();
+    }
+  }
+
+  function apiTranslate(text, langParam) {
+    refreshUcid();
+    var url = "https://translate.yandex.net/api/v1/tr.json/translate?ucid=" + __yandexUcid + "&srv=android&format=text";
+    var body = "text=" + enc(text) + "&lang=" + enc(langParam);
+    var content = new clr.System.Net.Http.StringContent(body, clr.System.Text.Encoding.UTF8, "application/x-www-form-urlencoded");
+    var res = __translateHttpClient.PostAsync(new Uri(url), content).Result;
+    var raw = res.Content.ReadAsStringAsync().Result;
+    log("Translate HTTP " + res.StatusCode.ToString(), "API");
+    if (!res.IsSuccessStatusCode) throw new Error("HTTP " + res.StatusCode.ToString());
+    var json = JSON.parse(raw);
+    var translation = (json && json.text && json.text[0]) ? json.text[0].trim() : null;
+    var detected = null;
+    if (json && json.lang) {
+      var di = String(json.lang).indexOf("-");
+      detected = di > -1 ? String(json.lang).substring(0, di) : String(json.lang);
+    }
+    return { translation: translation, detected: detected };
+  }
+
+  function apiDictParallel(word, pair) {
+    refreshUcid();
+    var lookupUrl = "https://dictionary.yandex.net/dicservice.json/lookupMultiple?sid=" + __yandexUcid +
+                    "&srv=android&text=" + enc(word) + "&ui=en&dict=" + enc(pair) + "&flags=7&dict_type=regular";
+    var examplesUrl = "https://dictionary.yandex.net/dicservice.json/queryCorpus?sid=" + __yandexUcid +
+                      "&srv=android&src=" + enc(word) + "&ui=en&lang=" + enc(pair) + "&flags=7";
+    var lookupTask = __translateHttpClient.GetAsync(new Uri(lookupUrl));
+    var examplesTask = __translateHttpClient.GetAsync(new Uri(examplesUrl));
+    var lookupJson = null, examplesJson = null;
+    try {
+      var r1 = lookupTask.Result;
+      var b1 = r1.Content.ReadAsStringAsync().Result;
+      log("Dict lookup (" + b1.length + " chars)", "Dict");
+      if (r1.IsSuccessStatusCode) lookupJson = JSON.parse(b1);
+    } catch(e) { error("Dict lookup: " + e.message, "Dict"); }
+    try {
+      var r2 = examplesTask.Result;
+      var b2 = r2.Content.ReadAsStringAsync().Result;
+      log("Dict examples (" + b2.length + " chars)", "Dict");
+      if (r2.IsSuccessStatusCode) examplesJson = JSON.parse(b2);
+    } catch(e) { error("Dict examples: " + e.message, "Dict"); }
+    return { lookup: lookupJson, examples: examplesJson };
+  }
+
+  var tr = null;
+  var detectedLang = null;
+  try {
+    var langParam = fromLang ? (fromLang + "-" + toLang) : toLang;
+    var result = apiTranslate(src, langParam);
+    tr = result.translation;
+    detectedLang = result.detected;
+  } catch(e) {
+    error("Translation: " + e.message, "Translate");
+  }
+  if (!tr) { error("Translation failed", "Engine"); return; }
+
+  function countWords(text) {
+    var m = String(text).match(/[^\s]+/g);
+    return m ? m.length : 0;
+  }
+  function shouldUseDict(text) {
+    if (!enableDict) return false;
+    var tt = String(text).trim();
+    if (!tt || tt.length > dictMaxChars) return false;
+    if (/[.!?;,\n]/.test(tt)) return false;
+    return countWords(tt) === 1;
+  }
+
+  function parseDictVariants(json, pair) {
+    var out = [];
+    if (!json) return out;
+    function addEntry(e) {
+      if (!e || !e.tr) return;
+      for (var k = 0; k < e.tr.length && out.length < dictMaxVariants; k++) {
+        var t = e.tr[k];
+        if (!t || !t.text) continue;
+        var pos = "";
+        if (t.pos) {
+          var raw = (typeof t.pos === "string") ? t.pos : (t.pos.text || t.pos.code || "");
+          pos = posFullName(raw);
+        }
+        var backs = [];
+        if (t.mean && t.mean.length) {
+          for (var m = 0; m < Math.min(5, t.mean.length); m++) {
+            if (t.mean[m] && t.mean[m].text && backs.indexOf(t.mean[m].text) === -1) backs.push(t.mean[m].text);
+          }
+        }
+        if (!backs.length && t.syn && t.syn.length) {
+          for (var s = 0; s < Math.min(3, t.syn.length); s++) {
+            if (t.syn[s] && t.syn[s].text && backs.indexOf(t.syn[s].text) === -1) backs.push(t.syn[s].text);
+          }
+        }
+        out.push({ text: t.text, pos: pos, backs: backs });
+      }
+    }
+    function walk(node, depth) {
+      if (!node || depth > 6 || out.length >= dictMaxVariants) return;
+      if (node.text && node.tr) { addEntry(node); return; }
+      var keys = ['regular', 'synthetic'];
+      for (var i = 0; i < keys.length; i++) {
+        var arr = node[keys[i]];
+        if (arr && arr.length) {
+          for (var j = 0; j < arr.length && out.length < dictMaxVariants; j++) addEntry(arr[j]);
+        }
+      }
+      for (var key in node) {
+        if (Object.prototype.hasOwnProperty.call(node, key) && keys.indexOf(key) === -1) walk(node[key], depth + 1);
+      }
+    }
+    if (json[pair]) walk(json[pair], 0); else walk(json, 0);
+    return out;
+  }
+
+  function parseDictExamples(json, pair) {
+    var out = [];
+    if (!json || !json.result || !json.result.length) return out;
+    var group = json.result[0];
+    if (!group || !group.examples) return out;
+    for (var i = 0; i < group.examples.length && out.length < dictMaxExamples; i++) {
+      var ex = group.examples[i];
+      var s = markupWord(ex.src || "");
+      var d = markupWord(ex.dst || "");
+      s = s.replace(/^["\u00AB\u00BB\u201C]?\s*[-\u2014\u2013]\s*/, "");
+      d = d.replace(/^["\u00AB\u00BB\u201C]?\s*[-\u2014\u2013]\s*/, "");
+      if (s) out.push({ s: s, d: d });
+    }
+    return out;
+  }
+
+  var _histCache = null;
+
+  function loadHistoryFromDisk() {
+    try {
+      var raw = sp.GetSavedString(historyStorageName);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      if (arr && typeof arr.length === "number") return arr;
+    } catch(e) {}
+    return [];
+  }
+
+  function getHistory() {
+    if (_histCache === null) _histCache = loadHistoryFromDisk();
+    return _histCache;
+  }
+
+  function saveHistory(arr) {
+    _histCache = arr;
+    try { sp.SaveString(historyStorageName, JSON.stringify(arr)); } catch(e) {}
+  }
+
+  function addToHistory(sourceText, translatedText, outputText, sectionsJson, tgtLang) {
+    if (!histEnabled) return;
+    var s = String(sourceText || "").trim();
+    var tt = String(translatedText || "").trim();
+    var out = String(outputText || "").trim();
+    if (!tt || !out) return;
+    var arr = getHistory();
+    var outArr = [];
+    for (var i = 0; i < arr.length; i++) {
+      var x = arr[i];
+      if (x && x.s === s && x.t === tt && x.tl === tgtLang) continue;
+      outArr.push(x);
+    }
+    outArr.unshift({ s: s, t: tt, out: out, sec: sectionsJson || "", ts: Date.now(), tl: tgtLang || "" });
+    if (outArr.length > histLimit) outArr = outArr.slice(0, histLimit);
+    saveHistory(outArr);
+  }
+
+  function findInHistory(sourceText, tgtLang) {
+    var arr = getHistory();
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] && arr[i].s === sourceText && arr[i].tl === tgtLang && arr[i].out) return arr[i];
+    }
+    return null;
+  }
+
+  function wrapFast(txt, len) {
+    if (!txt || txt.length <= len) return txt.trim();
+    var res = [], i = 0, j, k;
+    while (i < txt.length) {
+      j = i + len;
+      if (j >= txt.length) { res.push(txt.substring(i).trim()); break; }
+      k = txt.lastIndexOf(" ", j);
+      if (k <= i) k = j;
+      res.push(txt.substring(i, k).trim());
+      i = k + 1;
+    }
+    return res.join("\n");
+  }
+
+  function buildOutput(srcText, trText, tgtLang, detected) {
+    var cached = findInHistory(srcText, tgtLang);
+    if (cached && cached.out) {
+      var cachedSections = null;
+      try { if (cached.sec) cachedSections = JSON.parse(cached.sec); } catch(_) {}
+      return { text: cached.out, sections: cachedSections, wrapLen: 50 };
+    }
+
+    var variants = [];
+    var examples = [];
+    var dFrom = "";
+    var dTo = tgtLang;
+    var dictError = null;
+    var isDict = shouldUseDict(srcText);
+
+    if (isDict) {
+      if (detected) dFrom = mapLangForYandex(detected);
+      else if (isTextInLanguage(srcText, 'ru')) dFrom = 'ru';
+      else dFrom = 'en';
+      if (dFrom !== dTo) {
+        var pair = dFrom + "-" + dTo;
+        log("Dict pair: " + pair, "Dict");
+        try {
+          var apiResult = apiDictParallel(srcText, pair);
+          variants = parseDictVariants(apiResult.lookup, pair);
+          examples = parseDictExamples(apiResult.examples, pair);
+          log("Dict: " + variants.length + " variants, " + examples.length + " examples", "Dict");
+        } catch(e) {
+          dictError = e.message;
+          error("Dict error: " + e.message, "Dict");
+        }
+      }
+    }
+
+    var hasDict = variants.length > 0 || examples.length > 0;
+    var wl = hasDict ? 50 : (20 + Math.min(40, Math.floor(trText.length / 5)));
+    var sections = [];
+    var plainParts = [];
+
+    if (hasDict || dictError) {
+      var header = srcText + " - " + trText + " (" + dFrom + " -> " + dTo + ")";
+      sections.push({ text: header, color: "white" });
+      plainParts.push(header);
+
+      if (dictError) {
+        sections.push({ text: "Dictionary: unavailable", color: "gray" });
+        plainParts.push("Dictionary: unavailable");
+      } else if (variants.length) {
+        sections.push({ text: "Dictionary:", color: "gray" });
+        var dictLines = [];
+        for (var i = 0; i < variants.length; i++) {
+          var v = variants[i];
+          var pos = v.pos ? " [" + v.pos + "]" : "";
+          dictLines.push((i + 1) + ". " + v.text + pos);
+          if (v.backs.length) dictLines.push("   <- " + wrapFast(v.backs.join(", "), wl - 5));
+        }
+        var dictText = dictLines.join("\n");
+        sections.push({ text: dictText, color: "white" });
+        plainParts.push("Dictionary:\n" + dictText);
+      }
+
+      if (examples.length) {
+        sections.push({ text: "Examples:", color: "gray" });
+        var exLines = [];
+        for (var i = 0; i < examples.length; i++) {
+          exLines.push("- " + wrapFast(examples[i].s, wl - 2));
+          if (examples[i].d) exLines.push("  " + wrapFast(examples[i].d, wl - 4));
+        }
+        var exText = exLines.join("\n");
+        sections.push({ text: exText, color: "white" });
+        plainParts.push("Examples:\n" + exText);
+      }
+    } else {
+      var transText = wrapFast(trText, wl);
+      sections.push({ text: transText, color: "white" });
+      plainParts.push(transText);
+    }
+
+    return { text: plainParts.join("\n\n"), sections: sections, wrapLen: wl };
+  }
+
+  var _out = buildOutput(src, tr, toLang, detectedLang);
+  var bodyText = _out.text;
+  var bodySections = _out.sections;
+  var wrapLen = _out.wrapLen;
+  if (!bodyText) return;
+
+  var Forms = clr.System.Windows.Forms;
+  var f = new Forms.Form();
+  var uiFont = new Drawing.Font("Segoe UI Semibold", 12);
+
+  f.FormBorderStyle = Forms.FormBorderStyle.None;
+  f.BackColor = Drawing.Color.Black;
+  f.Opacity = 0.85;
+  f.TopMost = true;
+  f.ShowInTaskbar = false;
+  f.AutoSize = false;
+  f.Padding = new Forms.Padding(10);
+
+  var contentLabels = [];
+
+  function colorFromName(name) {
+    if (name === "gray") return COLOR_GRAY;
+    return COLOR_WHITE;
+  }
+
+  function applySections(sections) {
+    for (var i = 0; i < contentLabels.length; i++) {
+      try { f.Controls.Remove(contentLabels[i]); } catch(_) {}
+      try { contentLabels[i].Dispose(); } catch(_) {}
+    }
+    contentLabels = [];
+    if (!sections || !sections.length) return;
+    for (var i = 0; i < sections.length; i++) {
+      var cl = new Forms.Label();
+      cl.AutoSize = true;
+      cl.Text = sections[i].text;
+      cl.ForeColor = colorFromName(sections[i].color);
+      cl.Font = uiFont;
+      cl.BackColor = Drawing.Color.Black;
+      f.Controls.Add(cl);
+      cl.BringToFront();
+      attachDrag(cl);
+      contentLabels.push(cl);
+    }
+  }
+  function getContentSize() {
+    var maxW = 0, totalH = 0;
+    var sizes = [];
+    for (var i = 0; i < contentLabels.length; i++) {
+      var ps = contentLabels[i].PreferredSize;
+      sizes.push({ w: ps.Width, h: ps.Height });
+      if (ps.Width > maxW) maxW = ps.Width;
+      totalH += ps.Height + 2;
+    }
+    if (totalH > 0) totalH -= 2;
+    return { width: maxW, height: totalH, sizes: sizes };
+  }
+
+  function positionContentLabels(startX, startY, sizes) {
+    var y = startY;
+    for (var i = 0; i < contentLabels.length; i++) {
+      contentLabels[i].Location = new Drawing.Point(startX, y);
+      y += (sizes && sizes[i] ? sizes[i].h : contentLabels[i].PreferredSize.Height) + 2;
+    }
+  }
+
+  applySections(bodySections);
+
+  var lblSrc = null, lblSep = null;
+  var splitMode = false;
+  var splitCreated = false;
+  var historyVisible = false;
+  var historyControls = [];
+  var lastContentW = 0;
+  var dragging = false, sx = 0, sy = 0;
+  var suppressClick = false;
+  var btnCopy, btnSwap, btnPin, btnSplit, btnHist;
+
+  addToHistory(src, tr, bodyText, JSON.stringify(bodySections), toLang);
+
+  function controlIsButton(s, btn) {
+    if (!s || !btn) return false;
+    try { return s.Equals(btn); } catch(_) { return s === btn; }
+  }
+  function md(s,e){
+    if (e.Button !== Forms.MouseButtons.Left) return;
+    if (controlIsButton(s,btnCopy)||controlIsButton(s,btnSwap)||controlIsButton(s,btnPin)||controlIsButton(s,btnSplit)||controlIsButton(s,btnHist)) return;
+    suppressClick = false;
+    dragging = true; sx = e.X; sy = e.Y;
+  }
+  function mm(s,e){
+    if (!dragging) return;
+    if (Math.abs(e.X-sx)>3||Math.abs(e.Y-sy)>3) suppressClick = true;
+    var p = f.Location;
+    f.Location = new Drawing.Point(p.X+e.X-sx, p.Y+e.Y-sy);
+  }
+  function mu(s,e){ if(e.Button===Forms.MouseButtons.Left) dragging=false; }
+  function attachDrag(c){
+    if(!c) return;
+    c.MouseDown.connect(md); c.MouseMove.connect(mm); c.MouseUp.connect(mu);
+    c.DoubleClick.connect(function(){ if(!formIsPinned()) f.Close(); });
+  }
+
+  function createSplitLabels() {
+    if (splitCreated) return;
+    splitCreated = true;
+    lblSrc = new Forms.Label();
+    lblSrc.ForeColor = Drawing.Color.White;
+    lblSrc.Font = uiFont;
+    lblSep = new Forms.Label();
+    lblSep.AutoSize = false;
+    lblSep.Width = 2;
+    lblSep.BackColor = Drawing.Color.FromArgb(80,80,80);
+    lblSep.Text = "";
+    attachDrag(lblSrc); attachDrag(lblSep);
+  }
+
+  var pinHeld = { on: false };
+  var deactivateCloseTimer = null;
+  function formIsPinned() { return pinHeld.on === true; }
+  function syncPinButtonText() { if (btnPin) btnPin.Text = formIsPinned() ? "Unpin" : "Pin"; }
+
+  function getButtonsRowHeight() {
+    var h = 0;
+    [btnCopy,btnSwap,btnPin,btnSplit,btnHist].forEach(function(b){ if(b) h=Math.max(h,b.PreferredSize.Height); });
+    return h;
+  }
+  function getButtonsRowWidth() {
+    var w=0,n=0;
+    [btnCopy,btnSwap,btnPin,btnSplit,btnHist].forEach(function(b){ if(b){w+=b.PreferredSize.Width+5;n++;} });
+    return n?w-5:0;
+  }
+  function positionButtonsRow(y, xStart) {
+    var x = xStart;
+    if(btnCopy){btnCopy.Location=new Drawing.Point(x,y);x+=btnCopy.PreferredSize.Width+5;}
+    if(btnSwap){btnSwap.Location=new Drawing.Point(x,y);x+=btnSwap.PreferredSize.Width+5;}
+    if(btnPin){btnPin.Location=new Drawing.Point(x,y);x+=btnPin.PreferredSize.Width+5;}
+    if(btnSplit){btnSplit.Location=new Drawing.Point(x,y);x+=btnSplit.PreferredSize.Width+5;}
+    if(btnHist){btnHist.Location=new Drawing.Point(x,y);}
+  }
+
+  function clearHistoryControls() {
+    for (var i=0;i<historyControls.length;i++) {
+      var c=historyControls[i];
+      try{f.Controls.Remove(c);}catch(_){}
+      try{c.Dispose();}catch(_){}
+    }
+    historyControls=[];
+  }
+
+  function loadFromHistory(entry) {
+    if (!entry || !entry.out) return;
+    src = String(entry.s || "");
+    tr = String(entry.t || "");
+    var secs = null;
+    try { if (entry.sec) secs = JSON.parse(entry.sec); } catch(_) {}
+    if (!secs || !secs.length) secs = [{ text: String(entry.out), color: "white" }];
+    bodySections = secs;
+    applySections(bodySections);
+    var hasDict = false;
+    for (var i = 0; i < secs.length; i++) {
+      if (secs[i].text && secs[i].text.indexOf("Dictionary:") === 0) { hasDict = true; break; }
+    }
+    splitMode = !hasDict;
+    layoutAll();
+    clampToScreen();
+    try { f.TopMost = true; f.BringToFront(); f.Activate(); } catch(_) {}
+  }
+
+  function makeHistoryLine(displayText, entry, y, x, width, height, isEmpty) {
+    var hl = new Forms.Label();
+    hl.Text = displayText;
+    hl.AutoSize = false;
+    hl.Location = new Drawing.Point(x, y);
+    hl.Width = width; hl.Height = height;
+    hl.AutoEllipsis = true;
+    hl.Font = uiFont;
+    hl.ForeColor = isEmpty ? Drawing.Color.FromArgb(130,130,130) : Drawing.Color.FromArgb(215,215,215);
+    hl.BackColor = Drawing.Color.Black;
+    hl.TextAlign = Drawing.ContentAlignment.MiddleLeft;
+    f.Controls.Add(hl); hl.BringToFront();
+    historyControls.push(hl); attachDrag(hl);
+    if (!isEmpty && entry) {
+      (function(en,label){
+        label.Click.connect(function(){
+          if (suppressClick) return;
+          loadFromHistory(en);
+        });
+      })(entry, hl);
+    }
+    return hl;
+  }
+
+  function layoutAll() {
+    clearHistoryControls();
+
+    var pad = f.Padding.All;
+    var gap=12, sepW=2, sepBlock=gap+sepW+gap;
+    var btnH = getButtonsRowHeight();
+    var btnRowW = getButtonsRowWidth();
+    var btnGap = btnH ? 5 : 0;
+
+    var cSize = getContentSize();
+    var singleW = Math.max(cSize.width, btnRowW) + pad*2;
+    var contentW=0, contentH=0, btnX=pad;
+
+    if (!splitMode) {
+      if (splitCreated) {
+        try{f.Controls.Remove(lblSrc);}catch(_){}
+        try{f.Controls.Remove(lblSep);}catch(_){}
+      }
+      contentW = singleW;
+      if (copyPosition==='up' && btnH) {
+        positionButtonsRow(pad, pad);
+        positionContentLabels(pad, pad+btnH+btnGap, cSize.sizes);
+        contentH = pad+btnH+btnGap+cSize.height+pad;
+      } else if (copyPosition==='up') {
+        positionContentLabels(pad, pad, cSize.sizes);
+        contentH = pad+cSize.height+pad;
+      } else if (btnH) {
+        positionContentLabels(pad, pad, cSize.sizes);
+        positionButtonsRow(pad+cSize.height+btnGap, pad);
+        contentH = pad+cSize.height+btnGap+btnH+pad;
+      } else {
+        positionContentLabels(pad, pad, cSize.sizes);
+        contentH = pad+cSize.height+pad;
+      }
+    } else {
+      createSplitLabels();
+      if(!f.Controls.Contains(lblSrc)) f.Controls.Add(lblSrc);
+      if(!f.Controls.Contains(lblSep)) f.Controls.Add(lblSep);
+      lblSrc.BringToFront(); lblSep.BringToFront();
+      lblSrc.Visible=true; lblSep.Visible=true;
+
+      var W = cSize.width;
+      if (2*W+sepBlock < btnRowW) W = Math.ceil((btnRowW-sepBlock)/2);
+
+      lblSrc.Text = src;
+      lblSrc.AutoSize = true;
+      lblSrc.MaximumSize = new Drawing.Size(W, 0);
+
+      var colW = Math.max(W, lblSrc.PreferredSize.Width, cSize.width);
+      var maxH = Math.max(lblSrc.PreferredSize.Height, cSize.height);
+      contentW = pad+colW+sepBlock+colW+pad;
+      btnX = pad + (contentW - singleW);
+      if (btnX < pad) btnX = pad;
+
+      var contentY;
+      if (copyPosition==='up' && btnH) {
+        positionButtonsRow(pad, btnX);
+        contentY = pad+btnH+btnGap;
+        contentH = pad+btnH+btnGap+maxH+pad;
+      } else if (copyPosition==='up') {
+        contentY = pad; contentH = pad+maxH+pad;
+      } else if (btnH) {
+        contentY = pad;
+        positionButtonsRow(contentY+maxH+btnGap, btnX);
+        contentH = pad+maxH+btnGap+btnH+pad;
+      } else {
+        contentY = pad; contentH = pad+maxH+pad;
+      }
+      lblSrc.Location = new Drawing.Point(pad, contentY);
+      lblSep.Location = new Drawing.Point(pad+colW+gap, contentY);
+      lblSep.Height = maxH;
+      positionContentLabels(pad+colW+sepBlock, contentY, cSize.sizes);
+    }
+
+    var totalW=contentW, totalH=contentH;
+
+    if (historyVisible && histEnabled) {
+      var histArr = _histCache || [];
+      var histW = Math.max(Math.min(contentW, 420), 160);
+      var histTextX = contentW + sepBlock;
+      var lineH = Forms.TextRenderer.MeasureText("Ag",uiFont,new Drawing.Size(histW,0),Forms.TextFormatFlags.SingleLine).Height+4;
+      if (histArr.length > histLimit) histArr = histArr.slice(0, histLimit);
+      var n = histArr.length ? histArr.length : 1;
+      var histH = pad + n*lineH + (n-1)*3 + pad;
+      totalH = Math.max(contentH, histH);
+      totalW = contentW + sepBlock + histW;
+
+      var vsep = new Forms.Label();
+      vsep.AutoSize=false; vsep.Width=2; vsep.Height=totalH-pad*2;
+      vsep.BackColor=Drawing.Color.FromArgb(80,80,80); vsep.Text="";
+      vsep.Location=new Drawing.Point(contentW+gap, pad);
+      f.Controls.Add(vsep); vsep.BringToFront();
+      historyControls.push(vsep); attachDrag(vsep);
+
+      var hy = pad;
+      if (!histArr.length) {
+        makeHistoryLine("(пусто)",null,hy,histTextX,histW,lineH,true);
+        hy += lineH+3;
+      } else {
+        for (var i=0;i<histArr.length;i++) {
+          var sval = histArr[i]&&histArr[i].s ? String(histArr[i].s) : "";
+          var oneLine = sval.replace(/\s+/g," ").trim();
+          if (!oneLine) oneLine = "(пусто)";
+          makeHistoryLine((i+1)+". "+oneLine, histArr[i], hy, histTextX, histW, lineH, false);
+          hy += lineH+3;
+        }
+      }
+    }
+
+    lastContentW = contentW;
+    f.AutoSize = false;
+    f.Size = new Drawing.Size(totalW, totalH);
+  }
+
+  function clampToScreen() {
+    try {
+      var screen = Forms.Screen.FromPoint(f.Location);
+      var wa = screen.WorkingArea;
+      var x=f.Location.X, y=f.Location.Y;
+      if(x<wa.Left)x=wa.Left; if(y<wa.Top)y=wa.Top;
+      if(x+f.Width>wa.Right)x=wa.Right-f.Width;
+      if(y+f.Height>wa.Bottom)y=wa.Bottom-f.Height;
+      if(x<wa.Left)x=wa.Left; if(y<wa.Top)y=wa.Top;
+      f.Location = new Drawing.Point(x,y);
+    } catch(_) {}
+  }
+
+  function toggleSplit() {
+    var oldRight = f.Location.X + lastContentW;
+    splitMode = !splitMode;
+    layoutAll();
+    var newRight = f.Location.X + lastContentW;
+    var dx = oldRight - newRight;
+    if (dx!==0) f.Location = new Drawing.Point(f.Location.X+dx, f.Location.Y);
+    clampToScreen();
+    try{f.TopMost=true;f.BringToFront();f.Activate();}catch(_){}
+  }
+
+  function toggleHistory() {
+    if (!histEnabled) return;
+    historyVisible = !historyVisible;
+    layoutAll();
+    clampToScreen();
+    try{f.TopMost=true;f.BringToFront();f.Activate();}catch(_){}
+  }
+
+  function createButton(text, onClick) {
+    var btn = new Forms.Button();
+    btn.Text=text; btn.AutoSize=true;
+    btn.FlatStyle=Forms.FlatStyle.Flat;
+    btn.BackColor=Drawing.Color.White;
+    btn.ForeColor=Drawing.Color.Black;
+    btn.Click.connect(onClick);
+    f.Controls.Add(btn);
+    return btn;
+  }
+
+  if (enableCopy||enableSwap||enablePin||enableSplit||histEnabled) {
+    if(enableCopy) btnCopy=createButton("Copy",function(){clip.SetText(tr);f.Close();});
+    if(enableSwap) btnSwap=createButton("Swap",function(){
+      f.Hide();clip.SetText(tr);sp.Sleep(20);
+      sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_V]);f.Close();
+    });
+    if(enablePin) btnPin=createButton("Pin",function(){
+      pinHeld.on=!pinHeld.on;syncPinButtonText();
+      try{f.TopMost=true;f.BringToFront();f.Activate();}catch(_){}
+    });
+    if(enableSplit) btnSplit=createButton("Text/Tr",function(){toggleSplit();});
+    if(histEnabled) btnHist=createButton("Hist",function(){toggleHistory();});
+  }
+
+  attachDrag(f);
+  attachDrag(btnCopy);attachDrag(btnSwap);attachDrag(btnPin);attachDrag(btnSplit);attachDrag(btnHist);
+
+  layoutAll();
+
+  f.KeyPreview = true;
+  f.KeyDown.connect(function(s,e){if(e.KeyCode===Forms.Keys.Escape&&!formIsPinned())f.Close();});
+
+  f.Deactivate.connect(function(){
+    if(formIsPinned())return;
+    if(deactivateCloseTimer){try{deactivateCloseTimer.Stop();deactivateCloseTimer.Dispose();}catch(_){}deactivateCloseTimer=null;}
+    var tmr=new Forms.Timer(); tmr.Interval=200; deactivateCloseTimer=tmr;
+    tmr.Tick.connect(function(){
+      deactivateCloseTimer=null;
+      try{tmr.Stop();tmr.Dispose();}catch(_){}
+      try{
+        if(formIsPinned())return;
+        if(!f.Visible)return;
+        if(f.ContainsFocus)return;
+        if(Forms.Form.ActiveForm===f)return;
+        f.Close();
+      }catch(_){}
+    });
+    tmr.Start();
+  });
+
+  f.Shown.connect(function(){
+    f.BringToFront();f.Activate();
+    try{sp.WindowFromHandle(f.Handle).Activate();}catch(e){}
+    clampToScreen();
+  });
+
+  var pt = sp.GetCurrentMousePoint();
+  f.StartPosition = Forms.FormStartPosition.Manual;
+  f.Location = new Drawing.Point(pt.X+20, pt.Y+(wrapLen<30?-40:-150));
+  f.ShowDialog();
+
+ } catch(e) { try { sp.ConsoleError("[Translate CRASH] " + e.message + " | " + e.stack, "Translate"); } catch(_) {} }
+})();
