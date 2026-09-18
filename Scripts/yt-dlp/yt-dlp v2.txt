@@ -1,0 +1,477 @@
+var useCookiesFromBrowser = true;
+var browserForCookies = "firefox"; // firefox, chrome, edge, opera, brave, vivaldi, safari
+
+var useEmbedThumbnail = true;  // true - embed thumbnail into all files, false - do not embed
+var useEmbedChapters = true;   // true - embed chapters into all files (if available), false - do not embed
+
+var useExtractorArgs = false;   // true - pass custom arguments to the extractor (e.g., force specific YouTube player clients)
+var extractorArgsValue = 'youtube:player_client=web_safari,web_embedded,-tv_downgraded';
+
+var useSponsorBlock = true;    // true - auto-remove sponsor segments, false - keep original video
+var sponsorBlockCategories = 'sponsor,intro,outro,selfpromo,interaction';
+
+// sponsor — Paid promotion, paid referrals or direct advertisements.
+// intro — Intermission/Intro animation.
+// outro — Endcards/Credits.
+// selfpromo — Unpaid/Self Promotion (Patreon, merch, shoutouts).
+// interaction — Interaction Reminder (Like, subscribe, hit the bell).
+// preview — Preview/Recap (Clips showing what is coming up in the video).
+// filler — Filler Tangent (Jokes and tangents not required to understand the main content).
+// music_offtopic — Non-Music Section (Only for music videos, e.g., talking at the beginning).
+
+var ytdlpPath = 'C:\\test\\test1\\';   // The path should end with (\\)
+var ytdlpFileName = 'yt-dlp.exe';
+var ffmpegFileName = 'ffmpeg.exe';
+var keepCmdOpen = true;        // true - keep CMD window open, false - run minimized and auto-close on finish
+var CLIPBOARD_DELAY = 50;
+var browserNames = ["chrome", "firefox", "msedge", "opera", "brave", "vivaldi"]; // if browser, extracts URL from the address bar
+
+var menuOptions = [
+    { name: "-F (List available formats)", option: '-F', template: 'download/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: false },
+    { name: "<=1080p (MP4)", option: '-f bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/bv*[height<=1080]+ba/best --download-archive archive-video.txt -N 4', template: 'download/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: false },
+    { name: "<=1080p (MP4 without archive)", option: '-f bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/bv*[height<=1080]+ba/best -N 4', template: 'download/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: false },
+    { name: "bestvideo (MP4 without archive)", option: '-f bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best -N 6', template: 'download/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: false },
+    { name: "─────────────────" },
+    { name: "audio (MP3)", option: '-f bestaudio[ext=mp3]/bestaudio/0 --extract-audio --audio-format mp3 --audio-quality 0 --download-archive archive-audio.txt -N 4', template: 'download/%(title)s-%(id)s.%(ext)s', skipUrl: false },
+    { name: "audio (MP3 without archive)", option: '-f bestaudio[ext=mp3]/bestaudio/0 --extract-audio --audio-format mp3 --audio-quality 0 -N 4', template: 'download/%(title)s-%(id)s.%(ext)s', skipUrl: false },
+    { name: "─────────────────" },
+    {
+        name: "From file >",
+        children: [
+            { name: "from list_video.txt (mp4)", option: '-f bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/bv*[height<=1080]+ba/best --download-archive archive-video.txt -N 6 -a list_video.txt', template: 'download/video/%(playlist_title)s/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: true },
+            { name: "from list_audio.txt (mp3)", option: '-f bestaudio[ext=mp3]/bestaudio/0 --extract-audio --audio-format mp3 --audio-quality 0 --download-archive archive-audio.txt -N 4 -a list_audio.txt --sleep-requests 0.25 --min-sleep-interval 1 --max-sleep-interval 5', template: 'download/audio/%(playlist_title)s/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: true },
+            { name: "─────────────────" },
+            { name: "➕ Save to list_video.txt", action: "saveToList", fileName: 'list_video.txt' },
+            { name: "    Open list_video.txt", action: "openList", fileName: 'list_video.txt' },
+            { name: "    Open archive-video.txt", action: "openList", fileName: 'archive-video.txt' },
+            { name: "─────────────────" },
+            { name: "➕ Save to list_audio.txt", action: "saveToList", fileName: 'list_audio.txt' },
+            { name: "    Open list_audio.txt", action: "openList", fileName: 'list_audio.txt' },
+            { name: "    Open archive-audio.txt", action: "openList", fileName: 'archive-audio.txt' }
+        ]
+    },
+    {
+        name: "Other >",
+        children: [
+//            { name: "Download subtitles only", option: '--skip-download --write-auto-sub --sub-lang ru,ru-en-GB,en,en-GB,ja,zh,zh-CN,zh-TW --convert-subs srt', template: 'subtitles/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: false },
+            { name: "Download live streams", option: '--no-hls-use-mpegts --live-from-start --remux-video mp4', template: 'live_streams/%(title)s_%(id)s.%(ext)s', skipUrl: false },
+            { name: "vk video VP9/avc1 best", option: '-f bestvideo[vcodec=vp9]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio -N 4 --download-archive archive-video.txt', template: 'download/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: false },
+            { name: "vk url1080", option: '-f url1080+bestaudio -N 4', template: 'download/%(title)s[%(height)sp][%(id)s].%(ext)s', skipUrl: false },
+            { name: "boosty", option: '-f full_hd/high -N 4', template: 'download/%(title)s[%(id)s].%(ext)s', skipUrl: false }
+        ]
+    },
+    { name: "─────────────────" },
+    {
+        name: "Download Playlist by Date >",
+        children: [
+            { name: "Video (MP4)", option: '--yes-playlist -f bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/bv*[height<=1080]+ba/best -N 4', template: 'download/%(playlist_title|NA)s/%(title)s [%(id)s].%(ext)s', skipUrl: false },
+            { name: "Audio (MP3)", option: '--yes-playlist -f bestaudio[ext=mp3]/bestaudio/0 --extract-audio --audio-format mp3 --audio-quality 0 -N 4', template: 'download/audio/%(playlist_title|NA)s/%(title)s [%(id)s].%(ext)s', skipUrl: false }
+        ]
+    },
+    {
+        name: "Cut & Download >",
+        children: [
+            { name: "Video (MP4)", option: '-f bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/bv*[height<=1080]+ba/best --force-keyframes-at-cuts -N 4', template: 'download/%(title)s [%(id)s] [clip].%(ext)s', skipUrl: false },
+            { name: "Audio (MP3)", option: '-f bestaudio[ext=mp3]/bestaudio/0 --extract-audio --audio-format mp3 --audio-quality 0 --force-keyframes-at-cuts -N 4', template: 'download/audio/%(title)s [%(id)s] [clip].%(ext)s', skipUrl: false }
+        ]
+    }
+];
+
+function checkFile(filePath, fileName) {
+    if (System.IO.File.Exists(`${filePath}\\${fileName}`)) return true;
+    sp.MessageBox(`File ${fileName} not found in:\n${filePath}`, "Error");
+    return false;
+}
+
+function safeGetClipboardText() {
+    try { return clip.GetText() || ''; } catch (e) { 
+        sp.ConsoleLog(`[safeGetClipboardText] ${e.message}`, "Error");
+        sp.MessageBox("Failed to access clipboard", "Error"); 
+        return ''; 
+    }
+}
+
+function safeSetClipboardText(text) {
+    try { if (text === '') clip.Clear(); else clip.SetText(text); } catch (e) { 
+        sp.ConsoleLog(`[safeSetClipboardText] ${e.message}`, "Error");
+        sp.MessageBox("Failed to set clipboard", "Error"); 
+    }
+}
+
+function saveToList(url, fileName) {
+    var filePath = `${ytdlpPath}\\${fileName}`;
+    try {
+        var urls = url.replace(/[\r\n]+/g, ' ').split(' ').map(u => u.trim()).filter(u => u);
+        if (urls.length === 0) { sp.MessageBox("Cannot save empty URL", "Warning"); return; }
+        
+        var existingLines = [];
+        if (System.IO.File.Exists(filePath)) {
+            var rawContent = System.IO.File.ReadAllText(filePath);
+            var rawLines = rawContent.split('\n');
+            for (var i = 0; i < rawLines.length; i++) {
+                var line = rawLines[i].trim();
+                if (line) existingLines.push(line);
+            }
+        }
+        
+        var newUrls = urls.filter(u => u && !existingLines.includes(u));
+        
+        if (newUrls.length === 0) {
+            sp.MessageBox("All URLs already exist in " + fileName, "Warning");
+            return;
+        }
+        
+        var allLines = existingLines.concat(newUrls);
+        System.IO.File.WriteAllText(filePath, allLines.join('\n') + '\n');
+        
+        sp.MessageBox(`Added ${newUrls.length} URL(s) to ${fileName}`, "Success");
+    } catch (error) {
+        sp.ConsoleLog(`[saveToList] ${error.message}`, "Error");
+        sp.MessageBox(`Failed to save URL: ${error.message}`, "Error");
+    }
+}
+
+function openList(fileName) {
+    var filePath = `${ytdlpPath}\\${fileName}`;
+    try {
+        if (System.IO.File.Exists(filePath)) {
+            sp.RunProgram('notepad', filePath, '', 'normal', true, false, false);
+        } else {
+            sp.MessageBox(`File ${fileName} does not exist.`, "Error");
+        }
+    } catch (error) { 
+        sp.ConsoleLog(`[openList] ${error.message}`, "Error");
+        sp.MessageBox(`Failed to open: ${error.message}`, "Error"); 
+    }
+}
+
+function buildCommonArgs(cmdArgs) {
+    if (useEmbedThumbnail && !cmdArgs.includes('--embed-thumbnail')) cmdArgs += " --embed-thumbnail";
+    if (useEmbedChapters && !cmdArgs.includes('--embed-chapters')) cmdArgs += " --embed-chapters";
+    if (useSponsorBlock && !cmdArgs.includes('--sponsorblock')) cmdArgs += ` --sponsorblock-remove ${sponsorBlockCategories}`;
+    if (useExtractorArgs && !cmdArgs.includes('--extractor-args')) cmdArgs += ` --extractor-args "${extractorArgsValue}"`;
+    if (useCookiesFromBrowser && !cmdArgs.includes('--cookies ')) cmdArgs += ` --cookies-from-browser ${browserForCookies}`;
+    
+    // Disabling playlist downloads if not specified --yes-playlist
+    if (!cmdArgs.includes('--yes-playlist') && !cmdArgs.includes('--no-playlist')) {
+        cmdArgs += " --no-playlist";
+    }
+    
+    return cmdArgs;
+}
+
+function runYtDlpCommand(cmdArgs, shouldKeepOpen) {
+    var cleanPath = ytdlpPath.replace(/\\+$/, '');
+    var ytDlpExe = `"${cleanPath}\\${ytdlpFileName}"`;
+    
+    // Escaping <and > in yt-dlp arguments (for example, in filters of the bestvideo format[height<=1080])
+    var safeCmdArgs = cmdArgs.replace(/</g, '^<').replace(/>/g, '^>');
+
+    var fullCmd = `chcp 65001 >nul & cd /d "${cleanPath}" & echo. & echo Command: ${ytDlpExe} ${safeCmdArgs} & echo. & ${ytDlpExe} ${safeCmdArgs}`;
+    
+    if (shouldKeepOpen) {
+        fullCmd += ` & echo.`;
+        fullCmd += ` & echo Press any key to close...`;
+        fullCmd += ` & pause >nul`; // The window is guaranteed to remain open.
+    }
+    var args = `/C "${fullCmd}"`;
+
+    try {
+        sp.RunProgram('cmd.exe', args, '', shouldKeepOpen ? 'normal' : 'minimized', true, false, false);
+    } catch (error) {
+        sp.ConsoleLog(`[runYtDlpCommand] ${error.message}`, "Critical Error");
+        sp.MessageBox(`Failed to launch cmd.exe!\n\nError: ${error.message}`, "Critical Error");
+    }
+}
+
+function getUrlFromActiveWindow(isBrowser) {
+    var beforeText = clip.GetText() || '';
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+    sp.Sleep(CLIPBOARD_DELAY);
+    var afterText = clip.GetText() || '';
+    
+    if (afterText !== beforeText) return afterText;
+
+    if (isBrowser) {
+        sp.SendModifiedVKeys([vk.LMENU], [vk.VK_D]); // Alt+D (select URL)
+        sp.Sleep(CLIPBOARD_DELAY);
+        sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+        sp.Sleep(CLIPBOARD_DELAY);
+        sp.SendVKey(vk.ESCAPE);
+        return clip.GetText() || '';
+    }
+    return '';
+}
+
+function parseUrls(rawUrl) {
+    if (!rawUrl) return [];
+    return rawUrl.replace(/[\s\r\n]+/g, ' ') 
+                 .trim()
+                 .split(' ')
+                 .filter(function(u) { return u; });
+}
+
+function getDateArg() {
+    var infoDate = new InputBoxInfo();
+    infoDate.Title = 'Download Playlist by Date';
+    infoDate.Message = '>01.01.2024 (after)\n<31.12.2023 (before)\n01.01.2024 (exact)\n01.01.2024-31.12.2024 (range)';
+    infoDate.Items.Add('>01.01.2024');
+    infoDate.Items.Add('<31.12.2023');
+    infoDate.Items.Add('01.01.2024');
+    infoDate.Items.Add('01.01.2024-31.12.2024');
+    infoDate.AllowDirectInput = true;
+    infoDate.Sort = false;
+    var resDate = sp.InputBox(infoDate);
+    if (!resDate) return null;
+
+    var dateArg = "";
+    var rangeMatch = resDate.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})-(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (rangeMatch) {
+        var day1 = rangeMatch[1].padStart(2, '0');
+        var month1 = rangeMatch[2].padStart(2, '0');
+        var year1 = rangeMatch[3];
+        var day2 = rangeMatch[4].padStart(2, '0');
+        var month2 = rangeMatch[5].padStart(2, '0');
+        var year2 = rangeMatch[6];
+        dateArg = `--dateafter ${year1}${month1}${day1} --datebefore ${year2}${month2}${day2}`;
+    } else {
+        var matchDate = resDate.trim().match(/^([<>]?)(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+        if (!matchDate) {
+            sp.MessageBox("Invalid date format!", "Error");
+            return null;
+        }
+        var prefix = matchDate[1];
+        var day = matchDate[2].padStart(2, '0');
+        var month = matchDate[3].padStart(2, '0');
+        var year = matchDate[4];
+        var ytdlpDate = year + month + day;
+        if (prefix === ">") dateArg = "--dateafter " + ytdlpDate;
+        else if (prefix === "<") dateArg = "--datebefore " + ytdlpDate;
+        else dateArg = "--date " + ytdlpDate;
+    }
+    return dateArg;
+}
+
+function getSectionArg() {
+    var infoSec = new InputBoxInfo();
+    infoSec.Title = 'Cut & Download';
+    infoSec.Message = '1:00-2:00 (from 1m to 2m)\n>2:00 (from 2m to end)\n<2:00 (from start to 2m)';
+    infoSec.Items.Add('1:00-2:00');
+    infoSec.Items.Add('>1:00');
+    infoSec.Items.Add('<1:00');
+    infoSec.AllowDirectInput = true;
+    infoSec.Sort = false;
+    var resSec = sp.InputBox(infoSec);
+    if (!resSec) return null;
+
+    var sectionArg = "";
+    var sectionName = "";
+    resSec = resSec.trim();
+    if (resSec.startsWith(">")) {
+        sectionArg = `*${resSec.substring(1)}-inf`;
+        sectionName = resSec.substring(1).replace(/:/g, '_') + '-end';
+    } else if (resSec.startsWith("<")) {
+        sectionArg = `*0:00-${resSec.substring(1)}`;
+        sectionName = 'start-' + resSec.substring(1).replace(/:/g, '_');
+    } else if (resSec.includes("-")) {
+        sectionArg = `*${resSec}`;
+        sectionName = resSec.replace(/:/g, '_');
+    } else {
+        sectionArg = resSec;
+        sectionName = resSec.replace(/:/g, '_');
+    }
+    return { arg: `--download-sections "${sectionArg}"`, name: sectionName };
+}
+
+function executeYtDlp(url, item) {
+    if (item.action) return;
+
+    var option = item.option;
+    var template = item.template || "";
+    var skipUrl = item.skipUrl || false;
+
+    if (option === '-F') {
+        runInteractiveFormat(url, item);
+        return; 
+    }
+
+    var shouldKeepOpen = keepCmdOpen;
+    var cmdArgs = option;
+
+    if (option.indexOf('--yes-playlist') !== -1 && option.indexOf('--dateafter') === -1 && option.indexOf('--datebefore') === -1 && option.indexOf('--date ') === -1) {
+        var dateArg = getDateArg();
+        if (!dateArg) return;
+        cmdArgs += " " + dateArg;
+    }
+    var isSectionMode = option.indexOf('--force-keyframes-at-cuts') !== -1 || option.indexOf('--download-sections') !== -1;
+    
+    if (isSectionMode && option.indexOf('--download-sections') === -1) {
+        var section = getSectionArg();
+        if (!section) return;
+        cmdArgs += ` ${section.arg}`;
+        template = template.replace('[clip]', '[' + section.name + ']');
+    }
+
+    if (template) cmdArgs += ` -o "${template}"`;
+    
+    if (!skipUrl && url) {
+        var urls = parseUrls(url);
+        for (var u = 0; u < urls.length; u++) {
+            var safeUrl = urls[u].replace(/([&|<>^])/g, '^$1');
+            cmdArgs += ' ' + safeUrl;
+        }
+    }
+    
+    cmdArgs = buildCommonArgs(cmdArgs);
+    runYtDlpCommand(cmdArgs, shouldKeepOpen);
+}
+
+function runInteractiveFormat(url, item) {
+    if (!url) return sp.MessageBox("No URL found to fetch formats.", "Error");
+
+    var cleanPath = ytdlpPath.replace(/\\+$/, '');
+    var batFilePath = `${cleanPath}\\yt_dlp_interactive.bat`;
+    var ytDlpExe = `${cleanPath}\\${ytdlpFileName}`;
+    
+    var templateArg = `-o "${item.template}"`.replace(/%/g, '%%');
+    var safeCommonArgs = buildCommonArgs("").trim().replace(/%/g, '%%');
+    
+    var urlList = parseUrls(url);  
+    var urlVars = urlList.map((u, i) => `set "U${i}=${u.replace(/%/g, '%%').replace(/"/g, '\\"')}"`).join('\r\n');
+    var urlArgs = urlList.map((u, i) => ` "!U${i}!"`).join('');
+
+    // a bat file in the form of a single readable template
+    var batContent = `@echo off
+setlocal EnableDelayedExpansion
+chcp 65001 >nul
+cd /d "${cleanPath}"
+${urlVars}
+set "YTDLP=${ytDlpExe}"
+
+echo -F ${urlArgs} ${safeCommonArgs}
+"%YTDLP%" -F ${urlArgs} ${safeCommonArgs}
+if errorlevel 1 (
+    echo ERROR: Failed to fetch formats!
+    pause
+    exit /b 1
+)
+
+echo ==========================================
+set /p "FORMAT=Enter format ID (e.g., 140+130, 22, bv*+ba) or press Enter to exit: "
+if "!FORMAT!"=="" ( exit )
+
+echo Command: "%YTDLP%" -f "!FORMAT!" ${templateArg} ${urlArgs} ${safeCommonArgs}
+"%YTDLP%" -f "!FORMAT!" ${templateArg} ${urlArgs} ${safeCommonArgs}
+
+if errorlevel 1 ( echo ERROR: Download failed! )
+
+echo Operation finished.
+echo Press any key to close...
+pause >nul`.replace(/\n/g, '\r\n'); 
+
+    try {
+        var utf8NoBom = new System.Text.UTF8Encoding(false);
+        System.IO.File.WriteAllText(batFilePath, batContent, utf8NoBom);
+        sp.RunProgram('cmd.exe', `/C call "${batFilePath}"`, '', 'normal', true, false, false);
+    } catch (error) {
+        sp.MessageBox(`Failed: ${error.message}`, "Critical Error");
+    }
+}
+
+function showCustomMenu(menuTree, url) {
+    function buildPopupItems(tree, isRoot) {
+        var result = [];
+        
+        if (isRoot && url) {
+            var cleanUrl = url.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+            
+            if (cleanUrl) {
+                var maxLen = 45; 
+                var previewText = cleanUrl.length > maxLen ? cleanUrl.substring(0, maxLen - 3) + '...' : cleanUrl;
+                
+                result.push([previewText, ""]); 
+                result.push(["─────────────────────────────", "", false]);
+            }
+        }
+        for (var i = 0; i < tree.length; i++) {
+            var item = tree[i];
+            
+            if (!item.option && !item.action && !item.children) {
+                result.push([item.name, "", false]); 
+                continue;
+            }
+            
+            if (item.children && item.children.length > 0) {
+                var subItems = buildPopupItems(item.children, false);
+                if (subItems.length > 0) {
+                    result.push([item.name, "", false, subItems]);
+                }
+                continue;
+            }
+            if (item.action) {
+                var actionScript = "";
+                if (item.action === "saveToList") {
+                    actionScript = `saveToList(${JSON.stringify(url)}, '${item.fileName}')`;
+                } else if (item.action === "openList") {
+                    actionScript = `openList('${item.fileName}')`;
+                }
+                result.push([item.name, actionScript]);
+                continue;
+            }
+            var script = `executeYtDlp(${JSON.stringify(url)}, ${JSON.stringify(item)})`;
+            result.push([item.name, script]);
+        }
+        return result;
+    }
+
+    var popupItems = buildPopupItems(menuTree, true);
+    var currentPoint = sp.GetCurrentMousePoint();
+    var contentFont = new Font(new FontFamily("Tahoma"), 11, FontStyle.Regular, GraphicsUnit.Point);
+
+    if (typeof sp.PopupList === 'function') {
+        sp.PopupList(popupItems, currentPoint, contentFont, Color.FromName("White"), Color.FromArgb(200, 160, 180, 255), Color.FromArgb(255, 0, 0, 0));
+    } else {
+        sp.MessageBox("PopupList function is not available", "Error");
+    }
+}
+
+function initScript() {
+    if (!checkFile(ytdlpPath, ytdlpFileName) || !checkFile(ytdlpPath, ffmpegFileName)) return;
+
+    var originalDirectory = System.Environment.CurrentDirectory;
+    var originalClipboard = safeGetClipboardText();
+
+    try {
+        System.Environment.CurrentDirectory = ytdlpPath;
+
+        var fgWnd = sp.ForegroundWindow();
+        var exeName = (fgWnd.ExecutableName || "").toLowerCase();
+        var isBrowser = browserNames.some(function(browser) { return exeName.includes(browser); });
+
+        var url = getUrlFromActiveWindow(isBrowser);        
+        if (url) {
+            showCustomMenu(menuOptions, url);
+        } else {
+            var fromFile = menuOptions.find(function(item) { return item.name === "From file >"; });
+            var fromFileChildren = (fromFile && fromFile.children) || [];
+            var simpleMenu = [
+                fromFileChildren[0],
+                fromFileChildren[1],
+                { name: "─────────────────" },
+                { name: "Open list_video.txt", action: "openList", fileName: 'list_video.txt' },
+                { name: "Open archive-video.txt", action: "openList", fileName: 'archive-video.txt' },
+                { name: "─────────────────" },
+                { name: "Open list_audio.txt", action: "openList", fileName: 'list_audio.txt' },
+                { name: "Open archive-audio.txt", action: "openList", fileName: 'archive-audio.txt' }
+            ];
+            showCustomMenu(simpleMenu, '');
+        }
+    } catch (error) {
+        sp.ConsoleLog(`[initScript] ${error.message}`, "Error");
+    } finally {
+        System.Environment.CurrentDirectory = originalDirectory;
+        safeSetClipboardText(originalClipboard);
+    }
+}
+
+initScript();
