@@ -1,0 +1,23 @@
+// Memorizing the mouse coordinates
+var p = sp.GetCurrentMousePoint();
+
+// move the cursor to the corner
+sp.MouseMove(new Point(0, 0));
+
+// Select the entire text
+sp.SendModifiedVKeys([vk.LSHIFT], [vk.HOME]);
+//sp.Sleep(10);
+
+// Ctrl+C
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+//sp.Sleep(10);
+
+// Ctrl+V
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+//sp.Sleep(10);
+
+// Press Enter
+sp.SendVKey(vk.RETURN);
+
+// Returning the mouse
+sp.MouseMove(p);
