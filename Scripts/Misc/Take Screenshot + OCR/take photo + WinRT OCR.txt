@@ -1,0 +1,3043 @@
+var ENABLE_EDIT = true; // true = show the "Edit" button (🎨 Edit)
+var EDIT_PROGRAM_PATH = "mspaint"; 
+var EDIT_DELAY = 1000; // Delay (in milliseconds) before inserting an image into the editor (so that Paint can open)
+var MIN_CAPTURE_SIZE = 20; // The minimum selection size (in pixels). Smaller areas are cancelled
+var ENABLE_LOGS = false; // log
+//================================= OCR
+// OCR language: "en-US", "ru-RU", "ja-JP", "ko-KR", "zh-Hans-CN", "ar-SA", etc.
+// If set — recognition runs ONCE with this language only.
+// If empty ("") — auto: run all installed languages and pick best by score.
+var OCR_LANGUAGE = "";
+// Order of language buttons in result window, e.g. "ru-RU,en-US,ja-JP" (comma-separated).
+// Listed ones come first in this order. Empty ("") = as in system (installed order).
+var BUTTON_LANG_ORDER = "ru-RU,en-US,ja-JP,ko-KR,zh-Hans-CN";
+// true = OCR immediately after selecting area.
+// false = first show screenshot of selected area — RMB on it gives OCR/Save/Edit.
+var ONLY_OCR = false;
+// true = OCR straight to clipboard: together with var ONLY_OCR = true;
+// false = as usual (result window, formatting, buttons).
+var CLIPBOARD_ONLY = false; // true = immediately send the recognized text to the clipboard without showing the window (works together with ONLY_OCR = true)
+var CLOSE_OCR_WINDOW_ON_CLICK_OUTSIDE = false; // Close the window with the OCR result when clicking outside it (when losing focus)
+var CLOSE_IMAGE_WINDOW_ON_OCR_CLOSE = true;    // Close the screenshot preview window when closing the OCR text window
+var CLOSE_OCR_WINDOW_ON_EXCEL_OPEN = true;     // Close the OCR window immediately when you click on the Excel button
+var CLOSE_OCR_WINDOW_ON_EXCEL_DONE = false;    // Close the OCR window after clicking "TSV save" in Excel
+
+var AUTO_MOVE_CURSOR_TO_CENTER = true; // true = automatically move the cursor to the center of the window (images or OCR) when it is opened
+// Area selection on screen.
+// MENU_SAFE_CAPTURE=true  → first capture whole screen, selection on frozen frame
+//                           (needed when menu closes on click and gets into frame)
+// MENU_SAFE_CAPTURE=false → transparent overlay over screen: border is live,
+//                           on release capture area from real screen
+var MENU_SAFE_CAPTURE = false;
+// Copy result to clipboard immediately on show.
+var AUTO_COPY = false;
+// Result format at start: "raw" | "line" | "lines" | "table1" | "table2"
+var DEFAULT_FORMAT = "line"; // default format
+
+var currentFormat = DEFAULT_FORMAT;
+var Forms = forms.System.Windows.Forms;
+var Drawing = drawing.System.Drawing;
+var selectionPen = new Drawing.Pen(Drawing.Color.FromArgb(200, 0, 120, 215), 2);
+var sizeFont = new Drawing.Font("Segoe UI", 12, Drawing.FontStyle.Bold);
+var sizeBrush = new Drawing.SolidBrush(Drawing.Color.White);
+var sizeBgBrush = new Drawing.SolidBrush(Drawing.Color.FromArgb(200, 0, 0, 0));
+var fillBrush = new Drawing.SolidBrush(Drawing.Color.FromArgb(70, 90, 160, 255));
+var _skipOcrCleanup = false;
+//  "JUNK" CHARACTERS FOR HIDING
+var CUSTOM_HIDE_PATTERNS = ["(0", "0)", "(0)", "[3", "E]" , "C)", "[2", "Т!", "C]" , "[П" , "G?]" , "(S)", "($)", "[Z", 
+"—•", "•—", "...", "iii'/",
+];
+// GLOBAL REGEX CACHE
+var RE_SPACE_JOINING = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uFF66-\uFF9F\u31F0-\u31FF\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/;
+var RE_IS_NUMBER = /^\d+([.,]\d+)?$/;
+//var RE_LANG_HEADER = /^\[([^\]]+)\]\r\n/;
+//var RE_LANG_HEADER_RM = /^\[[^\]]+\]\r\n/;
+var RE_LANG_HEADER = /^\[([^\]]+)\]\r?\n/;
+var RE_LANG_HEADER_RM = /^\[[^\]]+\]\r?\n/;
+var RE_MULTI_SPACE = /\s{2,}|\t|\|/;
+var RE_NL_SPLIT = /\r?\n/;
+var RE_NL = /\r\n|\n|\r/g;
+
+function normNL(s) {
+if (!s) return "";
+return s.replace(RE_NL, "\r\n");
+}
+
+function log(msg) {if (!ENABLE_LOGS) return; sp.ConsoleLog(msg, "SS", Drawing.Color.Yellow);}
+var lastOcrBitmap = null;
+var lastOcrToken = "none";
+var ocrRunCounter = 0;
+var langResultCache = new Map();
+var lastRunIsAuto = false;
+var lastWinnerLang = "";
+var structuredOcrCache = null;
+var lastUsedOcrLang = "auto";
+
+function clearOcrSessionCache() {
+langResultCache.clear();
+structuredOcrCache = null;
+lastOcrToken = "none";
+lastRunIsAuto = false;
+lastWinnerLang = "";
+_table2LayoutCache = null;
+_table2LayoutToken = "none";
+_table2LayoutLang = "none";  
+if (lastOcrBitmap) {
+try { lastOcrBitmap.Dispose(); } catch(e) { sp.ConsoleError("clearOcrSessionCache Dispose: " + (e.message || e), "SS", Drawing.Color.Red); }
+lastOcrBitmap = null;
+}
+}
+
+function getStructuredOcrJson() {
+var OcrClass = (typeof OcrHelper !== 'undefined') ? OcrHelper.OcrEngine : OcrEngine;
+if (structuredOcrCache && structuredOcrCache.token === lastOcrToken && structuredOcrCache.lang === lastUsedOcrLang) {
+return structuredOcrCache.json;
+}
+var cached = langResultCache.has(lastUsedOcrLang) ? langResultCache.get(lastUsedOcrLang) : null;
+if (cached && cached.token === lastOcrToken && cached.json) {
+structuredOcrCache = { token: lastOcrToken, lang: lastUsedOcrLang, json: cached.json };
+return cached.json;
+}
+OcrClass.SetLogEnabled(false);
+OcrClass.ClearLogs();
+var ocr = new OcrClass();
+var json = ocr.OcrStructuredFromBitmap(lastOcrBitmap, lastUsedOcrLang === "auto" ? "" : lastUsedOcrLang);
+OcrClass.SetLogEnabled(ENABLE_LOGS);
+OcrClass.ClearLogs();
+structuredOcrCache = { token: lastOcrToken, lang: lastUsedOcrLang, json: json };
+return json;
+}
+
+function extractTextFromStructuredJson(json) {
+try {
+var data = JSON.parse(json);
+if (!data || !data.blocks || data.error) return null;
+var lines = [];
+for (var b = 0; b < data.blocks.length; b++) {
+var blk = data.blocks[b];
+if (!blk || !blk.lines) continue;
+for (var l = 0; l < blk.lines.length; l++) {
+if (blk.lines[l] && blk.lines[l].text) lines.push(blk.lines[l].text);
+}
+}
+return lines.join("\n");
+} catch (e) {
+sp.ConsoleError("extractTextFromStructuredJson: " + (e.message || e), "SS", Drawing.Color.Red);
+return null;
+}
+}
+
+function langFlagOf(code) {
+return code.split("-")[0].toUpperCase();
+}
+var warnedUninstalledLangs = new Map();
+
+function checkOcrLanguageInstalled(code) {
+try {
+var OcrClass = (typeof OcrHelper !== 'undefined') ? OcrHelper.OcrEngine : OcrEngine;
+var langs = new OcrClass().GetInstalledOcrLanguages();
+for (var i = 0; i < langs.Length; i++) {
+if (langs[i] === code) return true;
+}
+} catch (e) { sp.ConsoleError("checkOcrLanguageInstalled: " + (e.message || e), "SS", Drawing.Color.Red); }
+return false;
+}
+
+function warnIfLanguageMissing(code) {
+if (code === "auto" || warnedUninstalledLangs.has(code)) return;
+warnedUninstalledLangs.set(code, true);
+if (!checkOcrLanguageInstalled(code)) {
+sp.MessageBox("Language " + code + " is not installed in Windows.\nOCR will run with default language (usually en-US).\nInstall: Settings → Time & Language → Language & Region.", "OCR: language not installed");
+}
+}
+
+function performOcr(image) {
+try {
+try {
+var iw = image.Width, ih = image.Height;
+if (iw <= 0 || ih <= 0) { log("OCR: empty image"); return; }
+} catch (e) { sp.ConsoleError("OCR: image unavailable: " + (e.message || e), "SS", Drawing.Color.Red);
+return;
+}
+var bmp = new Drawing.Bitmap(image);
+if (lastOcrBitmap) { try { lastOcrBitmap.Dispose(); } catch(ex) { sp.ConsoleError("performOcr lastOcrBitmap.Dispose: " + (ex.message || ex), "SS", Drawing.Color.Red); } }
+lastOcrBitmap = bmp;
+lastOcrToken = "run" + (++ocrRunCounter);
+var OcrClass = (typeof OcrHelper !== 'undefined') ? OcrHelper.OcrEngine : OcrEngine;
+OcrClass.SetLogEnabled(ENABLE_LOGS);
+OcrClass.SetOcrLangOrder(BUTTON_LANG_ORDER);
+OcrClass.SetCachedBitmap(bmp);
+var ocr = new OcrClass();
+var ocrLang = (OCR_LANGUAGE && OCR_LANGUAGE.trim() !== "") ? OCR_LANGUAGE.trim() : "auto";
+lastUsedOcrLang = ocrLang;
+lastRunIsAuto = (ocrLang === "auto");
+warnIfLanguageMissing(ocrLang);
+var rawResult;
+if (ocrLang !== "auto") {
+structuredOcrCache = null;
+var sjson = getStructuredOcrJson();
+var stext = extractTextFromStructuredJson(sjson);
+if (stext !== null && stext !== "") {
+rawResult = "[" + langFlagOf(ocrLang) + "]\n" + stext;
+} else {
+rawResult = ocr.OcrFromBitmap(bmp, ocrLang);
+if (ENABLE_LOGS) {
+var logs = OcrClass.GetLogs();
+for (var i = 0; i < logs.Length; i++) {
+sp.ConsoleLog(logs[i], "OCR");
+}
+}
+}
+} else {
+rawResult = ocr.OcrFromBitmap(bmp, ocrLang);
+var autoLang = OcrClass.GetLastAutoLang() || "auto";
+lastUsedOcrLang = autoLang;
+lastWinnerLang = autoLang;
+if (ENABLE_LOGS) {
+var logs = OcrClass.GetLogs();
+for (var i = 0; i < logs.Length; i++) {
+sp.ConsoleLog(logs[i], "OCR");
+}
+}
+}
+if (lastRunIsAuto) {
+    try {
+        var mapJson = {};
+        var allJ = OcrClass.GetAutoResultsJson();
+        for (var i = 0; i < allJ.Length; i++) {
+            var sep = allJ[i].indexOf("\u0000");
+            if (sep < 0) continue;
+            mapJson[allJ[i].substring(0, sep)] = allJ[i].substring(sep + 1);
+        }
+        var all = OcrClass.GetAutoResults();
+        for (var i = 0; i < all.Length; i++) {
+            var sep = all[i].indexOf("\u0000");
+            if (sep < 0) continue;
+            var code = all[i].substring(0, sep);
+            var txt = all[i].substring(sep + 1);
+            langResultCache.set(code, { token: lastOcrToken, text: txt || "", json: mapJson[code] || null });
+        }
+    } catch (e) {
+        sp.ConsoleError("Lang cache error: " + (e.message || e), "SS", Drawing.Color.Red);
+    }
+}
+if (ocrLang !== "auto" && rawResult) {
+try {
+var clean = rawResult.replace(RE_LANG_HEADER_RM, "");
+if (clean && clean.trim()) {
+langResultCache.set(ocrLang, {
+token: lastOcrToken,
+text: clean,
+json: (structuredOcrCache && structuredOcrCache.token === lastOcrToken) ? structuredOcrCache.json : null
+});
+}
+} catch (e) {
+sp.ConsoleError("Lang cache error: " + (e.message || e), "SS", Drawing.Color.Red);
+}
+}
+if (CLIPBOARD_ONLY) {
+var ctext = rawResult.replace(RE_LANG_HEADER_RM, "");
+if (ctext && ctext.trim() !== "") {
+clip.SetText(normNL(ctext));
+log("Copied to clipboard: " + ctext.length + " chars.");
+} else {
+sp.MessageBox("Text not recognized or image is empty.", "OCR Result");
+}
+clearOcrSessionCache();
+return;
+}
+ShowOcrResult(rawResult);
+} catch (e) {
+sp.ConsoleError("OCR Error: " + (e.message || e), "SS", Drawing.Color.Red);
+sp.MessageBox("OCR Error: " + (e.message || e), "Error");
+}
+}
+
+function ShowOcrResult(rawResult) {
+var lang = "AUTO";
+var text = rawResult;
+var m = RE_LANG_HEADER.exec(rawResult);
+if (m) { lang = m[1]; text = rawResult.substring(m[0].length); }
+if (!text || text.trim() === "") {
+sp.MessageBox("Text not recognized or image is empty.", "OCR Result");
+return;
+}
+var originalText = text;
+_skipOcrCleanup = false;  
+var f = new Forms.Form();
+f.Text = "🔍 OCR Result (" + lang + ")";
+f.StartPosition = Forms.FormStartPosition.CenterScreen;
+f.TopMost = true;
+f.FormBorderStyle = Forms.FormBorderStyle.Sizable;
+f.ControlBox = true;
+f.MinimizeBox = true;
+f.MaximizeBox = true;
+var tb = new Forms.TextBox();
+tb.Multiline = true;
+tb.AcceptsReturn = true;
+tb.ScrollBars = Forms.ScrollBars.Both;
+tb.WordWrap = true;
+tb.Dock = Forms.DockStyle.Fill;
+tb.Font = new Drawing.Font("Segoe UI", 14); // Font of the main text field
+tb.ReadOnly = false;
+try {
+var tmpH = tb.Handle;
+tb.Multiline = false;
+tb.Multiline = true;
+} catch (e) {
+sp.ConsoleError("Multiline recreate error: " + (e.message || e), "SS", Drawing.Color.Red);
+}
+
+function setTbText(s) {
+tb.Text = normNL(s);
+}
+setTbText(text);
+var _fontProp = null, _fontMono = null;
+
+function setTbMonoFont(on) {
+try {
+if (on) {
+if (!_fontMono) _fontMono = new Drawing.Font("Consolas", 11); // for table 1,2 (font size)
+tb.Font = _fontMono;
+tb.WordWrap = false;
+} else {
+if (!_fontProp) _fontProp = new Drawing.Font("Segoe UI", 14);
+tb.Font = _fontProp;
+tb.WordWrap = true;
+}
+} catch (e) { sp.ConsoleError("setTbMonoFont: " + (e.message || e), "SS", Drawing.Color.Red); }
+}
+var _table2LayoutCache = null;
+var _table2LayoutToken = "none";
+var _table2LayoutLang = "none";
+var _savedVLines = null;          
+var _savedVLinesToken = "none";   
+
+function getTable2Layout() {
+if (_table2LayoutCache && _table2LayoutToken === lastOcrToken && _table2LayoutLang === lastUsedOcrLang) {
+return _table2LayoutCache;
+}
+var json = null;
+try { if (lastOcrBitmap) json = getStructuredOcrJson(); } catch (e) { sp.ConsoleError("getTable2Layout structured: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (!json) return null;
+var ocrScale = 1.0;
+var ocrPadX = 0, ocrPadY = 0;
+var words = [], lineFallback = [];
+try {
+var data = JSON.parse(json);
+if (data.scale && data.scale > 0) ocrScale = data.scale;
+if (data.padX) ocrPadX = Number(data.padX);
+if (data.padY) ocrPadY = Number(data.padY);
+if (data.blocks) {
+for (var bi = 0; bi < data.blocks.length; bi++) {
+var lns = (data.blocks[bi] && data.blocks[bi].lines) || [];
+for (var li = 0; li < lns.length; li++) {
+var ln = lns[li];
+if (!ln) continue;
+var ws = ln.words || [];
+if (ws.length === 0) {
+lineFallback.push({ text: (ln.text || "").trim(), x: (ln.x || 0) / ocrScale - ocrPadX, y: (ln.y || 0) / ocrScale - ocrPadY, w: (ln.w || 0) / ocrScale, h: (ln.h || 0) / ocrScale });} else {
+for (var wi = 0; wi < ws.length; wi++) {
+var w = ws[wi];
+if (!w || !w.text || w.text.trim() === "") continue;
+words.push({ text: w.text.trim(), x: w.x / ocrScale - ocrPadX, y: w.y / ocrScale - ocrPadY, w: w.w / ocrScale, h: w.h / ocrScale });
+}
+}
+}
+}
+}
+} catch (e) { sp.ConsoleError("getTable2Layout parse: " + (e.message || e), "SS", Drawing.Color.Red); return null; }
+if (words.length === 0) words = lineFallback;
+if (words.length < 2) return null;
+var analysis = analyzeOcrWords(words);
+if (!analysis) return null;
+var rows = clusterRowsByY(words, analysis.medianHeight);
+_table2LayoutCache = { words: words, rows: rows, analysis: analysis };
+_table2LayoutToken = lastOcrToken;
+_table2LayoutLang = lastUsedOcrLang;  
+return _table2LayoutCache;
+}
+
+function showTable2VisualEditor(srcText) {
+var layout = (typeof getTable2Layout === 'function') ? getTable2Layout() : null;
+if (!layout || !layout.rows || layout.rows.length === 0) {
+var r3 = formatTableVisual(srcText);
+if (r3 === null) r3 = formatTableHard(srcText, 1);
+if (r3 === null) r3 = formatAsTable(srcText);
+return r3;
+}
+var editor = new Forms.Form();
+editor.Text = "📊 Excel — Column Editor";
+editor.StartPosition = Forms.FormStartPosition.CenterParent;
+editor.TopMost = true;
+editor.Size = new Drawing.Size(1100, 700); // excel window size (Width 1100, Height 700)
+editor.FormBorderStyle = Forms.FormBorderStyle.Sizable;
+var split = new Forms.SplitContainer();
+split.Dock = Forms.DockStyle.Fill;
+split.Orientation = Forms.Orientation.Horizontal;
+split.SplitterDistance = 350;
+var scrollPanel = new Forms.Panel();
+scrollPanel.Dock = Forms.DockStyle.Fill;
+scrollPanel.AutoScroll = true;
+scrollPanel.BackColor = Drawing.Color.FromArgb(240, 240, 240);
+var picBox = new Forms.PictureBox();
+picBox.BackColor = Drawing.Color.White;
+picBox.SizeMode = Forms.PictureBoxSizeMode.Normal;
+if (lastOcrBitmap) {
+picBox.Size = new Drawing.Size(lastOcrBitmap.Width, lastOcrBitmap.Height);
+}
+var state = {
+vLines: [],
+dragLine: -1,
+rightDragLine: -1,
+rightDownPos: null,
+words: layout.words,
+rows: layout.rows,
+analysis: layout.analysis,
+lastMatrix: null,
+zoom: 1.0,
+editBox: null,
+editWordIdx: -1,
+editOrigText: null,
+editing: false,
+hideText: false,
+hiddenSingleChars: {},
+_cachedTextFont: null,
+_cachedStarFont: null,
+_cachedZoom: -1,
+_whiteBrush: new Drawing.SolidBrush(Drawing.Color.White),
+_textBrush: new Drawing.SolidBrush(Drawing.Color.Black),
+_wordPen: new Drawing.Pen(Drawing.Color.FromArgb(100, 0, 100, 255), 1),
+_starBrush: new Drawing.SolidBrush(Drawing.Color.Red),
+_linePen: new Drawing.Pen(Drawing.Color.Red, 2),
+_editPen: new Drawing.Pen(Drawing.Color.FromArgb(200, 0, 150, 255), 2),
+_lastUpdateTime: 0
+};
+var handlers = [];
+
+function isHiddenText(text) {
+    return state.hiddenSingleChars[text] === true;
+}
+if (_savedVLines && _savedVLinesToken === lastOcrToken && _savedVLines.length > 0) {
+state.vLines = _savedVLines.slice();
+} else {
+initLines();
+}
+
+function initLines() {
+state.vLines = [];
+var allGaps = [];
+for (var r = 0; r < state.rows.length; r++) {
+var ws = state.rows[r].words;
+for (var k = 1; k < ws.length; k++) {
+var g = ws[k].x - (ws[k-1].x + ws[k-1].w);
+if (g > 0) allGaps.push(g);
+}
+}
+var medGap = allGaps.length > 0 ? median(allGaps) : 5;
+var minChannel = Math.max(3, medGap * 0.8);
+var iv = [];
+for (var r = 0; r < state.rows.length; r++) {
+for (var k = 0; k < state.rows[r].words.length; k++) {
+var w = state.rows[r].words[k];
+iv.push({ l: w.x, r: w.x + w.w });
+}
+}
+iv.sort(function(a, b) { return a.l - b.l; });
+var cov = [];
+for (var i = 0; i < iv.length; i++) {
+if (cov.length === 0) { cov.push({ l: iv[i].l, r: iv[i].r }); continue; }
+var last = cov[cov.length - 1];
+if (iv[i].l <= last.r) { if (iv[i].r > last.r) last.r = iv[i].r; }
+else cov.push({ l: iv[i].l, r: iv[i].r });
+}
+for (var i = 0; i < cov.length - 1; i++) {
+var cl = cov[i].r, cr = cov[i + 1].l;
+if (cr - cl >= minChannel) state.vLines.push((cl + cr) / 2);
+}
+}
+
+function saveLines() {
+_savedVLines = state.vLines.slice();
+_savedVLinesToken = lastOcrToken;
+}
+
+function picToImg(px, py) {
+if (!lastOcrBitmap) return { x: 0, y: 0 };
+return { x: px / state.zoom, y: py / state.zoom };
+}
+var LINE_HIT_THRESHOLD = 5;
+
+function findNearestLineIdx(imgX, threshold) {
+var best = -1, bestDist = threshold;
+for (var i = 0; i < state.vLines.length; i++) {
+var d = Math.abs(state.vLines[i] - imgX);
+if (d < bestDist) { bestDist = d; best = i; }
+}
+return best;
+}
+
+function findWordAt(imgX, imgY) {
+if (imgX < 0 || imgY < 0 || !lastOcrBitmap || imgX > lastOcrBitmap.Width || imgY > lastOcrBitmap.Height) return -1;
+var bestIdx = -1;
+var bestDist = Infinity;
+for (var i = 0; i < state.words.length; i++) {
+var w = state.words[i];
+if (isHiddenText(w.text)) continue;
+var clickW = w._clickW || w.w;
+if (imgX >= w.x && imgX <= w.x + clickW && imgY >= w.y && imgY <= w.y + w.h) {
+var centerX = w.x + clickW / 2;
+var centerY = w.y + w.h / 2;
+var dist = Math.abs(imgX - centerX) + Math.abs(imgY - centerY);
+if (dist < bestDist) {
+bestDist = dist;
+bestIdx = i;
+}
+}
+}
+return bestIdx;
+}
+
+function closeEditBox(save) {
+if (!state.editBox) return;
+var box = state.editBox;
+var idx = state.editWordIdx;
+state.editBox = null;
+state.editWordIdx = -1;
+state.editing = false;
+if (save && idx >= 0 && idx < state.words.length) {
+var newText = box.Text;
+var wordText = state.words[idx].text;
+if (newText.trim() === "" || newText.trim() === "?") {
+state.words.splice(idx, 1);
+state.rows = clusterRowsByY(state.words, state.analysis.medianHeight);
+updateResult(true);  
+} else if (newText === wordText) {
+} else if (newText === state.editOrigText) {
+state.words[idx].text = newText;
+state.words[idx].edited = false;
+state.rows = clusterRowsByY(state.words, state.analysis.medianHeight);
+updateResult(true);  
+} else {
+state.words[idx].text = newText;
+state.words[idx].edited = true;
+try {
+    var g = picBox.CreateGraphics();
+    var medianH = state.analysis.medianHeight;
+    var font = state._cachedTextFont;
+    if (font) {
+var textSize = g.MeasureString(newText, font);
+var newW = textSize.Width / state.zoom;
+if (state.words[idx]._isNew) {
+state.words[idx].w = newW;
+state.words[idx]._isNew = false;
+} else {
+state.words[idx]._clickW = Math.max(state.words[idx].w, newW);
+}
+}
+g.Dispose();
+} catch(ex) { sp.ConsoleError("closeEditBox MeasureString: " + (ex.message || ex), "SS", Drawing.Color.Red); }
+state.words[idx]._cachedFontKey = null;
+state.words[idx]._cachedMeasureText = null;
+state.rows = clusterRowsByY(state.words, state.analysis.medianHeight);
+updateResult(true);  
+}
+}
+var savedScrollX = 0, savedScrollY = 0;
+try {
+savedScrollX = scrollPanel.HorizontalScroll.Value;
+savedScrollY = scrollPanel.VerticalScroll.Value;
+} catch(e) { sp.ConsoleError("closeEditBox saveScroll: " + (e.message || e), "SS", Drawing.Color.Red); }
+try {
+picBox.Controls.Remove(box);
+box.Dispose();
+} catch(e) { sp.ConsoleError("closeEditBox removeBox: " + (e.message || e), "SS", Drawing.Color.Red); }
+state.editOrigText = null;
+try {
+scrollPanel.HorizontalScroll.Value = savedScrollX;
+scrollPanel.VerticalScroll.Value = savedScrollY;
+} catch(e) { sp.ConsoleError("closeEditBox restoreScroll: " + (e.message || e), "SS", Drawing.Color.Red); }
+picBox.Invalidate();
+}
+
+function openEditBox(wordIdx, clickPicBoxX, selectAll, skipFocus) {
+if (wordIdx < 0 || wordIdx >= state.words.length) return;
+if (state.editBox && state.editWordIdx >= 0 && state.editWordIdx < state.words.length) {
+var curText = state.editBox.Text;
+var curWordText = state.words[state.editWordIdx].text;
+if (curText.trim() === "" || curText.trim() === "?") {
+state.words.splice(state.editWordIdx, 1);
+} else if (curText !== curWordText) {
+state.words[state.editWordIdx].text = curText;
+state.words[state.editWordIdx].edited = true;
+}
+}
+for (var ci = picBox.Controls.Count - 1; ci >= 0; ci--) {
+try {
+var ctrl = picBox.Controls[ci];
+if (ctrl.GetType().Name === "TextBox") {
+picBox.Controls.RemoveAt(ci);
+ctrl.Dispose();
+}
+} catch(e) { sp.ConsoleError("openEditBox removeOld: " + (e.message || e), "SS", Drawing.Color.Red); }
+}
+state.editBox = null;
+state.editWordIdx = -1;
+state.editing = false;
+state.editOrigText = null;
+if (wordIdx >= state.words.length) return;
+var w = state.words[wordIdx];
+if (!w) return;
+if (!w.origText) w.origText = w.text;
+state.editOrigText = w.origText;
+var z = state.zoom;
+var box = new Forms.TextBox();
+var medianH = state.analysis.medianHeight;
+var maxSize = medianH * z * 0.7;
+var baseSize = Math.max(4, Math.min(10 * z, maxSize));
+var fontSize = baseSize;
+box.Font = new Drawing.Font("Segoe UI", toFloat(fontSize));
+box.BorderStyle = Forms.BorderStyle.FixedSingle;
+// background of the editing area
+box.BackColor = Drawing.Color.White;
+//box.BackColor = Drawing.Color.FromArgb(255, 215, 215); // светло-красный/розовый
+box.ForeColor = Drawing.Color.Black;
+box.Text = w.text;
+var bw = Math.max(toInt(w.w * z) + 6, 30);
+var bh = Math.max(toInt(w.h * z) + 4, 20);
+box.Size = new Drawing.Size(bw, bh);
+var editorX = toInt(w.x * z) - 1;
+var editorY;
+var imgHeightOnScreen = lastOcrBitmap.Height * z;
+var belowY = toInt((w.y + w.h) * z) + 4;
+var gapAbove = (w.h < medianH * 0.8) ? 9 : 20;
+var aboveY = toInt(w.y * z) - bh - gapAbove;
+if (belowY + bh <= imgHeightOnScreen) {
+editorY = belowY;
+} else if (aboveY >= 0) {
+editorY = aboveY;
+} else if (bh <= imgHeightOnScreen) {
+editorY = toInt(imgHeightOnScreen) - bh;
+} else {
+editorY = toInt(w.y * z) - 1;
+}
+box.Location = new Drawing.Point(editorX, editorY);
+state.editBox = box;
+state.editWordIdx = wordIdx;
+state.editing = true;
+picBox.Controls.Add(box);
+box.BringToFront();
+try {
+var editorTop = toInt(box.Location.Y);
+var editorBottom = editorTop + toInt(box.Height);
+var viewTop = scrollPanel.VerticalScroll.Value;
+var viewBottom = viewTop + scrollPanel.ClientSize.Height;
+if (editorTop < viewTop || editorBottom > viewBottom) {
+var wordTopY = toInt(w.y * z) - 10;
+var maxScroll = Math.max(0, scrollPanel.VerticalScroll.Maximum - scrollPanel.ClientSize.Height + 20);
+var scrollY = Math.max(0, Math.min(wordTopY, maxScroll));
+scrollPanel.VerticalScroll.Value = scrollY;
+}
+} catch(e) { sp.ConsoleError("openEditBox autoScroll: " + (e.message || e), "SS", Drawing.Color.Red); }
+box.TextChanged.connect(function(sender, ev) {
+try {
+var g = box.CreateGraphics();
+var textSize = g.MeasureString(box.Text + "  ", box.Font);
+g.Dispose();
+var newW = Math.max(toInt(w.w * z) + 6, toInt(textSize.Width) + 4);
+if (newW > box.Width) box.Width = newW;
+} catch(ex) { sp.ConsoleError("openEditBox TextChanged: " + (ex.message || ex), "SS", Drawing.Color.Red); }
+});
+var caretIdx = w.text.length;
+if (state._pendingCaretIdx !== undefined && state._pendingCaretIdx !== null) {
+caretIdx = Math.max(0, Math.min(state._pendingCaretIdx, w.text.length));
+state._pendingCaretIdx = null;
+} else if (clickPicBoxX !== undefined) {
+try {
+var g = box.CreateGraphics();
+var text = w.text;
+var wordStartX = w.x * z;
+var clickOffset = clickPicBoxX - wordStartX; 
+var totalWidthOnScreen = (w._clickW || w.w) * z;
+var fullWidth = g.MeasureString(text, box.Font).Width;
+var scale = (fullWidth > 0) ? totalWidthOnScreen / fullWidth : 1;
+var bestIdx = 0;
+var minDist = Infinity;
+for (var i = 0; i <= text.length; i++) {
+var sub = text.substring(0, i);
+var strWidth = (i === 0) ? 0 : g.MeasureString(sub, box.Font).Width;
+var charX = strWidth * scale; 
+var dist = Math.abs(charX - clickOffset);
+if (dist < minDist) {
+minDist = dist;
+bestIdx = i;
+}
+}
+caretIdx = bestIdx;
+g.Dispose();
+} catch(ex) { sp.ConsoleError("openEditBox caretPos: " + (ex.message || ex), "SS", Drawing.Color.Red); }
+}
+if (selectAll) {
+    box.SelectionStart = 0;
+    box.SelectionLength = box.Text.length;
+} else {
+    box.SelectionStart = caretIdx;
+    box.SelectionLength = 0;
+}
+if (!skipFocus) {
+    box.Focus(); 
+} else {
+    tbResult.Focus();
+}
+box.KeyDown.connect(function(sender, e) {
+if (e.KeyCode == Forms.Keys.Enter) { e.SuppressKeyPress = true; closeEditBox(true); }
+else if (e.KeyCode == Forms.Keys.Escape) { e.SuppressKeyPress = true; closeEditBox(false); }
+else if (e.KeyCode == Forms.Keys.Space) { e.SuppressKeyPress = false; e.Handled = false; }
+});
+box.Leave.connect(function() {
+if (state.editing && state.editBox === box) {
+closeEditBox(true);
+}
+});
+}
+handlers.push(picBox.Paint.connect(function(sender, e) {
+if (!lastOcrBitmap) return;
+try {
+var g = e.Graphics;
+var imgW = lastOcrBitmap.Width;
+var imgH = lastOcrBitmap.Height;
+var z = state.zoom;
+var imgRect = new Drawing.RectangleF(toFloat(0), toFloat(0), toFloat(imgW * z), toFloat(imgH * z));
+g.DrawImage(lastOcrBitmap, imgRect);
+if (!state.hideText) {
+if (state._cachedZoom !== z) {
+if (state._cachedTextFont) state._cachedTextFont.Dispose();
+if (state._cachedStarFont) state._cachedStarFont.Dispose();
+if (state._linePen) state._linePen.Dispose();
+var medianH = state.analysis.medianHeight;
+// We limit the font size to no more than 70% of the actual height of the words on the screen.
+var maxSize = medianH * z * 0.7;
+var baseSize = Math.max(4, Math.min(10 * z, maxSize));
+state._cachedTextFont = new Drawing.Font("Segoe UI", toFloat(baseSize));
+state._cachedStarFont = new Drawing.Font("Arial", toFloat(baseSize), Drawing.FontStyle.Bold);
+state._linePen = new Drawing.Pen(Drawing.Color.Red, toFloat(Math.max(2, 3 * z)));
+state._cachedZoom = z;
+}
+var textFont = state._cachedTextFont;
+var starFont = state._cachedStarFont;
+var whiteBrush = state._whiteBrush;
+var textBrush = state._textBrush;
+var wordPen = state._wordPen;
+var starBrush = state._starBrush;
+for (var i = 0; i < state.words.length; i++) {
+var w = state.words[i];
+if (isHiddenText(w.text)) continue;
+textFont = state._cachedTextFont;
+var fontKey = 'M';
+if (w._cachedFontKey !== fontKey || w._cachedMeasureText !== w.text) {
+var ms = g.MeasureString(w.text, textFont);
+w._cachedMeasureWidth = ms.Width;
+w._cachedFontKey = fontKey;
+w._cachedMeasureText = w.text;
+}
+var bgX = toFloat(w.x * z) - 2, bgY = toFloat(w.y * z) - 2;
+var bgW = toFloat((w._clickW || w.w) * z) + 4;
+var bgH = toFloat(w.h * z) + 4;
+if (state.editing && i === state.editWordIdx) {
+g.DrawRectangle(state._editPen, toFloat(bgX), toFloat(bgY), toFloat(bgW), toFloat(bgH));
+continue;
+}
+g.FillRectangle(whiteBrush, toFloat(bgX), toFloat(bgY), toFloat(bgW), toFloat(bgH));
+g.DrawString(w.text, textFont, textBrush, toFloat(w.x * z), toFloat(w.y * z - 2));
+g.DrawRectangle(wordPen, toFloat(bgX), toFloat(bgY), toFloat(bgW), toFloat(bgH));
+if (w.edited) {
+g.DrawString("*", starFont, starBrush, toFloat((w.x + w.w) * z - 5), toFloat(w.y * z - 8 * z));
+}
+}
+}
+
+        if (!state.hideText) {
+var linePen = state._linePen;
+for (var i = 0; i < state.vLines.length; i++) {
+var x = toFloat(state.vLines[i] * z);
+g.DrawLine(linePen, toFloat(x), toFloat(0), toFloat(x), toFloat(imgH * z));
+g.FillEllipse(Drawing.Brushes.Red, toFloat(x - 5 * z), toFloat(-2 * z), toFloat(10 * z), toFloat(10 * z));
+}
+}
+} catch (ex) {
+sp.ConsoleError("Excel Paint Exception: " + (ex.message || ex), "SS", Drawing.Color.Red);
+}
+}));
+handlers.push(picBox.MouseEnter.connect(function() {
+if (!state.editing) picBox.Focus();
+}));
+// Zoom
+handlers.push(picBox.MouseWheel.connect(function(sender, e) {
+closeEditBox(true);
+var oldZoom = state.zoom;
+if (e.Delta > 0) state.zoom = Math.min(5.0, state.zoom * 1.15);
+else state.zoom = Math.max(0.3, state.zoom / 1.15);
+if (Math.abs(state.zoom - oldZoom) < 0.001 || !lastOcrBitmap) return;
+var imgX = e.X / oldZoom;
+var imgY = e.Y / oldZoom;
+var panelPt = scrollPanel.PointToClient(picBox.PointToScreen(new Drawing.Point(e.X, e.Y)));
+var newW = Math.max(1, toInt(lastOcrBitmap.Width * state.zoom));
+var newH = Math.max(1, toInt(lastOcrBitmap.Height * state.zoom));
+picBox.Size = new Drawing.Size(newW, newH);
+picBox.Margin = new Forms.Padding(0);
+var newScrollX = panelPt.X - toInt(imgX * state.zoom);
+var newScrollY = panelPt.Y - toInt(imgY * state.zoom);
+try {
+scrollPanel.HorizontalScroll.Value = Math.max(0, -newScrollX);
+scrollPanel.VerticalScroll.Value = Math.max(0, -newScrollY);
+} catch(ex) { sp.ConsoleError("MouseWheel scroll: " + (ex.message || ex), "SS", Drawing.Color.Red); }
+picBox.Invalidate();
+}));
+// MOUSE DOWN 
+handlers.push(picBox.MouseDown.connect(function(sender, e) {
+var imgPt = picToImg(e.X, e.Y);
+// If the editor is open, close with any click outside the current word.
+if (state.editing && state.editBox) {
+var clickedWordIdx = findWordAt(imgPt.x, imgPt.y);
+// Close if the click is NOT on the currently edited word
+if (clickedWordIdx !== state.editWordIdx) {
+closeEditBox(true);
+}
+}
+if (e.Button == Forms.MouseButtons.Left) {
+var lineIdx = findNearestLineIdx(imgPt.x, LINE_HIT_THRESHOLD);
+if (lineIdx >= 0) {
+state.dragLine = lineIdx;
+picBox.Cursor = Forms.Cursors.SizeWE;
+return;
+}
+var wordIdx = findWordAt(imgPt.x, imgPt.y);
+if (wordIdx >= 0) {
+openEditBox(wordIdx, e.X, false); // Passing the X-coordinate of the click
+return;
+}
+state.hideText = true;
+picBox.Invalidate();
+} else if (e.Button == Forms.MouseButtons.Right) {
+var lineIdx2 = findNearestLineIdx(imgPt.x, LINE_HIT_THRESHOLD);
+if (lineIdx2 >= 0) {
+state.rightDragLine = lineIdx2;
+picBox.Cursor = Forms.Cursors.SizeWE;
+} else {
+state.rightDownPos = { x: imgPt.x, y: imgPt.y };
+}
+} else if (e.Button == Forms.MouseButtons.Middle) {
+closeEditBox(true);
+state.isPanning = true;
+state.panStartX = e.X;
+state.panStartY = e.Y;
+state.scrollStartX = scrollPanel.AutoScrollPosition.X;
+state.scrollStartY = scrollPanel.AutoScrollPosition.Y;
+picBox.Cursor = Forms.Cursors.Hand;
+}
+}));
+// MOUSE MOVE 
+handlers.push(picBox.MouseMove.connect(function(sender, e) {
+var imgPt = picToImg(e.X, e.Y);
+var activeDrag = (state.dragLine >= 0) ? state.dragLine : state.rightDragLine;
+if (activeDrag >= 0) {
+var newX = imgPt.x;
+var minLineX = 0, maxLineX = lastOcrBitmap.Width;
+for (var i = 0; i < state.vLines.length; i++) {
+if (i === activeDrag) continue;
+if (state.vLines[i] < newX && state.vLines[i] > minLineX) minLineX = state.vLines[i];
+if (state.vLines[i] > newX && state.vLines[i] < maxLineX) maxLineX = state.vLines[i];
+}
+if (newX < minLineX + 5) newX = minLineX + 5;
+if (newX > maxLineX - 5) newX = maxLineX - 5;
+state.vLines[activeDrag] = newX;
+var now = Date.now();
+if (now - state._lastUpdateTime > 30) {
+state._lastUpdateTime = now;
+updateResult(true);
+}
+picBox.Invalidate();
+} else if (state.isPanning) {
+var dx = e.X - state.panStartX;
+var dy = e.Y - state.panStartY;
+try {
+scrollPanel.AutoScrollPosition = new Drawing.Point(toInt(state.scrollStartX - dx), toInt(state.scrollStartY - dy));
+} catch(ex) { sp.ConsoleError("MouseMove pan: " + (ex.message || ex), "SS", Drawing.Color.Red); }
+} else {
+var nearLine = findNearestLineIdx(imgPt.x, LINE_HIT_THRESHOLD) >= 0;
+var overWord = findWordAt(imgPt.x, imgPt.y) >= 0;
+if (nearLine) picBox.Cursor = Forms.Cursors.SizeWE;
+else if (overWord) picBox.Cursor = Forms.Cursors.IBeam;
+else picBox.Cursor = Forms.Cursors.Default;
+}
+}));
+// MOUSE UP 
+handlers.push(picBox.MouseUp.connect(function(sender, e) {
+if (e.Button == Forms.MouseButtons.Left) {
+if (state.dragLine >= 0) {
+state.dragLine = -1;
+updateResult(); 
+}
+state.hideText = false;
+picBox.Invalidate();
+if (!state.editing) picBox.Cursor = Forms.Cursors.Default;
+} else if (e.Button == Forms.MouseButtons.Right) {
+if (state.rightDragLine >= 0) {
+state.rightDragLine = -1;
+updateResult(); 
+picBox.Cursor = Forms.Cursors.Default;
+} else if (state.rightDownPos) {
+state.vLines.push(state.rightDownPos.x);
+state.vLines.sort(function(a, b) { return a - b; });
+updateResult();
+picBox.Invalidate();
+state.rightDownPos = null;
+}
+} else if (e.Button == Forms.MouseButtons.Middle) {
+state.isPanning = false;
+picBox.Cursor = Forms.Cursors.Default;
+}
+}));
+// DOUBLE CLICK
+handlers.push(picBox.MouseDoubleClick.connect(function(sender, e) {
+var imgPt = picToImg(e.X, e.Y);
+if (e.Button == Forms.MouseButtons.Left) {
+var wordIdx = findWordAt(imgPt.x, imgPt.y);
+if (wordIdx < 0) {
+var newWord = {
+text: "?",
+x: imgPt.x,
+y: imgPt.y - state.analysis.medianHeight / 2,
+w: state.analysis.medianWidth * 2,
+h: state.analysis.medianHeight,
+edited: false,
+_isNew: true
+};
+state.words.push(newWord);
+state.rows = clusterRowsByY(state.words, state.analysis.medianHeight);
+picBox.Invalidate();
+openEditBox(state.words.length - 1, e.X, true);
+}
+} else if (e.Button == Forms.MouseButtons.Right) {
+var lineIdx = findNearestLineIdx(imgPt.x, LINE_HIT_THRESHOLD);
+if (lineIdx >= 0) {
+state.vLines.splice(lineIdx, 1);
+updateResult();
+picBox.Invalidate();
+}
+}
+}));
+scrollPanel.Controls.Add(picBox);
+if (lastOcrBitmap) {
+var panelW = split.Panel1.ClientSize.Width;
+var panelH = split.SplitterDistance;
+var imgW2 = lastOcrBitmap.Width * state.zoom;
+var imgH2 = lastOcrBitmap.Height * state.zoom;
+if (imgW2 < panelW || imgH2 < panelH) {
+var offsetX = Math.max(0, (panelW - imgW2) / 2);
+var offsetY = Math.max(0, (panelH - imgH2) / 2);
+picBox.Margin = new Forms.Padding(toInt(offsetX), toInt(offsetY), 0, 0);
+}
+}
+split.Panel1.Controls.Add(scrollPanel);
+var tbResult = new Forms.TextBox();
+tbResult.Multiline = true;
+tbResult.Dock = Forms.DockStyle.Fill;
+tbResult.ScrollBars = Forms.ScrollBars.Both;
+tbResult.Font = new Drawing.Font("Consolas", 11);
+tbResult.WordWrap = false;
+tbResult.ReadOnly = true;
+split.Panel2.Controls.Add(tbResult);
+
+function findWordFromPreview(e) {
+if (!lastOcrBitmap || state.rows.length === 0) return null;
+var charIdx = tbResult.GetCharIndexFromPosition(new Drawing.Point(e.X, e.Y));
+var lineIdx = tbResult.GetLineFromCharIndex(charIdx);
+if (lineIdx < 0 || lineIdx >= state.rows.length) return null;
+var lineStart = tbResult.GetFirstCharIndexFromLine(lineIdx);
+var posInLine = charIdx - lineStart;
+var lineText = tbResult.Lines[lineIdx] || "";
+if (lineText.length === 0) return null;
+var rowWords = state.rows[lineIdx].words;
+if (!rowWords || rowWords.length === 0) return null;
+rowWords = rowWords.filter(function(w) {
+    return !isHiddenText(w.text);
+});
+if (rowWords.length === 0) return null;
+var bestWordIdx = -1;
+var bestFoundIdx = 0;
+var bestDist = Infinity;
+var searchPos = 0;
+for (var i = 0; i < rowWords.length; i++) {
+var w = rowWords[i];
+var foundIdx = lineText.indexOf(w.text, searchPos);
+if (foundIdx < 0) continue;
+var wordEnd = foundIdx + w.text.length;
+if (posInLine >= foundIdx && posInLine <= wordEnd) {
+return { wordIdx: state.words.indexOf(w), caretPos: Math.max(0, posInLine - foundIdx) };
+}
+var dist = Math.min(Math.abs(posInLine - foundIdx), Math.abs(posInLine - wordEnd));
+if (dist < bestDist) {
+bestDist = dist;
+bestWordIdx = state.words.indexOf(w);
+bestFoundIdx = foundIdx;
+}
+searchPos = wordEnd;
+}
+if (bestWordIdx >= 0) {
+return { wordIdx: bestWordIdx, caretPos: Math.max(0, posInLine - bestFoundIdx) };
+}
+return null;
+}
+var _previewMouseDownPos = null;
+var _previewSelecting = false;
+
+handlers.push(tbResult.MouseDown.connect(function(sender, e) {
+    if (e.Button != Forms.MouseButtons.Left) return;
+    
+    _previewMouseDownPos = { x: e.X, y: e.Y };
+    _previewSelecting = false;    
+    if (state.editing && state.editBox) closeEditBox(true);
+    
+    var result = findWordFromPreview(e);
+    if (result) {
+        state._pendingCaretIdx = result.caretPos;
+        openEditBox(result.wordIdx, undefined, false, true); 
+    }
+}));
+
+handlers.push(tbResult.MouseMove.connect(function(sender, e) {
+    if (_previewMouseDownPos && !_previewSelecting) {
+        var dx = Math.abs(e.X - _previewMouseDownPos.x);
+        var dy = Math.abs(e.Y - _previewMouseDownPos.y);
+        
+        if (dx > 5 || dy > 5) {
+            _previewSelecting = true;
+            if (state.editing && state.editBox) {
+                closeEditBox(false); 
+            }
+        }
+    }
+}));
+
+handlers.push(tbResult.MouseUp.connect(function(sender, e) {
+    if (e.Button != Forms.MouseButtons.Left) return;
+    
+    if (_previewSelecting) {
+        _previewMouseDownPos = null;
+        _previewSelecting = false;
+        var selText = tbResult.SelectedText;
+        if (selText && selText.length > 0) {
+            try { clip.SetText(selText); } catch(ex) {}
+        }
+        return;
+    }   
+    _previewMouseDownPos = null;
+    _previewSelecting = false;
+    
+    if (state.editing && state.editBox) {
+        state.editBox.Focus();
+    }
+}));
+
+handlers.push(tbResult.MouseDoubleClick.connect(function(sender, e) {
+    if (e.Button != Forms.MouseButtons.Left) return;
+    if (state.editing && state.editBox) {
+        state.editBox.SelectionStart = 0;
+        state.editBox.SelectionLength = state.editBox.Text.length;
+        state.editBox.Focus();
+    }
+}));
+[split, split.Panel1, split.Panel2, scrollPanel].forEach(function(ctrl) { handlers.push(ctrl.MouseDown.connect(function() { if (state.editing) closeEditBox(true); }));});
+function updateResult(skipClipboard) {
+var sorted = state.vLines.slice().sort(function(a, b) { return a - b; });
+var colCount = sorted.length + 1;
+
+function colOf(x) {
+for (var c = 0; c < sorted.length; c++) if (x < sorted[c]) return c;
+return colCount - 1;
+}
+var noSpaceGap = Math.max(2, state.analysis.medianHeight * 0.25);
+var isSpaceJoining = state.analysis.isSpaceJoining;
+var matrix = [];
+for (var r = 0; r < state.rows.length; r++) {
+var ws = state.rows[r].words;
+ws = ws.filter(function(w) {
+    return !isHiddenText(w.text);
+});
+if (!ws || ws.length === 0) continue;
+var cells = [];
+for (var c = 0; c < colCount; c++) cells.push("");
+var curCol = colOf(ws[0].x + ws[0].w / 2);
+var curTxt = ws[0].text;
+for (var k = 1; k < ws.length; k++) {
+var nc = colOf(ws[k].x + ws[k].w / 2);
+var g = ws[k].x - (ws[k-1].x + ws[k-1].w);
+if (nc === curCol) {
+curTxt += (g < noSpaceGap || isSpaceJoining) ? "" : " ";
+curTxt += ws[k].text;
+} else {
+cells[curCol] = cells[curCol] ? cells[curCol] + " " + curTxt : curTxt;
+curCol = nc; curTxt = ws[k].text;
+}
+}
+cells[curCol] = cells[curCol] ? cells[curCol] + " " + curTxt : curTxt;
+matrix.push(cells);
+}
+state.lastMatrix = matrix;
+var colWidths = [];
+for (var c = 0; c < colCount; c++) {
+var mw = 0;
+for (var r = 0; r < matrix.length; r++) {
+if (c < matrix[r].length) {
+var w = displayWidth(matrix[r][c]);
+if (w > mw) mw = w;
+}
+}
+colWidths.push(mw);
+}
+var lines = [];
+for (var r = 0; r < matrix.length; r++) {
+var line = "";
+for (var c = 0; c < matrix[r].length; c++) {
+var cell = matrix[r][c] || "";
+line += padToWidth(cell, colWidths[c]);
+if (c < matrix[r].length - 1) line += "  ";
+}
+lines.push(line.replace(/\s+$/, ""));
+}
+tbResult.Text = lines.join("\r\n");
+if (!skipClipboard) {
+var tsv = [];
+for (var r = 0; r < matrix.length; r++) tsv.push(matrix[r].join("\t"));
+try { clip.SetText(tsv.join("\r\n")); } catch(e) { sp.ConsoleError("updateResult clipboard: " + (e.message || e), "SS", Drawing.Color.Red); }
+}
+}
+updateResult();
+editor.Controls.Add(split);
+handlers.push(editor.MouseDown.connect(function(sender, e) {
+if (state.editing && state.editBox) {
+closeEditBox(true); 
+}
+if (e.Button == Forms.MouseButtons.Left) {
+state.hideText = true;
+picBox.Invalidate();
+}
+}));
+handlers.push(editor.MouseUp.connect(function(sender, e) {
+if (e.Button == Forms.MouseButtons.Left) {
+state.hideText = false;
+picBox.Invalidate();
+}
+}));
+var panel = new Forms.FlowLayoutPanel();
+panel.Dock = Forms.DockStyle.Bottom;
+panel.Height = 50; // The height of the lower panel with the "TSV save" buttons, the check marks for hiding symbols, etc.
+panel.Padding = new Forms.Padding(6);
+panel.FlowDirection = Forms.FlowDirection.LeftToRight;
+var btnClose = new Forms.Button();
+btnClose.Text = "TSV save";
+btnClose.Width = 100; btnClose.Height = 38; // Dimensions of the save button
+btnClose.Margin = new Forms.Padding(10, 4, 6, 0);
+btnClose.Font = new Drawing.Font("Segoe UI", 10, Drawing.FontStyle.Bold);
+handlers.push(btnClose.Click.connect(function() { closeEditBox(true); saveLines(); updateResult(); editor.Close(); }));
+panel.Controls.Add(btnClose);
+var btnToggle = new Forms.Button();
+btnToggle.AutoSize = true; 
+btnToggle.AutoSizeMode = Forms.AutoSizeMode.GrowAndShrink;  
+btnToggle.Margin = new Forms.Padding(0, 4, 6, 0);
+btnToggle.Font = new Drawing.Font("Segoe UI", 10);
+var linesCleared = false;
+
+function updateToggleText() {
+btnToggle.Text = linesCleared ? "⟳" : "✕";
+}
+updateToggleText();
+handlers.push(btnToggle.Click.connect(function() {
+    if (state.editing && state.editBox) {
+        closeEditBox(true);
+    }
+    
+    if (linesCleared) {
+        initLines();
+        linesCleared = false;
+    } else {
+        if (state.vLines.length > 0) {
+            state.vLines = [];
+            linesCleared = true;
+        }
+    }
+    
+    updateToggleText();
+    updateResult();
+    picBox.Invalidate();
+}));
+panel.Controls.Add(btnToggle);
+var singleCharsSet = {};
+var singleCharsCount = {};
+for (var i = 0; i < state.words.length; i++) {
+var txt = state.words[i].text;
+if (txt.length === 1 && !/\d/.test(txt) && !RE_SPACE_JOINING.test(txt)) {
+singleCharsSet[txt] = true;
+if (!singleCharsCount[txt]) singleCharsCount[txt] = 0;
+singleCharsCount[txt]++;
+}
+}
+for (var i = 0; i < CUSTOM_HIDE_PATTERNS.length; i++) {
+var pat = CUSTOM_HIDE_PATTERNS[i];
+var patCount = 0;
+for (var j = 0; j < state.words.length; j++) {
+if (state.words[j].text === pat) patCount++;
+}
+if (patCount > 0) {
+singleCharsSet[pat] = true;
+singleCharsCount[pat] = patCount;
+}
+}
+var singleCharsList = Object.keys(singleCharsSet).sort();
+for (var i = 0; i < singleCharsList.length; i++) {
+(function(char) {
+var chk = new Forms.CheckBox();
+chk.Text = char + " (" + singleCharsCount[char] + ")";
+chk.Checked = true;
+chk.AutoSize = true;
+chk.Margin = new Forms.Padding(0, 12, 4, 0);
+handlers.push(chk.CheckedChanged.connect(function(sender, e) {
+    if (sender.Checked) {
+        delete state.hiddenSingleChars[char]; 
+    } else {
+        state.hiddenSingleChars[char] = true; 
+    }
+    updateResult();
+    picBox.Invalidate();
+}));
+panel.Controls.Add(chk);
+})(singleCharsList[i]);
+}
+editor.Controls.Add(panel);
+editor.KeyPreview = true;
+handlers.push(editor.KeyDown.connect(function(sender, e) {
+if (e.KeyCode == Forms.Keys.Escape) { closeEditBox(false); saveLines(); editor.Close(); }
+}));
+handlers.push(editor.FormClosed.connect(function() {
+
+for (var i = 0; i < handlers.length; i++) {
+try { handlers[i].disconnect(); } catch(e) { sp.ConsoleError("FormClosed disconnect[" + i + "]: " + (e.message || e), "SS", Drawing.Color.Red); }
+}
+closeEditBox(false);
+saveLines();
+try { picBox.Dispose(); } catch(e) { sp.ConsoleError("FormClosed picBox.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); }
+try { tbResult.Dispose(); } catch(e) { sp.ConsoleError("FormClosed tbResult.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); }
+try { split.Dispose(); } catch(e) { sp.ConsoleError("FormClosed split.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); }
+try { panel.Dispose(); } catch(e) { sp.ConsoleError("FormClosed panel.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); }
+
+if (state._cachedTextFont) try { state._cachedTextFont.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _cachedTextFont: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (state._cachedStarFont) try { state._cachedStarFont.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _cachedStarFont: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (state._whiteBrush) try { state._whiteBrush.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _whiteBrush: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (state._textBrush) try { state._textBrush.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _textBrush: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (state._wordPen) try { state._wordPen.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _wordPen: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (state._starBrush) try { state._starBrush.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _starBrush: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (state._linePen) try { state._linePen.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _linePen: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (state._editPen) try { state._editPen.Dispose(); } catch(e) { sp.ConsoleError("FormClosed _editPen: " + (e.message || e), "SS", Drawing.Color.Red); }
+try { editor.Dispose(); } catch(e) { sp.ConsoleError("FormClosed editor.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); }
+}));
+editor.ShowDialog();
+if (state.lastMatrix && state.lastMatrix.length > 0) {
+var tsv = [];
+for (var r = 0; r < state.lastMatrix.length; r++) tsv.push(state.lastMatrix[r].join("\t"));
+return tsv.join("\n");
+}
+return srcText;
+}
+
+function applyFormatByMode(mode, srcText) {
+setTbMonoFont(mode === "table1" || mode === "table2");
+if (mode === "line") return formatAsOneLine(srcText);
+if (mode === "lines") return srcText;
+if (mode === "table1") {
+var r = formatAsTableTextGrab(srcText);
+if (r === null) r = formatAsTable(srcText);
+return r;
+}
+if (mode === "excel") {
+return showTable2VisualEditor(srcText);
+}
+if (mode === "table2") {
+var r3 = formatTableVisual(srcText);
+if (r3 === null) r3 = formatTableHard(srcText, 1);
+if (r3 === null) r3 = formatAsTable(srcText);
+return r3;
+}
+return srcText;
+}
+
+function flashButton(btn) {
+var origBack = btn.BackColor;
+btn.BackColor = Drawing.Color.FromArgb(200, 255, 200);
+var t = new Forms.Timer();
+t.Interval = 300;
+t.Tick.connect(function() {
+t.Stop();
+t.Dispose();
+btn.BackColor = origBack;
+});
+t.Start();
+}
+
+function copyToClipboard(text) {
+if (!text || text.trim() === "") return;
+clip.SetText(normNL(text));
+}
+var flashState = { btn: null, origText: "", origBack: null, timer: null };
+
+function makeFlashable(btn) {
+var btnOrigText = btn.Text;
+var btnOrigBack = btn.BackColor;
+return function() {
+if (flashState.timer) flashState.timer.Stop();
+if (flashState.btn && flashState.btn !== btn) {
+flashState.btn.Text = flashState.origText;
+flashState.btn.BackColor = flashState.origBack;
+}
+flashState.origText = btnOrigText;
+flashState.origBack = btnOrigBack;
+flashState.btn = btn;
+btn.Text = "✅ Copy";
+btn.BackColor = Drawing.Color.FromArgb(200, 255, 200);
+if (!flashState.timer) {
+flashState.timer = new Forms.Timer();
+flashState.timer.Interval = 400; // The time (in ms) for which the button flashes green after copying the text
+flashState.timer.Tick.connect(function() {
+flashState.timer.Stop();
+if (flashState.btn) {
+flashState.btn.Text = flashState.origText;
+flashState.btn.BackColor = flashState.origBack;
+}
+flashState.btn = null;
+});
+}
+flashState.timer.Start();
+};
+}
+if (AUTO_COPY || currentFormat !== "raw") {
+var initialFormatted = (currentFormat !== "raw") ? applyFormatByMode(currentFormat, text) : text;
+setTbText(initialFormatted);
+copyToClipboard(initialFormatted);
+log(currentFormat !== "raw" ? "Format applied: " + currentFormat : "Auto-copy (raw)");
+}
+var panel = new Forms.FlowLayoutPanel();
+panel.Dock = Forms.DockStyle.Bottom;
+panel.Height = 60; // The height of the bottom panel where the buttons are (1 line, Lines, Table, languages)
+panel.Padding = new Forms.Padding(5);
+panel.FlowDirection = Forms.FlowDirection.LeftToRight;
+panel.WrapContents = false;
+
+function createFormatButton(text, mode) {
+var btn = new Forms.Button();
+btn.Text = text;
+// The sizes of the format buttons themselves
+btn.Width = 90;
+btn.Height = 44;
+btn.Margin = new Forms.Padding(0, 8, 6, 0);
+btn.Font = new Drawing.Font("Segoe UI", 10);
+var flash = makeFlashable(btn);
+btn.Click.connect(function() {
+try {
+currentFormat = mode;
+var result = applyFormatByMode(mode, originalText);
+setTbText(result);
+copyToClipboard(result);
+flash();
+} catch (e) {
+sp.ConsoleError("ERROR: " + (e.message || e), "SS", Drawing.Color.Red);
+}
+});
+return btn;
+}
+var btnOneLine = createFormatButton("― 1 line", "line");
+var btnLines = createFormatButton("☰ Lines", "lines");
+
+var btnTable = new Forms.Button();
+btnTable.Width = 100;
+btnTable.Height = 44;
+btnTable.Margin = new Forms.Padding(0, 8, 6, 0);
+btnTable.Font = new Drawing.Font("Segoe UI", 10);
+
+function updateTableButtonText() {
+if (currentFormat === "table1") btnTable.Text = "▦ Table 1";
+else if (currentFormat === "table2") btnTable.Text = "▦ Table 2";
+else btnTable.Text = "▦ Table";
+}
+updateTableButtonText();
+btnTable.Click.connect(function() {
+try {
+if (currentFormat === "table1") currentFormat = "table2";
+else currentFormat = "table1";
+var result = applyFormatByMode(currentFormat, originalText);
+setTbText(result);
+copyToClipboard(result);
+updateTableButtonText();
+flashButton(btnTable);
+} catch (e) {
+sp.ConsoleError("ERROR: " + (e.message || e), "SS", Drawing.Color.Red);
+}
+});
+
+var btnExcel = new Forms.Button();
+btnExcel.Text = "📊 Excel";
+btnExcel.Width = 100;
+btnExcel.Height = 44;
+btnExcel.Margin = new Forms.Padding(0, 8, 6, 0);
+btnExcel.Font = new Drawing.Font("Segoe UI", 10);
+btnExcel.Click.connect(function() {
+    try {
+        var previewWasVisible = false;
+        if (globalPreviewForm && !globalPreviewForm.IsDisposed && globalPreviewForm.Visible) {
+            globalPreviewForm.Hide();
+            previewWasVisible = true;
+        }
+
+        var ocrWasHidden = false;
+        if (CLOSE_OCR_WINDOW_ON_EXCEL_OPEN) {
+            f.Hide();
+            ocrWasHidden = true;
+        }
+        var result = applyFormatByMode("excel", originalText);
+
+        currentFormat = "lines";
+        updateTableButtonText();
+        if (result) {
+            setTbText(result);
+            copyToClipboard(result);
+        }
+        flashButton(btnExcel);
+
+        if (previewWasVisible && globalPreviewForm && !globalPreviewForm.IsDisposed) {
+            globalPreviewForm.Show();
+            globalPreviewForm.TopMost = true;
+            globalPreviewForm.BringToFront();
+        }
+        if (!f.IsDisposed) {
+            if (ocrWasHidden || CLOSE_OCR_WINDOW_ON_EXCEL_DONE) {
+                f.Close();
+            }
+        }
+
+    } catch (e) {
+        sp.ConsoleError("ERROR: " + (e.message || e), "SS", Drawing.Color.Red);
+    }
+});
+
+var OcrClass = (typeof OcrHelper !== 'undefined') ? OcrHelper.OcrEngine : OcrEngine;
+
+function rerun(langCode, flag) {
+var cleanText = null;
+var cachedEntry = langResultCache.has(langCode) ? langResultCache.get(langCode) : null;
+var cached = (cachedEntry && cachedEntry.token === lastOcrToken) ? cachedEntry : null;
+if (cached && cached.text !== undefined && cached.text !== null) {
+cleanText = cached.text;
+} else {
+OcrClass.SetLogEnabled(false);
+OcrClass.ClearLogs();
+var ocr = new OcrClass();
+try { cleanText = ocr.OcrFromBitmap(lastOcrBitmap, langCode); }
+catch (e) { sp.ConsoleError("rerun OCR: " + (e.message || e), "SS", Drawing.Color.Red); cleanText = null; }
+OcrClass.SetLogEnabled(ENABLE_LOGS);
+OcrClass.ClearLogs();
+cleanText = (cleanText || "").replace(RE_LANG_HEADER_RM, "");
+if (cleanText) {
+langResultCache.set(langCode, { token: lastOcrToken, text: cleanText });
+}
+}
+originalText = cleanText;
+lastUsedOcrLang = langCode;
+warnIfLanguageMissing(langCode);
+structuredOcrCache = null;
+var formatted = applyFormatByMode(currentFormat, cleanText);
+setTbText(formatted);
+copyToClipboard(formatted);
+f.Text = "🔍 OCR Result (" + langFlagOf(langCode) + ")";
+highlightLang(langCode);
+}
+var langBtns = {};
+var WINNER_BACK = Drawing.Color.FromArgb(195, 255, 195); // The color that highlights the language button, if OCR has determined it to be the best (Light Green)
+function highlightLang(code) {
+for (var c in langBtns) langBtns[c].BackColor = (c === code) ? WINNER_BACK : Drawing.SystemColors.Control;
+}
+
+function makeLangButton(label, fullCode) {
+var btn = new Forms.Button();
+btn.Text = label;
+btn.Width = 84;
+btn.Height = 44;
+btn.Margin = new Forms.Padding(0, 8, 6, 0);
+btn.Font = new Drawing.Font("Segoe UI", 15, Drawing.FontStyle.Bold);
+btn.Click.connect(function() { rerun(fullCode, label); });
+langBtns[fullCode] = btn;
+return btn;
+}
+var btnOrder = [];
+var installedArr = [];
+try {
+    var installed = new OcrClass().GetInstalledOcrLanguages();
+    if (installed && installed.Length) {
+        for (var i = 0; i < installed.Length; i++) installedArr.push(installed[i]);
+    }
+} catch (e) {
+    sp.ConsoleError("Lang buttons error: " + (e.message || e), "SS", Drawing.Color.Red);
+}
+var customOrder = (BUTTON_LANG_ORDER || "").split(",").map(function(s) { return s.trim(); }).filter(function(s) { return s !== ""; });
+if (customOrder.length) {
+    for (var i = 0; i < customOrder.length; i++) {
+        if (installedArr.indexOf(customOrder[i]) >= 0 && btnOrder.indexOf(customOrder[i]) < 0) btnOrder.push(customOrder[i]);
+    }
+    for (var i = 0; i < installedArr.length; i++) {
+        if (btnOrder.indexOf(installedArr[i]) < 0) btnOrder.push(installedArr[i]);
+    }
+} else {
+    btnOrder = installedArr.slice(0);
+}
+if (btnOrder.length > 9) btnOrder = btnOrder.slice(0, 9);
+var langButtons = [];
+for (var li = 0; li < btnOrder.length; li++) {
+var code = btnOrder[li];
+if (lastRunIsAuto) {
+var entry = langResultCache.has(code) ? langResultCache.get(code) : null;
+if (entry && entry.token === lastOcrToken && (!entry.text || !entry.text.trim())) continue;
+}
+var label = code.split("-")[0];
+langButtons.push(makeLangButton(label, code));
+}
+highlightLang(lastRunIsAuto ? lastWinnerLang : "");
+panel.Controls.Add(btnOneLine);
+panel.Controls.Add(btnLines);
+panel.Controls.Add(btnTable);
+panel.Controls.Add(btnExcel); 
+for (var li = 0; li < langButtons.length; li++) panel.Controls.Add(langButtons[li]);
+f.Controls.Add(tb);
+f.Controls.Add(panel);
+f.Size = new Drawing.Size(Math.max(900, 320 + langButtons.length * 90), 500); // Dimensions of the main OCR window. (Width:900,Height: 500)
+f.StartPosition = Forms.FormStartPosition.Manual;
+var ocrW = f.Size.Width;
+var ocrH = f.Size.Height;
+var posX = 0;
+var posY = 0;
+var placed = false;
+if (globalPreviewForm && !globalPreviewForm.IsDisposed && globalPreviewForm.Visible) {
+var previewLocation = globalPreviewForm.PointToScreen(new Drawing.Point(0, 0));
+var cx = globalPreviewForm.ClientSize.Width / 2;
+var cy = globalPreviewForm.ClientSize.Height / 2;
+var srcW = Number(rotationSourceBitmap.Width);
+var srcH = Number(rotationSourceBitmap.Height);
+var z = zoomFactor;
+var angle = currentRotationAngle;
+var radians = Math.abs(angle) * Math.PI / 180;
+var cos = Math.abs(Math.cos(radians));
+var sin = Math.abs(Math.sin(radians));
+var visW = (srcW * cos + srcH * sin) * z;
+var visH = (srcW * sin + srcH * cos) * z;
+var screenCX = previewLocation.X + cx;
+var screenCY = previewLocation.Y + cy;
+var visX = screenCX - visW / 2;
+var visY = screenCY - visH / 2;
+var visBottom = visY + visH;
+var visTop = visY;
+var previewScreen = Forms.Screen.FromControl(globalPreviewForm);
+var workArea = previewScreen.Bounds;
+var gap = 0;
+var belowY = visBottom + gap;
+if (belowY + ocrH <= workArea.Bottom) {
+posY = belowY;
+posX = visX + (visW - ocrW) / 2;
+placed = true;
+}
+else {
+var aboveY = visTop - ocrH - gap;
+if (aboveY >= workArea.Top) {
+posY = aboveY;
+posX = visX + (visW - ocrW) / 2;
+placed = true;
+}
+}
+if (placed) {
+if (posX < workArea.Left) posX = workArea.Left;
+if (posX + ocrW > workArea.Right) posX = workArea.Right - ocrW;
+} else {
+posX = workArea.X + (workArea.Width - ocrW) / 2;
+posY = workArea.Y + (workArea.Height - ocrH) / 2;
+}
+} else {
+var primaryScreen = Forms.Screen.PrimaryScreen.WorkingArea;
+posX = primaryScreen.X + (primaryScreen.Width - ocrW) / 2;
+posY = primaryScreen.Y + (primaryScreen.Height - ocrH) / 2;
+}
+f.Location = new Drawing.Point(toInt(posX), toInt(posY));
+// OCR window appearance handler
+var f_shown = f.Shown.connect(function(sender, args) {
+    f.TopMost = true;
+    f.Activate(); // We guarantee that the window will get focus   
+    // Cursor jumps to the center if the setting is enabled
+    if (AUTO_MOVE_CURSOR_TO_CENTER) {
+        var centerX = toInt(Number(f.Left) + Number(f.Width) / 2);
+        var centerY = toInt(Number(f.Top) + Number(f.Height) / 2);
+        sp.MouseMove(new Drawing.Point(centerX, centerY));
+    }
+});
+
+f.FormClosed.connect(function() {
+    if (f_shown) f_shown.disconnect(); 
+if (flashState.timer) {
+try { flashState.timer.Stop(); flashState.timer.Dispose(); } catch(e) {}
+flashState.timer = null;
+}
+flashState.btn = null;
+if (!_skipOcrCleanup) {
+clearOcrSessionCache();
+if (lastOcrBitmap) { try { lastOcrBitmap.Dispose(); } catch(e) { sp.ConsoleError("FormClosed lastOcrBitmap.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); } }
+lastOcrBitmap = null;
+OcrClass.ClearCachedBitmap();
+if (CLOSE_IMAGE_WINDOW_ON_OCR_CLOSE && globalActivePic) {
+var parentForm = globalActivePic.FindForm();
+if (parentForm && !parentForm.IsDisposed) {
+parentForm.Close();
+}
+}
+}
+});
+if (CLOSE_OCR_WINDOW_ON_CLICK_OUTSIDE) {
+f.Deactivate.connect(function() {
+var timer = new Forms.Timer();
+timer.Interval = 150;
+timer.Tick.connect(function(sender, args) {
+timer.Stop();
+timer.Dispose();
+if (!f.IsDisposed && !f.ContainsFocus) {
+f.Close();
+}
+});
+timer.Start();
+});
+}
+f.KeyPreview = true;
+f.KeyDown.connect(function(sender, e) {
+if (e.KeyCode == Forms.Keys.Escape) f.Close();
+});
+var useRun = true;
+try { if (Forms.Application.MessageLoop) useRun = false; } catch (e) { sp.ConsoleError("MessageLoop check: " + (e.message || e), "SS", Drawing.Color.Red); }
+if (useRun) {
+try { Forms.Application.Run(f); return; } catch (err) { sp.ConsoleError("Application.Run: " + (err.message || err), "SS", Drawing.Color.Red); }
+}
+f.Show();
+}
+
+function median(arr) {
+if (!arr || arr.length === 0) return 0;
+var s = arr.slice().sort(function(a, b) { return a - b; });
+var m = Math.floor(s.length / 2);
+return s.length % 2 === 0 ? (s[m - 1] + s[m]) / 2 : s[m];
+}
+
+function spread(arr) {
+if (!arr || arr.length === 0) return 0;
+var mn = arr[0], mx = arr[0];
+for (var q = 1; q < arr.length; q++) { if (arr[q] < mn) mn = arr[q]; if (arr[q] > mx) mx = arr[q]; }
+return mx - mn;
+}
+
+function minOf(arr) { var m = arr[0]; for (var q = 1; q < arr.length; q++) if (arr[q] < m) m = arr[q]; return m; }
+function maxOf(arr) { var m = arr[0]; for (var q = 1; q < arr.length; q++) if (arr[q] > m) m = arr[q]; return m; }
+
+function prepareTableData() {
+var words = getOcrWordsForTable();
+if (!words || words.length < 2) return null;
+var analysis = analyzeOcrWords(words);
+if (!analysis) return null;
+return {
+words: words,
+analysis: analysis,
+rows: clusterRowsByY(words, analysis.medianHeight)
+};
+}
+
+function getOcrWordsForTable() {
+var json = null;
+try {
+if (lastOcrBitmap) json = getStructuredOcrJson();
+} catch (e) {
+sp.ConsoleError("structured ocr error: " + (e.message || e), "SS", Drawing.Color.Red);
+return null;
+}
+if (json === null) return null;
+var words = [], lineFallback = [];
+try {
+var data = JSON.parse(json);
+if (data.blocks) {
+for (var bi = 0; bi < data.blocks.length; bi++) {
+var lns = (data.blocks[bi] && data.blocks[bi].lines) || [];
+for (var li = 0; li < lns.length; li++) {
+var ln = lns[li];
+if (!ln) continue;
+var ws = ln.words || [];
+if (ws.length === 0) {
+lineFallback.push({ text: (ln.text || "").trim(), x: ln.x || 0, y: ln.y || 0, w: ln.w || 0, h: ln.h || 0 });
+} else {
+for (var wi = 0; wi < ws.length; wi++) {
+var w = ws[wi];
+if (!w || !w.text || w.text.trim() === "") continue;
+words.push({ text: w.text.trim(), x: w.x, y: w.y, w: w.w, h: w.h });
+}
+}
+}
+}
+}
+} catch (e) {
+sp.ConsoleError("parse error: " + (e.message || e), "SS", Drawing.Color.Red);
+return null;
+}
+if (words.length === 0) words = lineFallback;
+return words;
+}
+
+function analyzeOcrWords(words) {
+if (!words || words.length < 2) return null;
+var heights = [], widths = [], sumW = 0, sumDisplayWidth = 0, sample = "";
+for (var i = 0; i < words.length; i++) {
+if (words[i].h > 0) heights.push(words[i].h);
+if (words[i].w > 0) widths.push(words[i].w);
+sumW += words[i].w;
+sumDisplayWidth += displayWidth(words[i].text);
+sample += words[i].text;
+}
+var medianHeight = median(heights);
+if (!isFinite(medianHeight) || medianHeight <= 0) medianHeight = 20;
+var medianWidth = median(widths);
+if (!isFinite(medianWidth) || medianWidth <= 0) medianWidth = 40;
+var isSpaceJoining = RE_SPACE_JOINING.test(sample);
+return {
+medianHeight: medianHeight,
+medianWidth: medianWidth,
+sumW: sumW,
+sumDisplayWidth: sumDisplayWidth,
+isSpaceJoining: isSpaceJoining
+};
+}
+
+function clusterRowsByY(words, medianHeight) {
+var rowCenterThreshold = Math.max(4, medianHeight * 0.75);
+var byY = words.slice().sort(function(a, b) {
+var ca = a.y + a.h / 2, cb = b.y + b.h / 2;
+return (ca !== cb) ? ca - cb : a.x - b.x;
+});
+var rows = [];
+for (var i = 0; i < byY.length; i++) {
+var wb = byY[i], cy = wb.y + wb.h / 2;
+if (rows.length === 0) {
+rows.push({ top: wb.y, bottom: wb.y + wb.h, words: [wb] });
+continue;
+}
+var last = rows[rows.length - 1], lc = (last.top + last.bottom) / 2;
+if (Math.abs(cy - lc) <= rowCenterThreshold) {
+last.words.push(wb);
+last.top = Math.min(last.top, wb.y);
+last.bottom = Math.max(last.bottom, wb.y + wb.h);
+} else {
+rows.push({ top: wb.y, bottom: wb.y + wb.h, words: [wb] });
+}
+}
+var mergeThreshold = Math.max(rowCenterThreshold * 1.5, medianHeight);
+var ri = 0;
+while (ri < rows.length - 1) {
+var cur = rows[ri], nxt = rows[ri + 1];
+if (cur.words.length <= 1 && Math.abs((nxt.top + nxt.bottom) / 2 - (cur.top + cur.bottom) / 2) <= mergeThreshold) {
+nxt.words = cur.words.concat(nxt.words);
+nxt.top = Math.min(cur.top, nxt.top);
+nxt.bottom = Math.max(cur.bottom, nxt.bottom);
+rows.splice(ri, 1);
+continue;
+}
+ri++;
+}
+ri = 1;
+while (ri < rows.length) {
+var prv = rows[ri - 1], cur = rows[ri];
+if (cur.words.length <= 1 && Math.abs((cur.top + cur.bottom) / 2 - (prv.top + prv.bottom) / 2) <= mergeThreshold) {
+prv.words = prv.words.concat(cur.words);
+prv.top = Math.min(cur.top, prv.top);
+prv.bottom = Math.max(cur.bottom, prv.bottom);
+rows.splice(ri, 1);
+continue;
+}
+ri++;
+}
+for (var r = 0; r < rows.length; r++) {
+rows[r].words.sort(function(a, b) { return a.x - b.x; });
+}
+return rows;
+}
+var _displayWidthCache = new Map();
+
+function displayWidth(s) {
+    if (_displayWidthCache.has(s)) return _displayWidthCache.get(s); 
+    
+    var w = 0;
+    for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        var wide = (c >= 0x1100 && (c <= 0x115F || c === 0x2329 || c === 0x232A ||
+            (c >= 0x2E80 && c <= 0xA4CF && c !== 0x303F) ||
+            (c >= 0xAC00 && c <= 0xD7A3) ||
+            (c >= 0xF900 && c <= 0xFAFF) ||
+            (c >= 0xFE30 && c <= 0xFE4F) ||
+            (c >= 0xFF00 && c <= 0xFF60) ||
+            (c >= 0xFFE0 && c <= 0xFFE6)));
+        w += wide ? 2 : 1;
+    }
+    _displayWidthCache.set(s, w);
+    return w;
+}
+
+function padToWidth(s, target) {
+var cur = displayWidth(s);
+while (cur < target) { s += " "; cur++; }
+return s;
+}
+
+function padStartWidth(s, target) {
+var cur = displayWidth(s);
+var pad = "";
+while (cur < target) { pad += " "; cur++; }
+return pad + s;
+}
+
+function formatAsOneLine(text) {
+return text.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function formatAsTable(text) {
+var lines = text.split(RE_NL_SPLIT).filter(function(l) { return l.trim() !== ""; });
+if (lines.length < 2) {
+return text;
+}
+var matrix = [];
+var maxCols = 0;
+for (var i = 0; i < lines.length; i++) {
+var cols = lines[i].split(RE_MULTI_SPACE).map(function(c) { return c.trim(); }).filter(function(c) { return c !== ""; });
+matrix.push(cols);
+if (cols.length > maxCols) maxCols = cols.length;
+}
+var allHaveMultipleCols = matrix.every(function(row) { return row.length >= 2; });
+if (!allHaveMultipleCols || maxCols < 2) {
+return text;
+}
+var colWidths = [];
+for (var c = 0; c < maxCols; c++) {
+var maxWidth = 0;
+for (var r = 0; r < matrix.length; r++) {
+if (matrix[r][c]) {
+var cw = displayWidth(matrix[r][c]);
+if (cw > maxWidth) maxWidth = cw;
+}
+}
+colWidths.push(maxWidth);
+}
+var result = [];
+for (var r = 0; r < matrix.length; r++) {
+var rowParts = [];
+for (var c = 0; c < maxCols; c++) {
+var cell = matrix[r][c] || "";
+var isNumber = RE_IS_NUMBER.test(cell.trim());
+if (isNumber) {
+rowParts.push(padStartWidth(cell, colWidths[c]));
+} else {
+rowParts.push(padToWidth(cell, colWidths[c]));
+}
+}
+result.push(rowParts.join("  "));
+}
+var finalResult = result.join("\n");
+return finalResult;
+}
+
+function formatAsTableTextGrab(fallbackText) {
+var data = prepareTableData();
+if (!data) return null;
+var words = data.words;
+var analysis = data.analysis;
+var rowClusters = data.rows;
+var medianHeight = analysis.medianHeight;
+var resultLines = [];
+var noSpaceThreshold = Math.max(2, medianHeight * 0.25);
+var tabThreshold = Math.max(25, medianHeight * 4.5);
+for (var r = 0; r < rowClusters.length; r++) {
+var rc = rowClusters[r];
+if (rc.words.length === 0) continue;
+var lineStr = rc.words[0].text;
+for (var i = 1; i < rc.words.length; i++) {
+var prevWord = rc.words[i - 1];
+var currWord = rc.words[i];
+var gap = currWord.x - (prevWord.x + prevWord.w);
+if (gap < noSpaceThreshold) {
+lineStr += currWord.text;
+} else if (gap >= tabThreshold) {
+lineStr += "\t" + currWord.text;
+} else {
+lineStr += " " + currWord.text;
+}
+}
+resultLines.push(lineStr);
+}
+return resultLines.join("\n");
+}
+
+function formatTableVisual(fallbackText) {
+var data = prepareTableData();
+if (!data) return null;
+var words = data.words;
+var analysis = data.analysis;
+var rows = data.rows;
+var medianHeight = analysis.medianHeight;
+var sumW = analysis.sumW;
+var sumDisplayWidth = analysis.sumDisplayWidth;
+var isSpaceJoining = analysis.isSpaceJoining;
+var noSpaceGap = Math.max(2, medianHeight * 0.25);
+var allGaps = [];
+for (var r = 0; r < rows.length; r++) {
+var ws = rows[r].words, mg = 0;
+for (var k = 1; k < ws.length; k++) {
+var g = ws[k].x - (ws[k - 1].x + ws[k - 1].w);
+allGaps.push(g);
+if (g > mg) mg = g;
+}
+rows[r].maxGap = mg;
+}
+var medGap = median(allGaps);
+var gapMin = Math.max(8, medGap * 1.6, medianHeight * 0.5);
+for (var r = 0; r < rows.length; r++) {
+rows[r].isTable = (rows[r].words.length >= 2 && rows[r].maxGap >= gapMin);
+}
+var iv = [];
+for (var r = 0; r < rows.length; r++) {
+if (!rows[r].isTable) continue;
+for (var k = 0; k < rows[r].words.length; k++) {
+var w2 = rows[r].words[k];
+iv.push({ l: w2.x, r: w2.x + w2.w });
+}
+}
+if (iv.length < 2) return null;
+iv.sort(function (a, b) { return a.l - b.l; });
+var cov = [];
+for (var i = 0; i < iv.length; i++) {
+if (cov.length === 0) { cov.push({ l: iv[i].l, r: iv[i].r }); continue; }
+var lc2 = cov[cov.length - 1];
+if (iv[i].l <= lc2.r) { if (iv[i].r > lc2.r) lc2.r = iv[i].r; }
+else cov.push({ l: iv[i].l, r: iv[i].r });
+}
+var minChannel = Math.max(5, medGap * 1.4);
+var seps = [];
+for (var i = 0; i < cov.length - 1; i++) {
+if (cov[i + 1].l - cov[i].r >= minChannel) seps.push({ l: cov[i].r, r: cov[i + 1].l });
+}
+if (seps.length === 0) return null;
+var cols = [];
+var startL = cov[0].l;
+for (var i = 0; i < seps.length; i++) { cols.push({ l: startL, r: seps[i].l }); startL = seps[i].r; }
+cols.push({ l: startL, r: cov[cov.length - 1].r });
+var xOffset = cov[0].l;
+
+function colOf(x) {
+for (var c = 0; c < cols.length; c++) if (x < cols[c].r) return c;
+return cols.length - 1;
+}
+var charW = (sumDisplayWidth > 0) ? (sumW / sumDisplayWidth) : medianHeight * 0.5;
+if (!isFinite(charW) || charW <= 0) charW = medianHeight * 0.5;
+if (charW < medianHeight * 0.30) charW = medianHeight * 0.30;
+if (charW > medianHeight * 1.00) charW = medianHeight * 1.00;
+for (var r = 0; r < rows.length; r++) {
+var ws2 = rows[r].words, cells = [];
+if (!rows[r].isTable) {
+var txt = "", L = ws2[0].x, R = ws2[0].x + ws2[0].w;
+for (var k = 0; k < ws2.length; k++) {
+if (k > 0) {
+var g2 = ws2[k].x - (ws2[k - 1].x + ws2[k - 1].w);
+txt += (g2 < noSpaceGap || isSpaceJoining) ? "" : " ";
+}
+txt += ws2[k].text;
+R = ws2[k].x + ws2[k].w;
+}
+cells.push({ text: txt, l: L, r: R, col: -1 });
+} else {
+var cCol = colOf(ws2[0].x + ws2[0].w / 2);
+var cTxt = ws2[0].text, cL = ws2[0].x, cR = ws2[0].x + ws2[0].w;
+for (var k = 1; k < ws2.length; k++) {
+var nc = colOf(ws2[k].x + ws2[k].w / 2);
+var g3 = ws2[k].x - (ws2[k - 1].x + ws2[k - 1].w);
+if (nc === cCol) {
+cTxt += (g3 < noSpaceGap || isSpaceJoining) ? "" : " ";
+cTxt += ws2[k].text;
+cR = ws2[k].x + ws2[k].w;
+} else {
+cells.push({ text: cTxt, l: cL, r: cR, col: cCol });
+cCol = nc; cTxt = ws2[k].text; cL = ws2[k].x; cR = ws2[k].x + ws2[k].w;
+}
+}
+cells.push({ text: cTxt, l: cL, r: cR, col: cCol });
+}
+rows[r].cells = cells;
+}
+for (var c = 0; c < cols.length; c++) {
+var ls = [], rs = [], cs = [];
+for (var r = 0; r < rows.length; r++) {
+var cl = rows[r].cells;
+for (var k = 0; k < cl.length; k++) {
+if (cl[k].col === c) { ls.push(cl[k].l); rs.push(cl[k].r); cs.push((cl[k].l + cl[k].r) / 2); }
+}
+}
+if (ls.length === 0) { cols[c].align = "left"; cols[c].charPos = 0; continue; }
+var sL = spread(ls), sR = spread(rs), sC = spread(cs);
+if (sL <= sR && sL <= sC)      { cols[c].align = "left";   cols[c].anchor = minOf(ls); }
+else if (sR <= sC)             { cols[c].align = "right";  cols[c].anchor = maxOf(rs); }
+else                           { cols[c].align = "center"; cols[c].anchor = (minOf(cs) + maxOf(cs)) / 2; }
+cols[c].charPos = Math.round((cols[c].anchor - xOffset) / charW);
+}
+var placements = [], minStart = null;
+for (var r = 0; r < rows.length; r++) {
+var cl2 = rows[r].cells, rowPl = [];
+for (var k = 0; k < cl2.length; k++) {
+var cell = cl2[k];
+var cellDW = displayWidth(cell.text);
+var st;
+if (cell.col < 0) {
+st = Math.round((cell.l - xOffset) / charW);
+} else if (cols[cell.col].align === "right") {
+st = cols[cell.col].charPos - cellDW;
+} else if (cols[cell.col].align === "center") {
+st = cols[cell.col].charPos - Math.floor(cellDW / 2);
+} else {
+st = cols[cell.col].charPos;
+}
+if (st < 0) st = 0;
+rowPl.push({ start: st, text: cell.text });
+if (minStart === null || st < minStart) minStart = st;
+}
+placements.push(rowPl);
+}
+var shift = (minStart === null || minStart <= 0) ? 0 : minStart;
+var out = [];
+for (var r = 0; r < placements.length; r++) {
+var pl = placements[r];
+pl.sort(function (a, b) { return a.start - b.start; });
+var line = "";
+for (var k = 0; k < pl.length; k++) {
+var t = pl[k].start - shift;
+var currentDW = displayWidth(line);
+if (t < currentDW) t = currentDW + 1;
+while (displayWidth(line) < t) line += " ";
+line += pl[k].text;
+}
+out.push(line.replace(/\s+$/, ""));
+}
+return out.join("\n");
+}
+
+function formatTableHard(fallbackText, gap) {
+var data = prepareTableData();
+if (!data) return null;
+var words = data.words;
+var analysis = data.analysis;
+var rowClusters = data.rows;
+var medianHeight = analysis.medianHeight;
+var noSpaceThreshold = Math.max(2, medianHeight * 0.25);
+var tabThreshold = Math.max(25, medianHeight * 4.5);
+var rowTexts = [];
+var isTableRow = [];
+for (var r = 0; r < rowClusters.length; r++) {
+var rc = rowClusters[r];
+if (rc.words.length === 0) continue;
+var maxGap = 0;
+for (var i = 1; i < rc.words.length; i++) {
+var gapVal = rc.words[i].x - (rc.words[i-1].x + rc.words[i-1].w);
+if (gapVal > maxGap) maxGap = gapVal;
+}
+var isTable = (rc.words.length >= 2 && maxGap >= tabThreshold);
+isTableRow.push(isTable);
+var rowWords = [];
+var currentWord = rc.words[0].text;
+var currentWordX = rc.words[0].x;
+var currentWordW = rc.words[0].w;
+for (var i = 1; i < rc.words.length; i++) {
+var prevWord = rc.words[i - 1];
+var currWord = rc.words[i];
+var gapVal = currWord.x - (prevWord.x + prevWord.w);
+if (gapVal < noSpaceThreshold) {
+currentWord += currWord.text;
+currentWordW = (currWord.x + currWord.w) - currentWordX;
+} else if (gapVal >= tabThreshold && isTable) {
+rowWords.push({ text: currentWord, x: currentWordX, w: currentWordW });
+currentWord = currWord.text;
+currentWordX = currWord.x;
+currentWordW = currWord.w;
+} else {
+currentWord += " " + currWord.text;
+currentWordW = (currWord.x + currWord.w) - currentWordX;
+}
+}
+rowWords.push({ text: currentWord, x: currentWordX, w: currentWordW });
+rowTexts.push(rowWords);
+}
+var maxCols = 0;
+for (var r = 0; r < rowTexts.length; r++) {
+if (isTableRow[r] && rowTexts[r].length > maxCols) maxCols = rowTexts[r].length;
+}
+var colWidths = [];
+for (var c = 0; c < maxCols; c++) {
+var mw = 0;
+for (var r = 0; r < rowTexts.length; r++) {
+if (isTableRow[r] && c < rowTexts[r].length) {
+var cw = displayWidth(rowTexts[r][c].text);
+if (cw > mw) mw = cw;
+}
+}
+colWidths.push(mw);
+}
+var sep = "";
+for (var i = 0; i < gap; i++) sep += " ";
+var resultLines = [];
+for (var r = 0; r < rowTexts.length; r++) {
+if (!isTableRow[r]) {
+var lineStr = "";
+for (var i = 0; i < rowTexts[r].length; i++) {
+if (i > 0) lineStr += " ";
+lineStr += rowTexts[r][i].text;
+}
+resultLines.push(lineStr);
+} else {
+var parts = [];
+for (var c = 0; c < rowTexts[r].length; c++) {
+var cell = rowTexts[r][c].text;
+if (c < rowTexts[r].length - 1 && c < maxCols) {
+cell = padToWidth(cell, colWidths[c]);
+}
+parts.push(cell);
+}
+resultLines.push(parts.join(sep));
+}
+}
+return resultLines.join("\n");
+}
+
+function simpleScreenshotMode() {
+var targetScreen = Forms.Screen.FromPoint(action.End);
+var screenBounds = targetScreen.Bounds;
+var frozen = MENU_SAFE_CAPTURE;
+var full = null;
+if (frozen) {
+try {
+full = new Drawing.Bitmap(screenBounds.Width, screenBounds.Height, Drawing.Imaging.PixelFormat.Format32bppRgb);
+var g = Drawing.Graphics.FromImage(full);
+try {
+g.CopyFromScreen(screenBounds.Left, screenBounds.Top, 0, 0, full.Size, Drawing.CopyPixelOperation.SourceCopy);
+} finally { g.Dispose(); }
+} catch (ex) {
+sp.ConsoleError("Screenshot error: " + (ex.message || ex), "SS", Drawing.Color.Red);
+return;
+}
+}
+var form = new Forms.Form();
+form.FormBorderStyle = Forms.FormBorderStyle.None;
+form.Bounds = screenBounds;
+form.TopMost = true;
+form.ShowInTaskbar = false;
+form.StartPosition = Forms.FormStartPosition.Manual;
+form.KeyPreview = true;
+form.Cursor = Forms.Cursors.Cross;
+form.BackColor = Drawing.Color.Black;
+if (!frozen) form.Opacity = 0.35; // Transparency of the black darkening of the screen when selected.
+form.GetType().GetProperty("DoubleBuffered",
+host.flags(clr.System.Reflection.BindingFlags.NonPublic, clr.System.Reflection.BindingFlags.Instance))
+.SetValue(form, true);
+var startPoint = null;
+var captureRect = null;
+var cancelled = false;
+var capturedBitmap = null;
+var paintHandler = form.Paint.connect(function(sender, e) {
+if (frozen && full) e.Graphics.DrawImage(full, 0, 0);
+if (captureRect != null && captureRect.Width > 0 && captureRect.Height > 0) {
+e.Graphics.FillRectangle(fillBrush, captureRect);
+e.Graphics.DrawRectangle(selectionPen, captureRect);
+var sizeText = captureRect.Width + " x " + captureRect.Height;
+var textSize = e.Graphics.MeasureString(sizeText, sizeFont);
+var textW = toInt(Math.ceil(textSize.Width));
+var textH = toInt(Math.ceil(textSize.Height));
+var textX = toInt(captureRect.X);
+var textY = toInt(captureRect.Y) - textH - 4;
+if (textY < 0) {
+textY = toInt(captureRect.Y) + 4;
+}
+var bgRect = new Drawing.Rectangle(textX, textY, textW, textH);
+e.Graphics.FillRectangle(sizeBgBrush, bgRect);
+e.Graphics.DrawString(sizeText, sizeFont, sizeBrush, toFloat(textX), toFloat(textY));
+}
+});
+var onDown = function(sender, e) {
+if (e.Button == Forms.MouseButtons.Left) {
+startPoint = e.Location;
+captureRect = new Drawing.Rectangle(startPoint.X, startPoint.Y, 0, 0);
+form.Invalidate();
+} else if (e.Button == Forms.MouseButtons.Right) {
+cancelled = true;
+form.Close();
+}
+};
+var onMove = function(sender, e) {
+if (!startPoint) return;
+var dx = e.X - startPoint.X;
+var dy = e.Y - startPoint.Y;
+var x = dx < 0 ? e.X : startPoint.X;
+var y = dy < 0 ? e.Y : startPoint.Y;
+captureRect = new Drawing.Rectangle(x, y, Math.abs(dx), Math.abs(dy));
+form.Invalidate();
+};
+var onUp = function(sender, e) {
+if (e.Button == Forms.MouseButtons.Left && startPoint) {
+startPoint = null;
+var rc = captureRect;
+if (!rc || rc.Width < MIN_CAPTURE_SIZE || rc.Height < MIN_CAPTURE_SIZE) {
+cancelled = true;
+form.Close();
+return;
+}
+if (frozen) {
+try {
+var crop = new Drawing.Bitmap(rc.Width, rc.Height, Drawing.Imaging.PixelFormat.Format32bppRgb);
+var g = Drawing.Graphics.FromImage(crop);
+try {
+g.DrawImage(full, new Drawing.Rectangle(0, 0, rc.Width, rc.Height),
+new Drawing.Rectangle(rc.X, rc.Y, rc.Width, rc.Height), Drawing.GraphicsUnit.Pixel);
+} finally { g.Dispose(); }
+capturedBitmap = crop;
+} catch (ex) {
+sp.ConsoleError("Crop error: " + (ex.message || ex), "SS", Drawing.Color.Red);
+cancelled = true;
+}
+} else {
+form.Hide();
+clr.System.Threading.Thread.Sleep(80);
+try {
+var bmp = new Drawing.Bitmap(rc.Width, rc.Height, Drawing.Imaging.PixelFormat.Format32bppRgb);
+var g2 = Drawing.Graphics.FromImage(bmp);
+try {
+g2.CopyFromScreen(
+screenBounds.Left + rc.Left, screenBounds.Top + rc.Top, 0, 0,
+bmp.Size,
+Drawing.CopyPixelOperation.SourceCopy
+);
+} finally { g2.Dispose(); }
+capturedBitmap = bmp;
+} catch (ex) {
+sp.ConsoleError("Screenshot error: " + (ex.message || ex), "SS", Drawing.Color.Red);
+cancelled = true;
+}
+}
+form.Close();
+}
+};
+var mDown = form.MouseDown.connect(onDown);
+var mMove = form.MouseMove.connect(onMove);
+var mUp = form.MouseUp.connect(onUp);
+var keyDownHandler = form.KeyDown.connect(function(sender, e) {
+if (e.KeyCode == Forms.Keys.Escape) {
+cancelled = true;
+form.Close();
+}
+});
+var shownHandler = form.Shown.connect(function() { form.TopMost = true; });
+form.FormClosed.connect(function() {
+if (mDown) mDown.disconnect();
+if (mMove) mMove.disconnect();
+if (mUp) mUp.disconnect();
+if (keyDownHandler) keyDownHandler.disconnect();
+if (paintHandler) paintHandler.disconnect();
+if (shownHandler) shownHandler.disconnect();
+if (full) { try { full.Dispose(); } catch(e) { sp.ConsoleError("full.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); } }
+full = null;
+});
+Forms.Application.Run(form);
+if (cancelled) {
+if (capturedBitmap) { try { capturedBitmap.Dispose(); } catch(e) { sp.ConsoleError("capturedBitmap.Dispose: " + (e.message || e), "SS", Drawing.Color.Red); } }
+return;
+}
+if (capturedBitmap != null) {
+if (ONLY_OCR) {
+performOcr(capturedBitmap);
+try { capturedBitmap.Dispose(); } catch(e) { sp.ConsoleError("dispose after OCR: " + (e.message || e), "SS", Drawing.Color.Red); }
+} else {
+var captureScreenRect = new Drawing.Rectangle(
+screenBounds.Left + captureRect.Left,
+screenBounds.Top + captureRect.Top,
+captureRect.Width,
+captureRect.Height
+);
+ShowImage(capturedBitmap, captureScreenRect.Location);
+}
+}
+}
+
+function roundInt(v) {
+return (v + 0.5) | 0;
+}
+
+function snapTo90(angle) {
+var a = angle % 360;
+if (a > 180) a -= 360;
+if (a < -180) a += 360;
+var threshold = 10;
+for (var i = 0; i < SNAP_CANDIDATES.length; i++) {
+if (Math.abs(a - SNAP_CANDIDATES[i]) <= threshold) {
+return SNAP_CANDIDATES[i];
+}
+}
+return angle;
+}
+var globalSaveDialog = null;
+var globalContextMenu = null;
+var globalActivePic = null;
+var globalPreviewForm = null;
+var rotationSourceBitmap = null;
+var rotationPaddedBitmap = null;
+var currentRotationAngle = 0;
+var isRotating = false;
+var rotationLastMouseAngle = 0;
+var rotationCenterScreenX = 0;
+var rotationCenterScreenY = 0;
+var rotationHandlePoint = null;
+var rotationHandleVisible = false;
+var isDragging = false;
+var dragOffsetX = 0;
+var dragOffsetY = 0;
+var dragMoved = false;
+var lastDragMoved = false;
+var dragStartLeft = 0;
+var dragStartTop = 0;
+var lastClickTime = 0;
+var lastHandleClickTime = 0;
+var lastWheelTime = 0;
+var lastMoveTime = 0;
+var lastInteractionTime = 0;
+var usingFastQuality = false;
+var previewQualityTimer = null;
+var lastRegionAngle = null;
+var lastRegionZoom = null;
+var lastRotationHandleVisible = false;
+var isSnapped = false;
+var SNAP_RELEASE_THRESHOLD = 20; // how much do you need to twist to get away from 90°
+var SNAP_CANDIDATES = [0, 90, -90, 180, -180];
+var zoomFactor = 1.0;
+// Zoom limits with the mouse wheel
+var ZOOM_MIN = 0.1;
+var ZOOM_MAX = 10.0;
+var currentSide = 100;
+var ROTATION_HANDLE_RADIUS = 15; // The radius of the circle (handle) for rotating the image with the mouse (in pixels)
+var ROTATION_HANDLE_HIT_RADIUS = 15; // Cursor capture area
+var HANDLE_INSET = 1;
+var _cachedBorderPen = null;
+var _cachedImageAttr = null;
+var _cachedHandleOutlinePen = null;
+var _cachedHandleArrowPen = null;
+var _cachedHandleNormalBrush = null;
+var _cachedHandleActiveBrush = null;
+var _lastZoomForPen = -1;
+
+function toInt(v) {
+if (!isFinite(v)) v = 0;
+return clr.System.Convert.ToInt32(v);
+}
+
+function toFloat(v) {
+if (!isFinite(v)) v = 0;
+return clr.System.Convert.ToSingle(v); 
+}
+
+function getTickCount() {
+return Date.now();
+}
+
+function generateFileName() {
+var d = new Date();
+var pad = function(n){return n<10 ? '0'+n : n};
+return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + '_' +
+pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
+}
+
+function normalizeAngle(a) {
+if (!isFinite(a)) return 0;
+a = a % 360;
+if (a > 180) a -= 360;
+if (a < -180) a += 360;
+return a;
+}
+
+function markInteraction() {
+lastInteractionTime = Date.now();
+if (!usingFastQuality) {
+usingFastQuality = true;
+}
+if (previewQualityTimer) {
+previewQualityTimer.Stop();
+previewQualityTimer.Start();
+}
+}
+
+function createRotatedBitmap(angle) {
+if (!rotationPaddedBitmap) return null;
+angle = normalizeAngle(angle);
+var srcW = rotationPaddedBitmap.Width;
+var srcH = rotationPaddedBitmap.Height;
+var radians = angle * Math.PI / 180;
+var cos = Math.abs(Math.cos(radians));
+var sin = Math.abs(Math.sin(radians));
+var newW = Math.floor(srcW * cos + srcH * sin);
+var newH = Math.floor(srcW * sin + srcH * cos);
+if (newW < 1) newW = 1;
+if (newH < 1) newH = 1;
+var bmp = new Drawing.Bitmap(toInt(newW), toInt(newH), Drawing.Imaging.PixelFormat.Format32bppPArgb);
+var g = Drawing.Graphics.FromImage(bmp);
+try {
+g.Clear(Drawing.Color.Transparent);
+g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.HighQuality;
+g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+g.CompositingQuality = Drawing.Drawing2D.CompositingQuality.HighQuality;
+g.CompositingMode = Drawing.Drawing2D.CompositingMode.SourceOver;
+g.TranslateTransform(toFloat(newW / 2), toFloat(newH / 2));
+g.RotateTransform(toFloat(angle));
+g.TranslateTransform(toFloat(-srcW / 2), toFloat(-srcH / 2));
+if (!_cachedImageAttr) {
+_cachedImageAttr = new Drawing.Imaging.ImageAttributes();
+_cachedImageAttr.SetWrapMode(Drawing.Drawing2D.WrapMode.TileFlipXY, Drawing.Color.Transparent);
+}
+var destRect = new Drawing.Rectangle(0, 0, toInt(srcW), toInt(srcH));
+g.DrawImage(rotationPaddedBitmap, destRect, 0, 0, toInt(srcW), toInt(srcH), Drawing.GraphicsUnit.Pixel, _cachedImageAttr);
+} finally { g.Dispose(); }
+return bmp;
+}
+
+function ensureOutputImage() {
+if (!globalActivePic || !rotationPaddedBitmap) return;
+var bmp = createRotatedBitmap(currentRotationAngle);
+if (!bmp) return;
+var oldImg = globalActivePic.Image;
+globalActivePic.Image = bmp;
+if (oldImg && oldImg !== rotationSourceBitmap && oldImg !== rotationPaddedBitmap) {
+try { oldImg.Dispose(); } catch(e) {}
+}
+}
+
+function sceneCenter(form) {
+return {
+cx: form.ClientSize.Width / 2,
+cy: form.ClientSize.Height / 2
+};
+}
+
+function computeSide() {
+var srcW = rotationSourceBitmap.Width;
+var srcH = rotationSourceBitmap.Height;
+var diag = Math.sqrt(srcW * srcW + srcH * srcH);
+return toInt(Math.ceil(diag * zoomFactor + 60));
+}
+
+function maxAllowedSide() {
+try {
+var form = globalPreviewForm;
+if (form && !form.IsDisposed) {
+var screen = Forms.Screen.FromControl(form);
+if (screen && screen.Bounds) {
+return Math.min(screen.Bounds.Width, screen.Bounds.Height) - 20;
+// return Math.max(Number(screen.Bounds.Width), Number(screen.Bounds.Height)) - 20; // There is no zoom limit
+}
+}
+} catch(e) {}
+return 2500;
+}
+
+function resizeFormForZoom() {
+var form = globalPreviewForm;
+if (!form || form.IsDisposed || !rotationSourceBitmap) return;
+var oldCx = Number(form.Left) + Number(form.Width) / 2;
+var oldCy = Number(form.Top) + Number(form.Height) / 2;
+var side = computeSide();
+var maxSide = maxAllowedSide();
+if (side > maxSide) side = maxSide;
+currentSide = side;
+form.Size = new Drawing.Size(side, side);
+var actual = Number(form.Width);
+if (actual > 10 && actual !== side) currentSide = actual;
+form.Location = new Drawing.Point(toInt(oldCx - currentSide / 2), toInt(oldCy - currentSide / 2));
+}
+
+function applyGeometry() {
+var form = globalPreviewForm;
+if (!form || form.IsDisposed || !rotationSourceBitmap) return;
+var cacheKey = roundInt(currentRotationAngle * 100) / 100;
+if (lastRegionAngle === cacheKey &&
+lastRegionZoom === zoomFactor &&
+lastRotationHandleVisible === rotationHandleVisible &&
+!isRotating) {
+var c = sceneCenter(form);
+var srcW = rotationSourceBitmap.Width;
+var srcH = rotationSourceBitmap.Height;
+var z = zoomFactor;
+var radians = currentRotationAngle * Math.PI / 180;
+var cosR = Math.cos(radians);
+var sinR = Math.sin(radians);
+var halfW = srcW / 2, halfH = srcH / 2;
+var xr = halfW * cosR - halfH * sinR + c.cx;
+var yr = halfW * sinR + halfH * cosR + c.cy;
+var c2 = { x: c.cx + (xr - c.cx) * z, y: c.cy + (yr - c.cy) * z };
+var ddx = c2.x - c.cx, ddy = c2.y - c.cy;
+var dist = Math.sqrt(ddx * ddx + ddy * ddy);
+var hx = dist > 0.001 ? c2.x - (ddx / dist) * HANDLE_INSET : c2.x - HANDLE_INSET;
+var hy = dist > 0.001 ? c2.y - (ddy / dist) * HANDLE_INSET : c2.y - HANDLE_INSET;
+rotationHandlePoint = new Drawing.Point(toInt(roundInt(hx)), toInt(roundInt(hy)));
+return;
+}
+lastRegionAngle = cacheKey;
+lastRegionZoom = zoomFactor;
+lastRotationHandleVisible = rotationHandleVisible;
+var c = sceneCenter(form);
+var srcW = Number(rotationSourceBitmap.Width);
+var srcH = Number(rotationSourceBitmap.Height);
+var z = zoomFactor;
+var radians = currentRotationAngle * Math.PI / 180;
+var cosR = Math.cos(radians);
+var sinR = Math.sin(radians);
+var halfW = srcW / 2, halfH = srcH / 2;
+
+function zp(x, y) {
+var dx = x - halfW, dy = y - halfH;
+var xr = dx * cosR - dy * sinR + c.cx;
+var yr = dx * sinR + dy * cosR + c.cy;
+return { x: c.cx + (xr - c.cx) * z, y: c.cy + (yr - c.cy) * z };
+}
+var q0 = zp(-2, -2);
+var q1 = zp(srcW + 2, -2);
+var q2 = zp(srcW + 2, srcH + 2);
+var q3 = zp(-2, srcH + 2);
+var dx = q2.x - c.cx;
+var dy = q2.y - c.cy;
+var dist = Math.sqrt(dx * dx + dy * dy);
+var hx, hy;
+if (dist > 0.001) {
+hx = q2.x - (dx / dist) * HANDLE_INSET;
+hy = q2.y - (dy / dist) * HANDLE_INSET;
+} else {
+hx = q2.x - HANDLE_INSET;
+hy = q2.y - HANDLE_INSET;
+}
+rotationHandlePoint = new Drawing.Point(toInt(roundInt(hx)), toInt(roundInt(hy)));
+var path = new Drawing.Drawing2D.GraphicsPath();
+try {
+path.FillMode = Drawing.Drawing2D.FillMode.Winding;
+path.StartFigure();
+path.AddLine(toInt(roundInt(q0.x)), toInt(roundInt(q0.y)), toInt(roundInt(q1.x)), toInt(roundInt(q1.y)));
+path.AddLine(toInt(roundInt(q1.x)), toInt(roundInt(q1.y)), toInt(roundInt(q2.x)), toInt(roundInt(q2.y)));
+path.AddLine(toInt(roundInt(q2.x)), toInt(roundInt(q2.y)), toInt(roundInt(q3.x)), toInt(roundInt(q3.y)));
+path.AddLine(toInt(roundInt(q3.x)), toInt(roundInt(q3.y)), toInt(roundInt(q0.x)), toInt(roundInt(q0.y)));
+path.CloseFigure();
+if (rotationHandleVisible || isRotating) {
+var rr = ROTATION_HANDLE_RADIUS + 2;
+path.AddEllipse(new Drawing.Rectangle(
+toInt(roundInt(hx - rr)), toInt(roundInt(hy - rr)),
+toInt(rr * 2), toInt(rr * 2)));
+}
+var oldRegion = form.Region;
+form.Region = new Drawing.Region(path);
+if (oldRegion) { try { oldRegion.Dispose(); } catch(e) {} }
+} finally { path.Dispose(); }
+form.Refresh();
+}
+
+function isNearRotationHandle(x, y) {
+if (!rotationHandlePoint) return false;
+var dx = Number(x) - Number(rotationHandlePoint.X);
+var dy = Number(y) - Number(rotationHandlePoint.Y);
+return Math.sqrt(dx * dx + dy * dy) <= ROTATION_HANDLE_HIT_RADIUS;
+}
+
+function ensureCachedDrawingObjects() {
+if (!_cachedHandleOutlinePen) {
+_cachedHandleOutlinePen = new Drawing.Pen(Drawing.Color.Black, 2);
+_cachedHandleArrowPen = new Drawing.Pen(Drawing.Color.White, 2);
+_cachedHandleNormalBrush = new Drawing.SolidBrush(Drawing.Color.FromArgb(255, 90, 90, 90));
+_cachedHandleActiveBrush = new Drawing.SolidBrush(Drawing.Color.FromArgb(255, 0, 120, 215));
+}
+}
+
+function drawRotationHandle(g, isActive) {
+if (!rotationHandlePoint) return;
+ensureCachedDrawingObjects();
+var hx = Number(rotationHandlePoint.X);
+var hy = Number(rotationHandlePoint.Y);
+var r = ROTATION_HANDLE_RADIUS;
+try {
+g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+g.DrawEllipse(_cachedHandleOutlinePen, new Drawing.Rectangle(toInt(hx - r - 1), toInt(hy - r - 1), toInt((r + 1) * 2), toInt((r + 1) * 2)));
+g.FillEllipse(isActive ? _cachedHandleActiveBrush : _cachedHandleNormalBrush, new Drawing.Rectangle(toInt(hx - r), toInt(hy - r), toInt(r * 2), toInt(r * 2)));
+var innerR = r - 4;
+if (innerR > 2) {
+var innerRect = new Drawing.Rectangle(toInt(hx - innerR), toInt(hy - innerR), toInt(innerR * 2), toInt(innerR * 2));
+g.DrawArc(_cachedHandleArrowPen, innerRect, 45, 270);
+var endAngle = 315;
+var endRad = endAngle * Math.PI / 180;
+var px = hx + innerR * Math.cos(endRad);
+var py = hy + innerR * Math.sin(endRad);
+var len = innerR * 0.8;
+var a1 = (endAngle + 150) * Math.PI / 180;
+var a2 = (endAngle - 150) * Math.PI / 180;
+g.DrawLine(_cachedHandleArrowPen, toInt(px), toInt(py), toInt(px + len * Math.cos(a1)), toInt(py + len * Math.sin(a1)));
+g.DrawLine(_cachedHandleArrowPen, toInt(px), toInt(py), toInt(px + len * Math.cos(a2)), toInt(py + len * Math.sin(a2)));
+}
+} catch (e) {}
+}
+
+function ShowImage(img, pt) {
+if (img == null) return;
+ensureCachedDrawingObjects();
+if (!_cachedImageAttr) {
+_cachedImageAttr = new Drawing.Imaging.ImageAttributes();
+_cachedImageAttr.SetWrapMode(Drawing.Drawing2D.WrapMode.TileFlipXY, Drawing.Color.Transparent);
+}
+var Keys = Forms.Keys;
+var MouseButtons = Forms.MouseButtons;
+var Point = Drawing.Point;
+var Size = Drawing.Size;
+var srcW = img.Width;
+var srcH = img.Height;
+var padded = new Drawing.Bitmap(srcW, srcH, Drawing.Imaging.PixelFormat.Format32bppPArgb);
+var gPad = Drawing.Graphics.FromImage(padded);
+try {
+gPad.Clear(Drawing.Color.Transparent);
+gPad.DrawImage(img, 0, 0);
+} finally { gPad.Dispose(); }
+rotationSourceBitmap = img;
+rotationPaddedBitmap = padded;
+currentRotationAngle = 0;
+zoomFactor = 1.0;
+isRotating = false;
+isDragging = false;
+dragMoved = false;
+lastDragMoved = false;
+lastClickTime = 0;
+lastHandleClickTime = 0;
+lastWheelTime = 0;
+lastMoveTime = 0;
+lastInteractionTime = 0;
+usingFastQuality = false;
+rotationHandlePoint = null;
+rotationHandleVisible = false;
+globalPreviewForm = null;
+var form = new Forms.Form();
+globalPreviewForm = form;
+form.StartPosition = Forms.FormStartPosition.Manual;
+form.FormBorderStyle = Forms.FormBorderStyle.None;
+form.TopMost = true;
+form.ControlBox = false;
+form.ShowInTaskbar = false;
+form.Margin = new Forms.Padding(0);
+form.Padding = new Forms.Padding(0);
+form.MinimumSize = new Size(10, 10);
+form.KeyPreview = true;
+form.BackColor = Drawing.Color.Black;
+try {
+form.GetType().GetProperty("DoubleBuffered",
+host.flags(clr.System.Reflection.BindingFlags.NonPublic, clr.System.Reflection.BindingFlags.Instance))
+.SetValue(form, true);
+} catch(e) {}
+try {
+var setStyleMethod = form.GetType().GetMethod("SetStyle",
+host.flags(clr.System.Reflection.BindingFlags.NonPublic, clr.System.Reflection.BindingFlags.Instance));
+var styleFlags = host.flags(
+Forms.ControlStyles.AllPaintInWmPaint,
+Forms.ControlStyles.UserPaint,
+Forms.ControlStyles.OptimizedDoubleBuffer);
+setStyleMethod.Invoke(form, [styleFlags, true]);
+} catch(e) {}
+previewQualityTimer = new Forms.Timer();
+previewQualityTimer.Interval = 150; // Delay before returning high-quality rendering after zoom/rotation (in ms)
+previewQualityTimer.Tick.connect(function () {
+if (Date.now() - lastInteractionTime > 140) {
+previewQualityTimer.Stop();
+if (usingFastQuality) {
+usingFastQuality = false;
+form.Invalidate(); // one clean HQ redraw
+form.Update();
+}
+}
+});
+currentSide = computeSide();
+form.Size = new Size(currentSide, currentSide);
+var desiredCenterX = pt.X + srcW / 2;
+var desiredCenterY = pt.Y + srcH / 2;
+var screen0 = Forms.Screen.FromPoint(new Drawing.Point(toInt(desiredCenterX), toInt(desiredCenterY)));
+var wa0 = screen0.WorkingArea;
+if (currentSide > wa0.Width || currentSide > wa0.Height) {
+form.Location = new Point(
+toInt(wa0.X + (wa0.Width - currentSide) / 2),
+toInt(wa0.Y + (wa0.Height - currentSide) / 2));
+} else {
+form.Location = new Point(
+toInt(desiredCenterX - currentSide / 2),
+toInt(desiredCenterY - currentSide / 2));
+}
+globalActivePic = new Forms.PictureBox();
+globalActivePic.Visible = false;
+globalActivePic.Size = new Size(1, 1);
+globalActivePic.Location = new Point(0, 0);
+form.Controls.Add(globalActivePic);
+if (!globalContextMenu) {
+globalSaveDialog = new Forms.SaveFileDialog();
+globalSaveDialog.Filter = "png files (*.png)|*.png";
+globalSaveDialog.RestoreDirectory = true;
+globalContextMenu = new Forms.ContextMenuStrip();
+var saveItem = new Forms.ToolStripMenuItem("💾 Save");
+saveItem.Click.connect(function () {
+ensureOutputImage();
+globalSaveDialog.FileName = generateFileName();
+if (globalSaveDialog.ShowDialog() == Forms.DialogResult.OK) {
+if (globalActivePic && globalActivePic.Image) {
+globalActivePic.Image.Save(globalSaveDialog.FileName, Drawing.Imaging.ImageFormat.Png);
+var f = globalActivePic.FindForm();
+if (f && !f.IsDisposed) f.Close();
+}
+}
+});
+globalContextMenu.Items.Add(saveItem);
+if (ENABLE_EDIT) {
+var editItem = new Forms.ToolStripMenuItem("🎨 Edit");
+editItem.Click.connect(function () {
+ensureOutputImage();
+if (globalActivePic && globalActivePic.Image) {
+clip.SetImage(globalActivePic.Image);
+sp.Sleep(500);
+sp.RunProgram(EDIT_PROGRAM_PATH, "", "open", "normal", true, false, false);
+sp.Sleep(EDIT_DELAY);
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]);
+}
+});
+globalContextMenu.Items.Add(editItem);
+}
+var ocrItem = new Forms.ToolStripMenuItem("🔍 OCR (Recognize text)");
+ocrItem.Click.connect(function () {
+ensureOutputImage();
+if (globalActivePic && globalActivePic.Image) {
+performOcr(globalActivePic.Image);
+}
+});
+globalContextMenu.Items.Add(ocrItem);
+}
+applyGeometry();
+var form_paint = form.Paint.connect(function (sender, e) {
+var g = e.Graphics;
+g.Clear(Drawing.Color.Black);
+if (!rotationPaddedBitmap) return;
+var paintPadW = rotationPaddedBitmap.Width;
+var paintPadH = rotationPaddedBitmap.Height;
+var c = sceneCenter(form);
+var z = zoomFactor;
+g.CompositingMode = Drawing.Drawing2D.CompositingMode.SourceOver;
+// is the rotation angle right (0, 90, 180)
+var normAngle = Math.abs(currentRotationAngle % 360);
+if (normAngle > 180) normAngle = 360 - normAngle;
+var isOrthogonal = (normAngle < 0.5 || Math.abs(normAngle - 90) < 0.5 || Math.abs(normAngle - 180) < 0.5);
+if (usingFastQuality) {
+g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.Bilinear;
+g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.None;
+g.CompositingQuality = Drawing.Drawing2D.CompositingQuality.HighSpeed;
+g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.None;
+} else {
+g.CompositingQuality = Drawing.Drawing2D.CompositingQuality.HighQuality;
+if (isOrthogonal && Math.abs(z - 1.0) < 0.02) {
+g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.None;
+g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.None;
+} else {
+g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+}
+}
+var matrix = new Drawing.Drawing2D.Matrix();
+matrix.Translate(toFloat(c.cx), toFloat(c.cy));
+matrix.Scale(toFloat(z), toFloat(z));
+matrix.Rotate(toFloat(currentRotationAngle));
+matrix.Translate(toFloat(-paintPadW / 2), toFloat(-paintPadH / 2));
+g.Transform = matrix;
+matrix.Dispose();
+g.DrawImage(rotationPaddedBitmap,
+new Drawing.Rectangle(0, 0, toInt(paintPadW), toInt(paintPadH)),
+0, 0, toInt(paintPadW), toInt(paintPadH),
+Drawing.GraphicsUnit.Pixel, _cachedImageAttr);
+if (!_cachedBorderPen) {
+_cachedBorderPen = new Drawing.Pen(Drawing.Color.FromArgb(255, 128, 128, 128), toFloat(1.0 / z));
+_lastZoomForPen = z;
+} else if (Math.abs(z - _lastZoomForPen) > 0.05) {
+_lastZoomForPen = z;
+_cachedBorderPen.Width = toFloat(1.0 / z);
+}
+g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.None;
+g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.None;
+// We draw the frame strictly outside the picture (indentation -1, size +2)
+g.DrawRectangle(_cachedBorderPen, toFloat(-1), toFloat(-1), toFloat(paintPadW + 2), toFloat(paintPadH + 2));
+// We reset the matrix ONLY AFTER drawing the frame.
+g.ResetTransform();
+// Returning the smoothing for the rotation knob
+g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+if (rotationHandleVisible || isRotating) {
+drawRotationHandle(g, isRotating);
+}
+});
+var form_shown = form.Shown.connect(function (sender, args) {
+    form.TopMost = true;
+    form.Activate();
+    if (sp.IsKeyToggled(vk.CAPITAL)) sp.SendVKey(vk.CAPITAL); // Turning off Caps Lock if enabled
+    
+    // Cursor jumps to the center if the setting is enabled
+    if (AUTO_MOVE_CURSOR_TO_CENTER) {
+        var centerX = toInt(Number(form.Left) + Number(form.Width) / 2);
+        var centerY = toInt(Number(form.Top) + Number(form.Height) / 2);
+        sp.MouseMove(new Point(centerX, centerY));
+    }
+    applyGeometry();
+});
+var form_doubleClick = form.DoubleClick.connect(function (sender, args) { form.Close(); });
+var form_keyDown = form.KeyDown.connect(function (sender, e) {
+if (e.KeyCode == Keys.Escape) {
+form.Close();
+} else if (e.Control && e.KeyCode == Keys.C) {
+ensureOutputImage();
+if (globalActivePic && globalActivePic.Image) clip.SetImage(globalActivePic.Image);
+}
+});
+var form_mouseDown = form.MouseDown.connect(function (sender, e) {
+if (e.Button == MouseButtons.Left) {
+if (isNearRotationHandle(e.X, e.Y)) {
+var nowH = getTickCount();
+var dblTime = Number(Forms.SystemInformation.DoubleClickTime);
+if (lastHandleClickTime > 0 && (nowH - lastHandleClickTime) <= dblTime) {
+lastHandleClickTime = 0;
+currentRotationAngle = 0;
+applyGeometry();
+ensureOutputImage();
+return;
+}
+lastHandleClickTime = nowH;
+var cc = sceneCenter(form);
+var centerClient = new Point(toInt(cc.cx), toInt(cc.cy));
+var centerScreen = form.PointToScreen(centerClient);
+rotationCenterScreenX = centerScreen.X;
+rotationCenterScreenY = centerScreen.Y;
+var mouseScreen = form.PointToScreen(new Point(e.X, e.Y));
+rotationLastMouseAngle = Math.atan2(
+mouseScreen.Y - rotationCenterScreenY,
+mouseScreen.X - rotationCenterScreenX
+) * 180 / Math.PI;
+isRotating = true;
+isSnapped = false;
+rotationHandleVisible = true;
+form.Capture = true;
+applyGeometry();
+} else {
+var now = getTickCount();
+var doubleClickTime = Number(Forms.SystemInformation.DoubleClickTime);
+if (!lastDragMoved && lastClickTime > 0 && (now - lastClickTime) <= doubleClickTime) {
+lastClickTime = 0;
+lastDragMoved = false;
+form.Close();
+return;
+}
+lastClickTime = now;
+lastDragMoved = false;
+dragMoved = false;
+dragStartLeft = Number(form.Left);
+dragStartTop = Number(form.Top);
+var mouseScreen2 = form.PointToScreen(new Point(e.X, e.Y));
+dragOffsetX = Number(mouseScreen2.X) - Number(form.Left);
+dragOffsetY = Number(mouseScreen2.Y) - Number(form.Top);
+isDragging = true;
+form.Capture = true;
+}
+}
+});
+var form_mouseMove = form.MouseMove.connect(function (sender, e) {
+if (isRotating) {
+var now = Date.now();
+if (now - lastMoveTime < 11) return;
+lastMoveTime = now;
+if (!form.Capture) form.Capture = true;
+var mouseScreen = form.PointToScreen(new Point(e.X, e.Y));
+var currentMouseAngle = Math.atan2(
+Number(mouseScreen.Y) - rotationCenterScreenY,
+Number(mouseScreen.X) - rotationCenterScreenX
+) * 180 / Math.PI;
+var delta = currentMouseAngle - rotationLastMouseAngle;
+if (delta > 180) delta -= 360;
+if (delta < -180) delta += 360;
+var newAngle = currentRotationAngle + delta;
+// MAGNETIC STICKING with "stop for a moment"
+var snapped = snapTo90(newAngle);
+if (snapped !== newAngle) {
+if (!isSnapped) {
+// We've just entered the zone, and we're stuck at 90°
+isSnapped = true;
+currentRotationAngle = snapped;
+} else {
+var accumulated = currentMouseAngle - rotationLastMouseAngle;
+if (accumulated > 180) accumulated -= 360;
+if (accumulated < -180) accumulated += 360;
+if (Math.abs(accumulated) > SNAP_RELEASE_THRESHOLD) {
+isSnapped = false;
+currentRotationAngle = newAngle;
+rotationLastMouseAngle = currentMouseAngle;
+}
+}
+} else {
+// Outside the sticking area — free rotation
+isSnapped = false;
+currentRotationAngle = newAngle;
+rotationLastMouseAngle = currentMouseAngle;
+}
+markInteraction();
+applyGeometry();
+return;
+}
+if (isDragging) {
+var mouseScreenDrag = form.PointToScreen(new Point(e.X, e.Y));
+var newLeftNum = mouseScreenDrag.X - dragOffsetX;
+var newTopNum = mouseScreenDrag.Y - dragOffsetY;
+if (!dragMoved) {
+if (Math.abs(newLeftNum - dragStartLeft) > 3 || Math.abs(newTopNum - dragStartTop) > 3) {
+dragMoved = true;
+}
+}
+form.Location = new Point(toInt(newLeftNum), toInt(newTopNum));
+return;
+}
+var nearHandle = isNearRotationHandle(e.X, e.Y);
+if (nearHandle != rotationHandleVisible) {
+rotationHandleVisible = nearHandle;
+applyGeometry();
+}
+form.Cursor = nearHandle ? Forms.Cursors.Hand : Forms.Cursors.Default;
+});
+var form_mouseUp = form.MouseUp.connect(function (sender, e) {
+if (e.Button == MouseButtons.Left) {
+if (isRotating) {
+isRotating = false;
+isSnapped = false;
+form.Capture = false;
+ensureOutputImage();
+markInteraction();
+applyGeometry();
+}
+if (isDragging) {
+isDragging = false;
+form.Capture = false;
+lastDragMoved = dragMoved;
+}
+}
+if (e.Button == MouseButtons.Right) {
+ensureOutputImage();
+globalContextMenu.Show(form, new Point(e.X, e.Y));
+}
+});
+var form_mouseWheel = form.MouseWheel.connect(function (sender, e) {
+if (!rotationSourceBitmap) return;
+var now = Date.now();
+if (now - lastWheelTime < 16) return; // 60fps max
+lastWheelTime = now;
+var oldZoom = zoomFactor;
+if (e.Delta > 0) {
+var newZoom = Math.min(ZOOM_MAX, zoomFactor * 1.1);
+var srcW = Number(rotationSourceBitmap.Width);
+var srcH = Number(rotationSourceBitmap.Height);
+var diag = Math.sqrt(srcW * srcW + srcH * srcH);
+var maxZoom = (maxAllowedSide() - 60) / diag;
+if (maxZoom > ZOOM_MIN && isFinite(maxZoom)) newZoom = Math.min(newZoom, maxZoom);
+zoomFactor = newZoom;
+} else {
+zoomFactor = Math.max(ZOOM_MIN, zoomFactor / 1.1);
+}
+if (zoomFactor !== oldZoom) {
+markInteraction();
+resizeFormForZoom();
+applyGeometry();
+try {
+var mousePos = sp.GetCurrentMousePoint();
+var formRect = new Drawing.Rectangle(
+Number(form.Left), Number(form.Top),
+Number(form.Width), Number(form.Height));
+if (!formRect.Contains(mousePos)) {
+var mcx = toInt(Number(form.Left) + Number(form.Width) / 2);
+var mcy = toInt(Number(form.Top) + Number(form.Height) / 2);
+sp.MouseMove(new Point(mcx, mcy));
+}
+} catch(ex) {}
+}
+});
+var form_mouseLeave = form.MouseLeave.connect(function () {
+if (!isRotating && rotationHandleVisible) {
+rotationHandleVisible = false;
+applyGeometry();
+}
+});
+form.FormClosed.connect(function () {
+if (previewQualityTimer) {
+try { previewQualityTimer.Stop(); previewQualityTimer.Dispose(); } catch(e) {}
+previewQualityTimer = null;
+}
+if (form_paint) form_paint.disconnect();
+if (form_shown) form_shown.disconnect();
+if (form_doubleClick) form_doubleClick.disconnect();
+if (form_keyDown) form_keyDown.disconnect();
+if (form_mouseDown) form_mouseDown.disconnect();
+if (form_mouseMove) form_mouseMove.disconnect();
+if (form_mouseUp) form_mouseUp.disconnect();
+if (form_mouseWheel) form_mouseWheel.disconnect();
+if (form_mouseLeave) form_mouseLeave.disconnect();
+globalPreviewForm = null;
+rotationHandlePoint = null;
+rotationHandleVisible = false;
+if (rotationPaddedBitmap) {
+try { rotationPaddedBitmap.Dispose(); } catch(e) {}
+rotationPaddedBitmap = null;
+}
+if (rotationSourceBitmap) {
+try { rotationSourceBitmap.Dispose(); } catch(e) {}
+rotationSourceBitmap = null;
+}
+if (globalActivePic && globalActivePic.Image) {
+try { globalActivePic.Image.Dispose(); } catch(e) {}
+}
+if (globalActivePic) {
+try { globalActivePic.Dispose(); } catch(e) {}
+globalActivePic = null;
+}
+if (_cachedBorderPen) {
+try { _cachedBorderPen.Dispose(); } catch(e) {}
+_cachedBorderPen = null;
+}
+_lastZoomForPen = -1;
+if (_cachedImageAttr) {
+try { _cachedImageAttr.Dispose(); } catch(e) {}
+_cachedImageAttr = null;
+}
+if (form.Region) {
+try { form.Region.Dispose(); } catch(e) {}
+}
+if (form) {
+try { form.Dispose(); } catch(e) {}
+}
+});
+Forms.Application.Run(form);
+}
+simpleScreenshotMode();
