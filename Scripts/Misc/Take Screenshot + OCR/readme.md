@@ -39,3 +39,6 @@ langButtonsDirty = true;
 
 or for instructions on how to install/remove languages, see https://learn.microsoft.com/en-us/windows/powertoys/text-extractor
 
+>OCR - Excel  
+LMB on word: Edit | Hold LMB: Pan image | LMB on line: Drag | RMB: Add line | Double RMB: Delete | Scroll: Zoom
+
