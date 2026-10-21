@@ -1,0 +1,115 @@
+// --- Global toggles  ---
+var showMessages_2         = false;   // true — show text, false — do not show
+var enableLongGesture_2    = false;   // true — handle long gesture, false — always short
+var longGestureThreshold_2 = 200;     // threshold for long gesture (px)
+var longThresholdSq_2      = longGestureThreshold_2 * longGestureThreshold_2; 
+
+var defaultCommand_2 = { 
+  short: { 
+    func: () => { sp.SendVKey(vk.F5); }, 
+    message: "F5" 
+  },
+  long: { 
+    func: () => { /* sp.SendVKey(vk.F3); */ }, 
+    message: "Long Default" 
+  }
+};
+
+var appConfigs_2 = [
+  {
+    /* LosslessCut */
+    patterns: ["losslesscut"],
+    commands: {
+      short: { 
+        func: () => { 
+          sp.SendVKey(vk.VK_L); 
+//          sp.Sleep(15); 
+          sp.SendVKey(vk.VK_L); 
+//          sp.Sleep(15); 
+          sp.SendVKey(vk.VK_L); 
+        }, 
+        message: "" 
+      },
+      long:  { 
+        func: () => {}, 
+        message: "" 
+      }
+    }
+  },
+  {
+    /* potplayermini64 */
+    patterns: ["potplayermini64"],
+    commands: {
+      short: { 
+        func: () => { 
+sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);
+sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);
+        }, 
+        message: "Speed +" 
+      },
+      long:  { 
+        func: () => {}, 
+        message: "" 
+      }
+    }
+  },
+
+];
+
+(function() {
+  var win = sp.ForegroundWindow();
+  if (!win) return;
+
+  var exeRaw;
+  try {
+    exeRaw = win.Process.MainModule.ModuleName;
+  } catch (e) {
+    sp.ConsoleError("Couldn't get MainModule: " + e.message, "SystemWindow", drawing.Color.Red);
+    return; 
+  }
+  
+  if (!exeRaw) return;
+  var exe = exeRaw.toLowerCase();
+
+  var cfg = null;
+  for (var i = 0; i < appConfigs_2.length; i++) {
+    var entry = appConfigs_2[i];
+    for (var j = 0; j < entry.patterns.length; j++) {
+      if (exe.includes(entry.patterns[j])) {
+        cfg = entry;
+        break;
+      }
+    }
+    if (cfg) break;
+  }
+  var isLong = false;
+  if (enableLongGesture_2 && action && action.Start && action.End) {
+    var dx = action.End.X - action.Start.X;
+    var dy = action.End.Y - action.Start.Y;
+    if ((dx * dx + dy * dy) > longThresholdSq_2) {
+      isLong = true;
+    }
+  }
+
+  var commands = cfg ? cfg.commands : defaultCommand_2;
+  var cmd = isLong ? commands.long : commands.short;
+
+  cmd.func();
+  if (showMessages_2 && cmd.message) {
+    var displayInfo = new DisplayTextInfo();
+    displayInfo.MessageAlignment = 'center';
+    displayInfo.Duration         = 800;
+    displayInfo.Opacity          = 0.9;
+    displayInfo.MessageFont      = new Font('Segoe UI Semibold', 16);
+    displayInfo.BackColor        = 'black';
+    displayInfo.ForeColor        = 'white';
+
+    if (action && action.End) {
+      displayInfo.Location = (action.End.X + 20) + "," + (action.End.Y + 20);
+    } else {
+      displayInfo.Location = "100,100";
+    }
+    displayInfo.Message = cmd.message;
+    sp.DisplayText(displayInfo);
+  }
+})();

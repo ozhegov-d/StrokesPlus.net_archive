@@ -1,0 +1,139 @@
+// this particular script is for file/folder properties
+
+// --- Global toggles ---
+var showMessages         = false;   // true — show text, false — do not show
+var enableLongGesture    = false;   // true — handle long gesture, false — always short
+var longGestureThreshold = 200;     // threshold for long gesture (px)
+var longThresholdSq      = longGestureThreshold * longGestureThreshold; 
+
+var appConfigs2 = [
+  {
+    patterns: ["explorer", "everything", "7z", "xnview", "foobar2000", "totalcmd64"],
+    commands: {
+      short: { func: () => sp.SendModifiedVKeys([vk.LMENU], [vk.RETURN]), message: "Alt+Enter" },
+      long:  { func: () => sp.SendVKey(vk.F2), message: "F2" }
+    }
+  },
+  {
+    patterns: ["aimp"],
+    commands: {
+      short: { func: () => sp.SendVKey(vk.F4), message: "F4" },
+      long:  { func: () => {}, message: "" }
+    }
+  },
+  {
+    patterns: ["mpc-hc"],
+    commands: {
+      short: { func: () => sp.SendModifiedVKeys([vk.LSHIFT], [vk.F10]), message: "Shift+F10" },
+      long:  { func: () => {}, message: "" }
+    }
+  },
+  {
+    patterns: ["audition"],
+    commands: {
+      short: { func: () => sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_P]), message: "Ctrl+P" },
+      long:  { func: () => {
+//          sp.SendVKey(vk.LMENU); sp.Sleep(10);
+//          sp.SendVKey(vk.VK_R);  sp.Sleep(10);
+//          sp.SendVKey(vk.VK_E);
+        }, message: "" 
+      }
+    }
+  },
+  {
+    patterns: ["potplayermini64"],
+    commands: {
+      short: { 
+        func: () => { 
+sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);
+sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);sp.SendVKey(vk.NUMPAD1);
+        }, 
+        message: "Speed -" 
+      },
+      long:  { func: () => {}, message: "" 
+      }
+    }
+  },
+  {
+    patterns: ["losslesscut"],
+    commands: {
+      short: { 
+        func: () => { 
+          sp.SendVKey(vk.VK_J); //sp.Sleep(15); 
+          sp.SendVKey(vk.VK_J); //sp.Sleep(15); 
+          sp.SendVKey(vk.VK_J); 
+        }, 
+        message: "Speed -" 
+      },
+      long:  { func: () => {}, message: "" }
+    }
+  },
+  {
+    patterns: ["myhomelib"],
+    commands: {
+      short: { func: () => { sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_I]); sp.SendVKey(vk.LEFT); }, message: "Ctrl+I" },
+      long:  { func: () => {}, message: "" }
+    }
+  }
+];
+
+(function() {
+  var win = sp.ForegroundWindow();
+  if (!win) return;
+
+  var exeRaw;
+  try {
+    exeRaw = win.Process.MainModule.ModuleName;
+  } catch (e) {
+    sp.ConsoleError("Couldn't get MainModule: " + e.message, "SystemWindow", drawing.Color.Red);
+    return; 
+  }
+  
+  if (!exeRaw) return;
+  var exe = exeRaw.toLowerCase();
+
+  var cfg = null;
+  for (var i = 0; i < appConfigs2.length; i++) {
+    var entry = appConfigs2[i];
+    for (var j = 0; j < entry.patterns.length; j++) {
+      if (exe.includes(entry.patterns[j])) {
+        cfg = entry;
+        break;
+      }
+    }
+    if (cfg) break;
+  }
+
+  if (!cfg) return;
+
+  // Checking the length of the gesture
+  var isLong = false;
+  if (enableLongGesture && action && action.Start && action.End) {
+    var dx = action.End.X - action.Start.X;
+    var dy = action.End.Y - action.Start.Y;
+    if ((dx * dx + dy * dy) > longThresholdSq) {
+      isLong = true;
+    }
+  }
+
+  var cmd = isLong ? cfg.commands.long : cfg.commands.short;
+  cmd.func();
+
+  if (showMessages && cmd.message) {
+    var displayInfo = new DisplayTextInfo();
+    displayInfo.MessageAlignment = 'center';
+    displayInfo.Duration         = 800;
+    displayInfo.Opacity          = 0.9;
+    displayInfo.MessageFont      = new Font('Segoe UI Semibold', 16);
+    displayInfo.BackColor        = 'black';
+    displayInfo.ForeColor        = 'white';
+
+    if (action && action.End) {
+      displayInfo.Location = (action.End.X + 20) + "," + (action.End.Y + 20);
+    } else {
+      displayInfo.Location = "100,100";
+    }
+    displayInfo.Message = cmd.message;
+    sp.DisplayText(displayInfo);
+  }
+})();
