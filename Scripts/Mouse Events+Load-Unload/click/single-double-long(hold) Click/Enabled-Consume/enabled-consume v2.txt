@@ -1,0 +1,87 @@
+var ENABLE_SINGLE = true;   // single click
+var ENABLE_DOUBLE = true;   // double click
+var ENABLE_HOLD   = true;   // long (hold) click
+
+var SHORT_MS      = 200;     // threshold for a "short" click
+var DOUBLE_GAP_MS = 200;     // interval between clicks for a double click
+var HOLD_MS       = 500;     // hold duration for the hold action (ms)
+
+var HOLD_REPEAT_ENABLED = false;  // Spam the button on hold
+var HOLD_REPEAT_MS      = 50;    // Spam interval (ms)
+var LOG = false; 
+
+function SingleAction() { sp.SendVKey(vk.F5); }
+function DoubleAction() { sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_W]); }
+function HoldAction()   { sp.SendVKey(vk.DOWN); }
+// ==========================================
+
+function log(m) { if (LOG) sp.ConsoleLog(m, "ClickModes"); }
+
+// DOWN
+if (click.Down) {
+    sp.StoreBool("cm_pressing", true);
+    sp.StoreNumber("cm_down_ts", Date.now());
+
+    sp.DeleteTimer("CM_HoldTimer");
+    sp.DeleteTimer("CM_SingleTimer");
+
+    if (ENABLE_HOLD) {
+        var interval = HOLD_REPEAT_ENABLED ? HOLD_REPEAT_MS : -1; 
+        var timerScript = `
+            try {
+                if (sp.GetStoredBool("cm_pressing")) {
+                    HoldAction();
+                }
+            } catch(e) {
+                sp.ConsoleError("HoldTimer Error: " + e.message, "ClickModes");
+            }
+        `;
+        sp.CreateTimer("CM_HoldTimer", HOLD_MS, interval, timerScript);
+    }
+} 
+// UP
+else {
+    sp.StoreBool("cm_pressing", false);
+    sp.DeleteTimer("CM_HoldTimer"); 
+
+    var dt = Date.now() - (sp.GetStoredNumber("cm_down_ts") || 0);
+    log("UP dt=" + dt);
+
+    if (dt >= HOLD_MS && ENABLE_HOLD) {
+        log("-> Hold detected (ignored single/double)");
+    }
+    // Single / Double
+    else if (dt <= SHORT_MS) {
+        var lastShort = sp.GetStoredNumber("cm_last_short") || 0;
+        var nowU = Date.now();
+        var cnt = (nowU - lastShort <= DOUBLE_GAP_MS) ? (sp.GetStoredNumber("cm_click_cnt") || 0) + 1 : 1;
+
+        sp.StoreNumber("cm_last_short", nowU);
+        sp.StoreNumber("cm_click_cnt", cnt);
+
+        if (cnt === 1) {
+            sp.DeleteTimer("CM_SingleTimer");
+            var singleScript = `
+                try {
+                    if ((sp.GetStoredNumber("cm_click_cnt") || 0) === 1 && ${ENABLE_SINGLE}) {
+                        SingleAction();
+                    }
+                } catch(e) {
+                    sp.ConsoleError("SingleTimer Error: " + e.message, "ClickModes");
+                } finally {
+                    sp.DeleteTimer("CM_SingleTimer");
+                    sp.StoreNumber("cm_click_cnt", 0);
+                }
+            `;
+            sp.CreateTimer("CM_SingleTimer", DOUBLE_GAP_MS, -1, singleScript);
+        }
+        else if (cnt === 2 && ENABLE_DOUBLE) {
+            sp.DeleteTimer("CM_SingleTimer");
+            sp.StoreNumber("cm_click_cnt", 0);
+            DoubleAction(); 
+            log("-> Double");
+        }
+    }
+    sp.DeleteStoredNumber("cm_down_ts");
+    sp.DeleteStoredBool("cm_pressing");
+}
