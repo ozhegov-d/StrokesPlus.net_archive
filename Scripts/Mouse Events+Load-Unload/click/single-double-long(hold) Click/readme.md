@@ -8,7 +8,10 @@ var ENABLE_HOLD   = true;  &nbsp; &nbsp;&nbsp;&nbsp; // long (hold) click
 
 > var SHORT_MS      = 200; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;    // threshold for a "short" click  
 var DOUBLE_GAP_MS = 200;     // interval between clicks for a double click  
-var HOLD_MS       = 600;   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  // hold duration for the hold action (ms)  
+var HOLD_MS       = 500;   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  // hold duration for the hold action (ms)  
+
+> var HOLD_REPEAT_ENABLED = false;  // Spam the button on hold  
+var HOLD_REPEAT_MS      = 50; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  // Spam interval (ms)  
 
 > function SingleAction() { sp.SendVKey(vk.F5); }                          // single  
 function DoubleAction() { sp.SendModifiedVKeys([vk.LCONTROL],[vk.VK_W]); } // double  
