@@ -64,7 +64,7 @@ sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendVKey(vk.NUMPAD3);sp.SendV
   try {
     exeRaw = win.Process.MainModule.ModuleName;
   } catch (e) {
-    sp.ConsoleError("Couldn't get MainModule: " + e.message, "SystemWindow", drawing.Color.Red);
+    sp.ConsoleError("Couldn't get MainModule: " + e.message, "SystemWindow", System.Drawing.Color.Red);
     return; 
   }
   
