@@ -5,7 +5,8 @@ var p = sp.GetCurrentMousePoint();
 sp.MouseMove(new Point(0, 0));
 
 // Select the entire text
-sp.SendModifiedVKeys([vk.LSHIFT], [vk.HOME]);
+//sp.SendModifiedVKeys([vk.LSHIFT], [vk.HOME]);
+sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_A]);
 //sp.Sleep(10);
 
 // Ctrl+C
