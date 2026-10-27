@@ -3,6 +3,9 @@
 
 + changing the volume on the taskbar
 + ctrl+scroll
+
+https://github.com/user-attachments/assets/1de877bd-2135-4732-b89c-3da7713a8f41
+  
 > WHY USE NATIVE keybd_event INSTEAD OF sp.SendVKey() FOR MEDIA KEYS?
 > 
 > StrokesPlus.net uses the InputSimulator library for sp.SendVKey().  
