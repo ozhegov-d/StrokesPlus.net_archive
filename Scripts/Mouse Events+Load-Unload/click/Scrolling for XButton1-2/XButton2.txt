@@ -1,0 +1,213 @@
+var ENABLE_VOLUME_CONTROL = true;        // Enable volume control when scrolling over the taskbar edges
+var VOLUME_ZONE_THICKNESS_PX = 200;      // Thickness (in pixels) of the screen edge zone where volume control activates
+var VOLUME_ZONE = { from: 0, to: 100 };  // Percentage range on the taskbar where volume control works (0-100%)
+
+var DEFAULT_TOTAL_DELTA = 40;  // Default scroll delta for apps not in APP_SCROLL_CONFIG
+var DEFAULT_STEPS = 1;         // Number of steps to divide the scroll into
+var DEFAULT_INTERVAL = 16;     // Timer interval in milliseconds (how often to send scroll events)
+var FAST_FACTOR = 3;           // Multiplier for scroll speed when acceleration button is held
+
+var ACCEL_BUTTON_NAME = "Left"; // Mouse button name used for scroll acceleration (Left, Right, Middle)
+
+var APP_SCROLL_CONFIG = [
+    { names: ["chrome","firefox","msedge","opera","brave"], totalDelta: 48, steps: 1, interval: 16 },   
+//    { names: ["chrome","firefox","msedge","opera","brave"], totalDelta: 30, steps: 1, interval: 16 }, // Ultra-smooth (very slow, precise control)
+//    { names: ["chrome","firefox","msedge","opera","brave"], totalDelta: 60, steps: 1, interval: 16 }, // Smooth & fast (good balance)
+//    { names: ["chrome","firefox","msedge","opera","brave"], totalDelta: 120, steps: 4, interval: 16 }, // Micro-steps (smooth with standard speed)
+//    { names: ["chrome","firefox","msedge","opera","brave"], totalDelta: 120, steps: 8, interval: 16 }, // Ultra-smooth (buttery like touchpad)
+
+    { names: ["notepad"], totalDelta: 60, steps: 1, interval: 16 },
+    { names: ["telegram"], totalDelta: 80, steps: 1, interval: 16 },
+    { names: ["steam"], totalDelta: 54, steps: 1, interval: 16 },
+    { names: ["strokesplus.net"], totalDelta: 120, steps: 1, interval: 16 },
+    { names: ["cursor"], totalDelta: 80, steps: 1, interval: 16 },
+    { names: ["obsidian"], totalDelta: 50, steps: 1, interval: 16 },
+    { names: ["audition"], totalDelta: 96, steps: 1, interval: 16 },
+    { names: ["videoeditorplus"], totalDelta: 120, steps: 20, interval: 40, ctrl: true },
+
+    // postmsg: true sends WM_MOUSEWHEEL directly to the window handle. 
+    // Fixes scrolling in apps (like WinMerge) that ignore standard simulated mouse events.
+    { names: ["winmergeu","winmerge"], totalDelta: 1200, steps: 10, interval: 16, postmsg: true },
+     
+    // keybd_event: true - sends media keys with EXTENDEDKEY flag to prevent scan code conflicts (0xAE→'C', 0xAF→'B')
+    { names: ["losslesscut"], totalDelta: 3, steps: 1, interval: 16, ctrl: true, keybd_event: true },
+];
+
+var TIMER_NAME = "AutoScrollTimer";
+
+// ========================================================================
+if (!NativeModules.User32Media) {
+    var ByteT = host.typeOf(clr.System.Byte);
+    var Int32T = host.typeOf(clr.System.Int32);
+    var IntPtrT = host.typeOf(clr.System.IntPtr);
+    var tb = sp.NativeModule().DefineType("User32Media", "Class,Public,SequentialLayout,Serializable");
+    tb.DefinePInvokeMethod("keybd_event", "user32.dll", [ByteT, ByteT, Int32T, IntPtrT], null, "PreserveSig");
+    tb.Create();
+}
+
+// Constants for media keys
+var KEYEVENTF_EXTENDEDKEY = 0x0001;
+var KEYEVENTF_KEYUP = 0x0002;
+var VK_VOLUME_DOWN = 0xAE;
+var VK_VOLUME_UP = 0xAF;
+
+try {
+    var direction = (click.Button == MouseButtons.XButton1) ? -1 : 1;
+
+    if (click.Down) {
+        // Resetting the active states
+        if (sp.GetStoredBool("CtrlScrollActive")) { 
+            sp.SendControlUp(); 
+            sp.StoreBool("CtrlScrollActive", false); 
+        }
+        if (sp.GetStoredBool("LongScrollActive")) {
+            sp.StoreBool("LongScrollAbort", true);
+        }
+        
+        var suppressScroll = sp.GetStoredBool("MW_suppressScroll");
+        if (suppressScroll) {
+            sp.StoreBool("MW_suppressScroll", false);
+        } else {
+            var existingTimer = sp.GetTimer(TIMER_NAME);
+            
+            if (!existingTimer) {
+                var fw = sp.ForegroundWindow();
+                var exe = (fw && fw.Process && fw.Process.MainModule) 
+                    ? fw.Process.MainModule.ModuleName.toLowerCase() 
+                    : "unknown";
+                
+                var cfg = APP_SCROLL_CONFIG.find(function(c) { 
+                    return c.names.some(function(n) { return exe.includes(n); }); 
+                }) || {};
+                
+                cfg.totalDelta = cfg.totalDelta !== undefined ? cfg.totalDelta : DEFAULT_TOTAL_DELTA;
+                cfg.steps = cfg.steps !== undefined ? cfg.steps : DEFAULT_STEPS;
+                cfg.interval = cfg.interval !== undefined ? cfg.interval : DEFAULT_INTERVAL;
+                cfg.fastFactor = cfg.fastFactor !== undefined ? cfg.fastFactor : FAST_FACTOR;
+                
+                var stepDelta = Math.floor(cfg.totalDelta / cfg.steps) * direction;
+                
+                sp.StoreNumber("AS_Direction", direction);
+                sp.StoreNumber("AS_StepDelta", stepDelta);
+                sp.StoreNumber("AS_FastFactor", cfg.fastFactor);
+                sp.StoreBool("AS_UsePostMsg", cfg.postmsg === true);
+                sp.StoreBool("AS_UseKeybdEvent", cfg.keybd_event === true);
+                sp.StoreString("AS_AccelBtn", ACCEL_BUTTON_NAME);
+
+                if (cfg.ctrl) {
+                    sp.SendControlDown();
+                    sp.StoreBool("CtrlScrollActive", true);
+                }
+
+                if (cfg.postmsg) {
+                    var pt0 = sp.GetCurrentMousePoint();
+                    var targetWnd = sp.WindowFromPoint(pt0, false);
+                    if (targetWnd) sp.StoreHandle("PostMsgTargetWnd", targetWnd.HWnd);
+                    sp.StoreNumber("PostMsgAccum", 0);
+                }
+                var timerScript = `
+                    try {
+                        var pt = sp.GetCurrentMousePoint();
+                        var isVolume = false;
+                        
+                        var ctrlActive = sp.GetStoredBool("CtrlScrollActive") === true;
+                        var dir = sp.GetStoredNumber("AS_Direction");
+                        var usePostMsg = sp.GetStoredBool("AS_UsePostMsg");
+                        var useKeybdEvent = sp.GetStoredBool("AS_UseKeybdEvent");
+                        
+                        if (${ENABLE_VOLUME_CONTROL}) {
+                            var primaryScreen = clr.System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+                            var sW = primaryScreen.Width, sH = primaryScreen.Height;
+                            
+                            var isEdge = (pt.X < ${VOLUME_ZONE_THICKNESS_PX} || 
+                                          pt.X > sW - ${VOLUME_ZONE_THICKNESS_PX} ||
+                                          pt.Y < ${VOLUME_ZONE_THICKNESS_PX} || 
+                                          pt.Y > sH - ${VOLUME_ZONE_THICKNESS_PX});
+                            
+                            if (isEdge) {
+                                var w = sp.WindowFromPoint(pt, true);
+                                var cls = w ? w.ClassName : "";
+                                
+                                if (cls === "Shell_TrayWnd" || cls === "Shell_SecondaryTrayWnd") {
+                                    var r = w.Rectangle;
+                                    if (r.Width > r.Height) {
+                                        isVolume = (pt.X >= (sW * ${VOLUME_ZONE.from} / 100) && 
+                                                   pt.X <= (sW * ${VOLUME_ZONE.to} / 100));
+                                    } else {
+                                        isVolume = (pt.Y >= (sH * ${VOLUME_ZONE.from} / 100) && 
+                                                   pt.Y <= (sH * ${VOLUME_ZONE.to} / 100));
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isVolume) {
+                            if (ctrlActive) { 
+                                sp.SendControlUp(); 
+                                sp.StoreBool("CtrlScrollActive", false); 
+                            }
+                            var now = Date.now();
+                            var lastVolumeTime = sp.GetStoredNumber("AS_LastVolumeTime") || 0;
+
+                            if (now - lastVolumeTime >= 30) {  // 30ms 
+                                sp.StoreNumber("AS_LastVolumeTime", now);
+    
+                               var key = dir < 0 ? ${VK_VOLUME_DOWN} : ${VK_VOLUME_UP};
+    
+                                if (useKeybdEvent) {
+                                    var ptrZero = new clr.System.IntPtr(0);
+                                    NativeModules.User32Media.keybd_event(key, 0, ${KEYEVENTF_EXTENDEDKEY}, ptrZero);
+                                    NativeModules.User32Media.keybd_event(key, 0, ${KEYEVENTF_EXTENDEDKEY} | ${KEYEVENTF_KEYUP}, ptrZero);
+                                } else {
+                                    sp.SendVKey(dir < 0 ? vk.VOLUME_DOWN : vk.VOLUME_UP);
+                                }
+                            }
+                            
+                        } else {
+                            var accelBtn = sp.GetStoredString("AS_AccelBtn");
+                            var mult = sp.IsButtonDown(MouseButtons[accelBtn]) 
+                                ? sp.GetStoredNumber("AS_FastFactor") 
+                                : 1;
+                            var finalDelta = sp.GetStoredNumber("AS_StepDelta") * mult;
+
+                            if (usePostMsg) {
+                                var wnd = sp.WindowFromHandle(sp.GetStoredHandle("PostMsgTargetWnd"));
+                                if (wnd) {
+                                    var accum = (sp.GetStoredNumber("PostMsgAccum") || 0) + finalDelta;
+                                    var send = Math.trunc(accum / 120) * 120;
+                                    if (send !== 0) {
+                                        wnd.PostMessageObj(0x020A, ((send << 16) | 0) >>> 0, 
+                                                           ((pt.Y << 16) | (pt.X & 0xFFFF)) >>> 0);
+                                    }
+                                    sp.StoreNumber("PostMsgAccum", accum - send);
+                                }
+                            } else {
+                                sp.MouseWheel(pt, false, finalDelta);
+                            }
+                        }
+                    } catch(e) {
+                        sp.ConsoleError("AutoScroll Timer Error: " + e.message, "AutoScroll");
+                    }
+                `;
+
+                sp.CreateTimer(TIMER_NAME, 0, cfg.interval, timerScript);
+            } else {
+                sp.StoreNumber("AS_Direction", direction);
+            }
+        } 
+    } 
+    // UP 
+    else {
+        sp.DeleteTimer(TIMER_NAME);
+        if (sp.GetStoredBool("CtrlScrollActive")) { 
+            sp.SendControlUp(); 
+            sp.StoreBool("CtrlScrollActive", false); 
+        }
+    }
+} catch(e) {
+    sp.ConsoleError("AutoScroll Global Error: " + e.message, "AutoScroll");
+    if (sp.GetStoredBool("CtrlScrollActive")) { 
+        sp.SendControlUp(); 
+        sp.StoreBool("CtrlScrollActive", false); 
+    }
+}
