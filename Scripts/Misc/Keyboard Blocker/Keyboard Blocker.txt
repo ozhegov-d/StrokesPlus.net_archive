@@ -1,0 +1,45 @@
+// Options → Advanced → Enable Keyboard Hook Event Subscription
+
+var kbEventObj = sp.GetStoredObject("kbBlockerEvent");
+var isBound = kbEventObj && kbEventObj.GetType().FullName.includes('EventConnection');
+
+var titleFont = new Font("Segoe UI", 18, drawing.System.Drawing.FontStyle.Bold);
+var msgFont = new Font("Segoe UI", 18);
+
+sp.DisplayTextClose();
+
+if (isBound) {
+    // UNLOCK
+    kbEventObj.disconnect();
+    sp.DeleteStoredObject("kbBlockerEvent");
+    
+    var info = new DisplayTextInfo();
+    info.Message = "✅ Keyboard unlocked";
+    info.Duration = 1500;
+    info.Location = "bottom";
+    info.ForeColor = "lime";
+    info.BackColor = "black";
+    info.Opacity = 0.9;
+    info.MessageFont = msgFont;
+    sp.DisplayText(info);
+} else {
+    // LOCK
+    var newKbEvent = KeyboardHook.OnKeyboardHookEvent.connect(
+        function (sender, e) {
+            try { e.Consume = true; } catch(err) {}
+        }
+    );
+    sp.StoreObject("kbBlockerEvent", newKbEvent);
+    
+    var info = new DisplayTextInfo();
+    info.Title = "🔒 Keyboard locked";
+    info.Message = "Mouse works. Unlock: repeat gesture";
+    info.Duration = 3000;
+    info.Location = "bottom";
+    info.ForeColor = "red";
+    info.BackColor = "black";
+    info.Opacity = 0.9;
+    info.TitleFont = titleFont;
+    info.MessageFont = msgFont;
+    sp.DisplayText(info);
+}
