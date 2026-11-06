@@ -12,7 +12,7 @@ var enableDiagonal = false;    // Allow diagonal
 
 var baseTimerInterval = 10;    // Timer interval in ms
 var showIndicator = true;      // Show visual indicator (arrow and dots)
-var showDistance = truee;       // Show distance in pixels (true = "→ ●●● 150px", false = "→ ●●●")
+var showDistance = true;       // Show distance in pixels (true = "→ ●●● 150px", false = "→ ●●●")
 
 var perpThreshold = 80;        // Base reset: perpendicular movement in px (higher = more stable base, lower = resets base faster)
 var holdThreshold = 400;       // Hold threshold: key is held down continuously from this distance
