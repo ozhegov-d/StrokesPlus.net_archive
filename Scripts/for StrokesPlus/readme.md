@@ -1,7 +1,7 @@
 #### Command line arguments:
 
-`StrokesPlus.net.exe safemode` (or hold Ctrl when opening S+.net).  
-Use this to fix configuration issues that cause StrokesPlus.net to crash on startup, preventing you from correcting the problem.  
+`StrokesPlus.net.exe safemode` (or hold Ctrl while starting).  
+Starts without hooks, hotkeys and Load scripts. Use it when a broken script or timer crashes S+ on startup or prevents the settings window from opening.  
 
 `StrokesPlus.net.exe allowmultipleinstances settingsfile="C:\Temp\Profile2.json"`  
 Two independent profiles: the second instance gets its own settings file.  
