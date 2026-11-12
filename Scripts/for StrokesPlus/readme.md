@@ -3,8 +3,10 @@
 `StrokesPlus.net.exe safemode` (or hold Ctrl when opening S+.net).  
 Use this to fix configuration issues that cause StrokesPlus.net to crash on startup, preventing you from correcting the problem.  
 
-`StrokesPlus.net.exe allowmultipleinstances`  
-Allows running multiple instances of S+.net. This is an unsupported mode, and use of this feature is at your own risk.  
+`StrokesPlus.net.exe allowmultipleinstances settingsfile="C:\Temp\Profile2.json"`  
+Two independent profiles: the second instance gets its own settings file.  
+The file must already exist - copy your StrokesPlus.net.json.  
+Use .json; .bin is the legacy binary format.  
 
 ---
 #### Activate / do not activate the window under the gesture (for certain scripts)    
