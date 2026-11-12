@@ -1,0 +1,319 @@
+﻿(function () {
+var Forms = forms.System.Windows.Forms;
+var Drawing = drawing.System.Drawing;
+var SENT = "__UC_COPY_SENTINEL__";
+var savedClip = "";
+var sentinelOk = false;
+
+function getClipText() {
+    try { return clip.ContainsText() ? clip.GetText() : ""; } catch (e) { return ""; }
+}
+function setClipText(text) {
+    for (var i = 0; i < 3; i++) {
+        try { clip.SetText(text || ""); return true; } catch (e) {}
+        sp.Sleep(20);
+    }
+    return false;
+}
+function ucLF(s) {
+    return String(s || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+function ucCRLF(s) {
+    return ucLF(s).replace(/\n/g, "\r\n");
+}
+
+var isClickScript = false;
+try {
+    isClickScript = (typeof click !== "undefined" && click && typeof click.Down !== "undefined");
+} catch (e) { isClickScript = false; }
+if (isClickScript) {
+    if (click.Down) return;
+}
+
+savedClip = getClipText();
+sentinelOk = setClipText(SENT);
+try {
+    sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_C]);
+} catch (e) {}
+sp.Sleep(60);
+
+// -------------------------------------------------------------------- transforms
+var ALPHA_ACCENT = [
+    "äáàâåǎ", "ḃƀɓ", "çćčȼ", "ďđḑ", "ëéêěę", "ƒḟ","ğǧģ", "ħĥḩ", "ïíîǐ", "ĵǰ", "ķƙ", "łľĺ","ṁɱ", "ñńň", "öóôøǒ", "ṗþ", "ɋǫ", "řŕ","šśş", "ťŧ", "üúûǔ", "ṿʋ", "ŵẅ", "ẋẍ","ÿýŷ", "žźż"
+];
+var ALPHA_HEAVY = [
+    "Ⱥⱥä", "Ɓƀɓ", "Ȼȼç", "Đđď", "Ɇɇë", "Ƒƒḟ","Ǥǥğ", "Ħħḩ", "Ɨɨï", "Ɉɉĵ", "Ꝁꝁķ", "Łłľ","Ɱɱṁ", "Ŋŋñ", "Øøö", "Ᵽᵽṗ", "Ꝗꝗɋ", "Ɍɍř","Ꞩꞩš", "Ŧŧť", "Ʉʉü", "Ʋʋṿ", "Ŵŵẅ", "Ẋẋẍ","Ɏɏÿ", "Ƶƶž"
+];
+var CYR_MARKS = ["\u0301", "\u0300", "\u0308", "\u0306", "\u030C"];
+var SMALL = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢ".split("");
+var LEET = [
+    "4", "8", "(", "|)", "3", "ƒ", "6", "#", "1", "j", "k", "1", "//","n", "0", "p", "q", "r", "5", "7", "u", "v", "w", "x", "y", "2"
+];
+var MARKS = ["\u0336", "\u0337", "\u0301", "\u0308", "\u0327"];
+var CYR_LEET = {
+    "а": "4", "б": "6", "в": "b", "г": "r", "д": "d", "е": "e", "ё": "e","ж": "}|{", "з": "3", "и": "u", "й": "u", "к": "k", "л": "/\\","м": "m", "н": "h", "о": "0", "п": "n", "р": "p", "с": "c",
+    "т": "t", "у": "y", "ф": "f", "х": "x", "ц": "u", "ч": "4","ш": "w", "щ": "w", "ъ": "b", "ы": "bl", "ь": "b", "э": "e","ю": "io", "я": "r"
+};
+var CYR_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo","ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m","н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch","ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya"
+};
+var SCRIPT_U = { 66: 0x212C, 69: 0x2130, 70: 0x2131, 72: 0x210B, 73: 0x2110, 76: 0x2112, 77: 0x2133, 82: 0x211B };
+var SCRIPT_L = { 101: 0x212F, 103: 0x210A, 111: 0x2134 };
+var FRAK_U = { 67: 0x212D, 72: 0x210C, 73: 0x2111, 82: 0x211C, 90: 0x2128 };
+var DS_U = { 67: 0x2102, 72: 0x210D, 78: 0x2115, 80: 0x2119, 81: 0x211A, 82: 0x211D, 90: 0x2124 };
+var SUPER = {
+    "A": "ᴬ", "B": "ᴮ", "C": "ᶜ", "D": "ᴰ", "E": "ᴱ", "F": "ᶠ", "G": "ᴳ", "H": "ᴴ","I": "ᴵ", "J": "ᴶ", "K": "ᴷ", "L": "ᴸ", "M": "ᴹ", "N": "ᴺ", "O": "ᴼ", "P": "ᴾ",
+    "R": "ᴿ", "T": "ᵀ", "U": "ᵁ", "V": "ⱽ", "W": "ᵂ","a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ", "h": "ʰ",
+    "i": "ⁱ", "j": "ʲ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "n": "ⁿ", "o": "ᵒ", "p": "ᵖ","r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ", "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ",
+    "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"
+};
+var SUB = {
+    "a": "ₐ", "e": "ₑ", "h": "ₕ", "i": "ᵢ", "j": "ⱼ", "k": "ₖ", "l": "ₗ", "m": "ₘ","n": "ₙ", "o": "ₒ", "p": "ₚ", "r": "ᵣ", "s": "ₛ", "t": "ₜ", "u": "ᵤ", "v": "ᵥ", "x": "ₓ","0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉"
+};
+
+function cp(n) {
+    if (n <= 0xFFFF) return String.fromCharCode(n);
+    n -= 0x10000;
+    return String.fromCharCode(0xD800 + (n >> 10), 0xDC00 + (n & 0x3FF));
+}
+
+function mapMath(style, ch) {
+    var c = ch.charCodeAt(0);
+    var upper = c >= 65 && c <= 90;
+    var lower = c >= 97 && c <= 122;
+    var digit = c >= 48 && c <= 57;
+
+    if (style === 9) {
+        if (upper) return cp(0x1D400 + c - 65);
+        if (lower) return cp(0x1D41A + c - 97);
+        if (digit) return cp(0x1D7CE + c - 48);
+    } else if (style === 10) {
+        if (upper) return cp(0x1D434 + c - 65);
+        if (lower) return c === 104 ? cp(0x210E) : cp(0x1D44E + c - 97);
+    } else if (style === 11) {
+        if (upper) return cp(0x1D468 + c - 65);
+        if (lower) return cp(0x1D482 + c - 97);
+    } else if (style === 12) {
+        if (upper) return cp(SCRIPT_U[c] || (0x1D49C + c - 65));
+        if (lower) return cp(SCRIPT_L[c] || (0x1D4B6 + c - 97));
+    } else if (style === 13) {
+        if (upper) return cp(0x1D4D0 + c - 65);
+        if (lower) return cp(0x1D4EA + c - 97);
+    } else if (style === 14) {
+        if (upper) return cp(FRAK_U[c] || (0x1D504 + c - 65));
+        if (lower) return cp(0x1D51E + c - 97);
+    } else if (style === 15) {
+        if (upper) return cp(DS_U[c] || (0x1D538 + c - 65));
+        if (lower) return cp(0x1D552 + c - 97);
+        if (digit) return cp(0x1D7D8 + c - 48);
+    } else if (style === 16) {
+        return SUPER[ch] || ch;
+    } else {
+        return SUB[ch] || ch;
+    }
+    return ch;
+}
+
+function cyrAccent(ch, style) {
+    var code = ch.charCodeAt(0);
+    var mi = code % CYR_MARKS.length;
+    var r = ch + CYR_MARKS[mi];
+    if (style === 2) r += CYR_MARKS[(mi + 2) % CYR_MARKS.length];
+    return r;
+}
+
+var TOTAL = 17;
+function mapBase(style, ch, ci) {
+    var lower = ch.toLowerCase(), code = lower.charCodeAt(0), n = code - 97 + 1;
+    var latin = n >= 1 && n <= 26 && lower.length === 1;
+    var cyr = lower.length === 1 && code >= 0x0400 && code <= 0x04FF;
+    var upper = ch !== lower, r = ch, v, idx, tr;
+    if (style === 1) { if (latin) { v = ALPHA_ACCENT[n - 1]; r = v.charAt(0); if (upper) r = r.toUpperCase(); } else if (cyr) r = cyrAccent(ch, 1); }
+    else if (style === 2) { if (latin) { v = ALPHA_HEAVY[n - 1]; r = v.charAt(0); if (upper) r = r.toUpperCase(); } else if (cyr) r = cyrAccent(ch, 2); }
+    else if (style === 3) { if (latin) r = SMALL[n - 1]; }
+    else if (style === 4) { var c4 = ch.charCodeAt(0); if (c4 >= 33 && c4 <= 126) r = String.fromCharCode(c4 + 65248); else if (ch === " ") r = "\u3000"; }
+    else if (style === 5) { if (ch !== " " && ch !== "\n" && ch !== "\r") r = ch + "\u0336"; }
+    else if (style === 6) { if (latin) r = LEET[n - 1]; else if (cyr && CYR_LEET[lower]) { r = CYR_LEET[lower]; if (upper) r = r.toUpperCase(); } }
+    else if (style === 7) { if (latin) { v = ALPHA_ACCENT[n - 1]; idx = (17 + (ci + 1) * 13 + n * 7) % v.length; r = v.charAt(idx); if (upper) r = r.toUpperCase(); } else if (cyr) { tr = CYR_TRANSLIT[lower]; if (tr !== undefined) { r = tr; if (upper && r) r = r.charAt(0).toUpperCase() + r.slice(1); } } }
+    else if (style === 8) { if (ch !== " " && ch !== "\n" && ch !== "\r") r = ch + MARKS[(1 + (ci + 1) * 3 + ch.charCodeAt(0)) % MARKS.length]; }
+    return r;
+}
+function transformOne(str, style) {
+    var out = "", chars = (typeof Array.from === "function") ? Array.from(str) : str.split("");
+    for (var ci = 0; ci < chars.length; ci++) out += style > 8 ? mapMath(style, chars[ci]) : mapBase(style, chars[ci], ci);
+    return out;
+}
+function transformAll(str, count) {
+    count = count || TOTAL; var out = [];
+    for (var s = 1; s <= count; s++) out.push(transformOne(str, s));
+    return out;
+}
+// -------------------------------------------------------------------- form
+
+var names = [
+    "Accented", "Heavy Unicode", "Small Caps", "Fullwidth",
+    "Strikethrough", "Leetspeak", "Translit / Random", "Cursed / Zalgo",
+    "Bold", "Italic", "Bold Italic", "Script", "Bold Script",
+    "Fraktur / Gothic", "Double-struck", "Superscript", "Subscript"
+];
+var chosen = false, result = "", fullText = "", styleCount = TOTAL;
+
+var fonts = [];
+function ucFont(name, size, style) {
+    var ft = new Drawing.Font(name, host.toSingle(size), style || Drawing.FontStyle.Regular);
+    fonts.push(ft); return ft;
+}
+var fontUI = ucFont("Segoe UI", 10);
+var fontBold = ucFont("Segoe UI", 9, Drawing.FontStyle.Bold);
+var fontPreview = ucFont("Segoe UI Symbol", 11);
+
+var f = new Forms.Form();
+f.Text = "Unicode Text Styles";
+f.AutoScaleMode = Forms.AutoScaleMode.None;
+f.FormBorderStyle = Forms.FormBorderStyle.FixedDialog;
+f.ShowInTaskbar = false;
+f.TopMost = true;
+f.StartPosition = Forms.FormStartPosition.Manual;
+f.ClientSize = new Drawing.Size(600, 200);
+f.BackColor = Drawing.Color.FromArgb(250, 250, 252);
+f.Font = fontUI;
+
+try {
+    var fw = sp.WindowFromHandle(f.Handle);
+    fw.ExtendedStyle = host.flags(WindowExStyleFlags.NOACTIVATE, fw.ExtendedStyle);
+} catch (e) {}
+
+var mouse = sp.GetCurrentMousePoint();
+var wa = Screen.FromPoint(mouse).WorkingArea;
+var fx = Math.min(Math.max(mouse.X + 18, wa.Left), Math.max(wa.Left, wa.Right - 620));
+var fy = Math.min(Math.max(mouse.Y + 18, wa.Top), Math.max(wa.Top, wa.Bottom - 240));
+f.Location = new Drawing.Point(fx, fy);
+
+var header = new Forms.Label();
+header.Location = new Drawing.Point(15, 12);
+header.Size = new Drawing.Size(570, 22);
+header.Text = "Original (read-only)";
+header.ForeColor = Drawing.Color.FromArgb(32, 38, 56);
+f.Controls.Add(header);
+
+var ed = new Forms.TextBox();
+ed.Location = new Drawing.Point(15, 37);
+ed.Size = new Drawing.Size(570, 29);
+ed.Font = fontUI;
+ed.Multiline = true;
+ed.WordWrap = false;
+ed.ScrollBars = Forms.ScrollBars.None;
+ed.Text = "";
+f.Controls.Add(ed);
+
+var labs = [], prev = [];
+
+function refresh() {
+    var outs = transformAll(fullText.substring(0, 40), styleCount);
+    for (var i = 1; i <= outs.length; i++) prev[i - 1].Text = outs[i - 1].replace(/\n/g, " ");
+}
+function choose(i) {
+    if (i < 1 || i > TOTAL || !f.Visible) return;
+    result = transformOne(fullText, i) || ""; chosen = true; f.Close();
+}
+
+for (var i = 1; i <= TOTAL; i++) {
+    var col = (i - 1) % 3;
+    var row = Math.floor((i - 1) / 3);
+    var x = 15 + col * 190;
+    var y = 76 + row * 58;
+
+    var lab = new Forms.Label();
+    lab.Location = new Drawing.Point(x, y); lab.Size = new Drawing.Size(180, 18);
+    lab.Text = i + ". " + names[i - 1];
+    lab.Font = fontBold;
+    lab.ForeColor = Drawing.Color.FromArgb(103, 113, 137);
+    lab.Visible = false;
+    f.Controls.Add(lab);
+    labs.push(lab);
+
+    var pv = new Forms.Label();
+    pv.Location = new Drawing.Point(x, y + 19);
+    pv.Size = new Drawing.Size(180, 34);
+    pv.Text = "Preview";
+    pv.AutoSize = false;
+    pv.AutoEllipsis = true;
+    pv.TextAlign = Drawing.ContentAlignment.MiddleLeft;
+    pv.Font = fontPreview;
+    pv.ForeColor = Drawing.Color.FromArgb(32, 38, 56);
+    pv.Visible = false;
+    f.Controls.Add(pv);
+    prev.push(pv);
+
+    (function (idx) {
+        lab.Click.connect(function () { choose(idx); });
+        pv.Click.connect(function () { choose(idx); });
+    })(i);
+}
+
+var RU_STYLES = [1, 2, 5, 6, 7, 8]; // Accented, Heavy, Strikethrough, Leet, Translit, Zalgo
+
+function layoutStyles(isRu) {
+    styleCount = isRu ? 8 : TOTAL;
+    var list = isRu ? RU_STYLES.slice() : [];
+    if (!isRu) for (var k = 1; k <= TOTAL; k++) list.push(k);
+    for (var i = 1; i <= TOTAL; i++) { labs[i - 1].Visible = false; prev[i - 1].Visible = false; }
+    var rows = Math.ceil(list.length / 3);
+    for (var vi = 0; vi < list.length; vi++) {
+        var id = list[vi], x = 15 + (vi % 3) * 190, y = 76 + Math.floor(vi / 3) * 58;
+        var lab = labs[id - 1], pv = prev[id - 1];
+        lab.Text = (vi + 1) + ". " + names[id - 1];
+        lab.Location = new Drawing.Point(x, y); lab.Size = new Drawing.Size(180, 18); lab.Visible = true;
+        pv.Location = new Drawing.Point(x, y + 19); pv.Size = new Drawing.Size(180, 34); pv.Visible = true;
+    }
+    f.ClientSize = new Drawing.Size(600, 76 + rows * 58 + 13);
+    try {
+        var w = Screen.FromPoint(sp.GetCurrentMousePoint()).WorkingArea;
+        var ny = Math.min(Math.max(f.Location.Y, w.Top), Math.max(w.Top, w.Bottom - f.Height - 10));
+        if (ny !== f.Location.Y) f.Location = new Drawing.Point(f.Location.X, ny);
+    } catch (e) {}
+}
+
+f.Shown.connect(function () {
+    try {
+        try {
+            var fw = sp.WindowFromHandle(f.Handle);
+            fw.TopMost = true; // raise above other topmost windows without activating
+        } catch (e) {}
+        sp.Sleep(50);
+        ed.SelectAll();
+        try { ed.Paste(); } catch (e) {}
+        var txt = ed.Text || "";
+        if (sentinelOk && txt === SENT) {
+            ed.Text = "";
+            txt = "";
+        } else if (!sentinelOk && savedClip && txt === savedClip) {
+            ed.Text = "";
+            txt = "";
+        }
+        fullText = ucLF(txt); ed.Text = fullText.replace(/\n/g, " ");
+        layoutStyles((txt.match(/[\u0400-\u04FF]/g) || []).length >= (txt.match(/[A-Za-z\u00C0-\u024F]/g) || []).length && /[\u0400-\u04FF]/.test(txt));
+        refresh();
+    } catch (e) {}
+});
+
+try {
+    f.ShowDialog();
+} finally {
+    try { f.Dispose(); } catch (e) {}
+    for (var fi = 0; fi < fonts.length; fi++) {
+        try { fonts[fi].Dispose(); } catch (e) {}
+    }
+}
+
+if (chosen && result) {
+    var out = ucCRLF(result);
+    if (setClipText(out)) {
+        sp.Sleep(50);
+        try { sp.SendModifiedVKeys([vk.LCONTROL], [vk.VK_V]); } catch (e) {}
+        sp.Sleep(200);
+    }
+}
+setClipText(savedClip);
+})();
